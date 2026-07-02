@@ -1,0 +1,55 @@
+name: Build Unsigned iOS IPA
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Expo Prebuild (Generate iOS folder)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build Unsigned App with xcodebuild
+        run: |
+          cd ios
+          xcodebuild build \
+            -workspace novelreaderv2.xcworkspace \
+            -scheme novelreaderv2 \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            SYMROOT=$PWD/build
+
+      - name: Package into IPA
+        run: |
+          mkdir -p Payload
+          mv ios/build/Release-iphoneos/*.app Payload/
+          zip -r novel-reader.ipa Payload
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: novel-reader-ios-ipa
+          path: novel-reader.ipa
