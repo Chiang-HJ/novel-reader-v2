@@ -31,9 +31,12 @@ jobs:
       - name: Build Unsigned App with xcodebuild
         run: |
           cd ios
+          WORKSPACE=$(ls -1 | grep '\.xcworkspace$' | head -n 1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          echo "Building Workspace: $WORKSPACE, Scheme: $SCHEME"
           xcodebuild build \
-            -workspace novelreaderv2.xcworkspace \
-            -scheme novelreaderv2 \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
