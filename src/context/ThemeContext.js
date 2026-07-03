@@ -3,8 +3,75 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ThemeContext = createContext();
 
+export const THEMES = {
+    minimalist: {
+        id: 'minimalist',
+        name: '原生極簡風',
+        isDark: false,
+        colors: {
+            background: '#f2f2f7',
+            surface: '#ffffff',
+            text: '#1c1c1e',
+            textSecondary: '#8e8e93',
+            border: '#e5e5ea',
+            primary: '#007aff',
+            highlight: '#ffd60a',
+            danger: '#ff3b30',
+            overlay: 'rgba(0,0,0,0.4)',
+        }
+    },
+    soft: {
+        id: 'soft',
+        name: '柔和護眼風',
+        isDark: false,
+        colors: {
+            background: '#fcf9f2',
+            surface: '#f3ead8',
+            text: '#4a3f35',
+            textSecondary: '#8a7d72',
+            border: '#e6d9c6',
+            primary: '#8b6b61',
+            highlight: '#e3c598',
+            danger: '#d9534f',
+            overlay: 'rgba(74, 63, 53, 0.4)',
+        }
+    },
+    cyberpunk: {
+        id: 'cyberpunk',
+        name: '科技暗黑風',
+        isDark: true,
+        colors: {
+            background: '#0d1117',
+            surface: '#161b22',
+            text: '#c9d1d9',
+            textSecondary: '#8b949e',
+            border: '#30363d',
+            primary: '#58a6ff',
+            highlight: '#3b3b3b',
+            danger: '#f85149',
+            overlay: 'rgba(0,0,0,0.7)',
+        }
+    },
+    softDark: {
+        id: 'softDark',
+        name: '高級柔和深色',
+        isDark: true,
+        colors: {
+            background: '#1C1E21',
+            surface: '#24272B',
+            text: 'rgba(255, 255, 255, 0.85)',
+            textSecondary: 'rgba(255, 255, 255, 0.5)',
+            border: '#363A40',
+            primary: '#60A5FA',
+            highlight: 'rgba(96, 165, 250, 0.2)',
+            danger: '#F87171',
+            overlay: 'rgba(0,0,0,0.6)',
+        }
+    }
+};
+
 export const ThemeProvider = ({ children }) => {
-    const [isDark, setIsDark] = useState(false);
+    const [currentThemeId, setCurrentThemeId] = useState('softDark'); // Default to new premium theme
 
     useEffect(() => {
         loadTheme();
@@ -12,44 +79,57 @@ export const ThemeProvider = ({ children }) => {
 
     const loadTheme = async () => {
         try {
-            const savedTheme = await AsyncStorage.getItem('@theme_isDark');
-            if (savedTheme !== null) {
-                setIsDark(JSON.parse(savedTheme));
+            // First check the new multi-theme key
+            const savedThemeId = await AsyncStorage.getItem('@app_theme_id');
+            if (savedThemeId && THEMES[savedThemeId]) {
+                setCurrentThemeId(savedThemeId);
+                return;
+            }
+            
+            // Fallback for older version
+            const legacyDark = await AsyncStorage.getItem('@theme_isDark');
+            if (legacyDark !== null) {
+                setCurrentThemeId(JSON.parse(legacyDark) ? 'softDark' : 'minimalist');
             }
         } catch (e) {
             console.warn('Failed to load theme:', e);
         }
     };
 
-    const toggleTheme = async () => {
+    const changeTheme = async (themeId) => {
         try {
-            const newTheme = !isDark;
-            setIsDark(newTheme);
-            await AsyncStorage.setItem('@theme_isDark', JSON.stringify(newTheme));
+            if (THEMES[themeId]) {
+                setCurrentThemeId(themeId);
+                await AsyncStorage.setItem('@app_theme_id', themeId);
+            }
         } catch (e) {
             console.warn('Failed to save theme:', e);
         }
     };
 
-    // Define colors for both themes
-    const theme = {
-        isDark,
-        toggleTheme,
-        colors: {
-            background: isDark ? '#121212' : '#f5f5f5',
-            surface: isDark ? '#1e1e1e' : '#ffffff',
-            text: isDark ? '#e0e0e0' : '#333333',
-            textSecondary: isDark ? '#a0a0a0' : '#666666',
-            border: isDark ? '#333333' : '#eeeeee',
-            primary: '#10b981',
-            highlight: isDark ? '#4a4a4a' : '#ffe066',
-            danger: '#ff4444',
-            overlay: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)'
+    // Keep toggleTheme for backwards compatibility during transition, mapping to minimal <-> cyberpunk
+    const toggleTheme = () => {
+        if (currentThemeId === 'cyberpunk') {
+            changeTheme('minimalist');
+        } else {
+            changeTheme('cyberpunk');
         }
     };
 
+    const activeTheme = THEMES[currentThemeId];
+
+    const contextValue = {
+        themeId: activeTheme.id,
+        isDark: activeTheme.isDark,
+        colors: activeTheme.colors,
+        changeTheme,
+        toggleTheme,
+        themeName: activeTheme.name,
+        availableThemes: Object.values(THEMES).map(t => ({ id: t.id, name: t.name }))
+    };
+
     return (
-        <ThemeContext.Provider value={theme}>
+        <ThemeContext.Provider value={contextValue}>
             {children}
         </ThemeContext.Provider>
     );

@@ -1,21 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import { getChapterText, getNovelById, updateReadingProgress, getNovelDir, saveChapterText } from '../utils/storage';
 import { WebView } from 'react-native-webview';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Feather } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
-import { AppState } from 'react-native';
+import { AppState, StatusBar as RNStatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useFocusEffect } from '@react-navigation/native';
+import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ReaderScreen({ route, navigation }) {
     useKeepAwake();
-    const { colors, isDark, toggleTheme } = useTheme();
+    const { colors, isDark, changeTheme, themeId, availableThemes } = useTheme();
     const { novelId, initialChapterIndex = null } = route.params;
     const [novel, setNovel] = useState(null);
     const [chapterIndex, setChapterIndexState] = useState(0);
@@ -28,6 +32,7 @@ export default function ReaderScreen({ route, navigation }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const isPlayingRef = useRef(false);
     const [rate, setRate] = useState(1.0);
+    const [pitch, setPitch] = useState(1.0);
     const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
     const [voices, setVoices] = useState([]);
     const [selectedVoice, setSelectedVoice] = useState(null);
@@ -39,6 +44,8 @@ export default function ReaderScreen({ route, navigation }) {
     const [pageInfo, setPageInfo] = useState(null);
     const shouldStartAtLastPageRef = useRef(false);
     
+    const [isAudioOnlyMode, setIsAudioOnlyMode] = useState(false);
+    
     const [isContinuousMode, setIsContinuousMode] = useState(false);
     const isContinuousModeRef = useRef(false);
     const isSpeechPausedRef = useRef(false);
@@ -49,6 +56,30 @@ export default function ReaderScreen({ route, navigation }) {
     const playIdRef = useRef(0);
     const silentSoundRef = useRef(null);
     const novelRef = useRef(null);
+    const [videoUri, setVideoUri] = useState(null);
+    const [isFullScreen, setIsFullScreen] = useState(false);
+    const insets = useSafeAreaInsets();
+    const safeTopRef = useRef(0);
+    
+    if (insets.top > safeTopRef.current) {
+        safeTopRef.current = insets.top;
+    }
+    
+    const [currentTime, setCurrentTime] = useState(() => {
+        const now = new Date();
+        return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    });
+
+    useEffect(() => {
+        navigation.setOptions({ headerShown: !isFullScreen });
+        if (isFullScreen) {
+            const timer = setInterval(() => {
+                const now = new Date();
+                setCurrentTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+            }, 10000);
+            return () => clearInterval(timer);
+        }
+    }, [isFullScreen, navigation]);
 
     const setChapterIndex = (idx) => {
         setChapterIndexState(idx);
@@ -67,11 +98,27 @@ export default function ReaderScreen({ route, navigation }) {
         }
     };
 
+    useFocusEffect(
+        useCallback(() => {
+            return () => {
+                // When leaving the screen, stop audio
+                if (isPlayingRef.current) {
+                    Speech.stop();
+                    isSpeechPausedRef.current = false;
+                    setPlayingState(false);
+                }
+            };
+        }, [])
+    );
+
     useEffect(() => {
         const loadSettings = async () => {
             try {
                 const savedRate = await AsyncStorage.getItem('novel_reader_rate');
                 if (savedRate) setRate(parseFloat(savedRate));
+                
+                const savedPitch = await AsyncStorage.getItem('novel_reader_pitch');
+                if (savedPitch) setPitch(parseFloat(savedPitch));
                 
                 const savedPagingMode = await AsyncStorage.getItem('novel_reader_isPagingMode');
                 if (savedPagingMode !== null) {
@@ -86,6 +133,9 @@ export default function ReaderScreen({ route, navigation }) {
                     pagingDirectionRef.current = savedPagingDir;
                 }
                 
+                const savedAudioOnly = await AsyncStorage.getItem('novel_reader_audioOnly');
+                if (savedAudioOnly === 'true') setIsAudioOnlyMode(true);
+                
                 const savedContinuous = await AsyncStorage.getItem('novel_reader_isContinuousMode');
                 if (savedContinuous !== null) {
                     const mode = savedContinuous === 'true';
@@ -93,7 +143,7 @@ export default function ReaderScreen({ route, navigation }) {
                     isContinuousModeRef.current = mode;
                 }
             } catch (e) {
-                console.log('Error loading settings', e);
+                console.warn('Failed to load settings', e);
             }
         };
 
@@ -105,6 +155,30 @@ export default function ReaderScreen({ route, navigation }) {
             Speech.stop();
         };
     }, []);
+
+    const prevChapter = () => {
+        if (chapterIndexRef.current > 0) {
+            playIdRef.current += 1;
+            Speech.stop();
+            isSpeechPausedRef.current = false;
+            loadChapter(novelRef.current || novel, chapterIndexRef.current - 1, 0);
+        } else {
+            Alert.alert('提示', '已經是第一章了');
+        }
+    };
+
+    const nextChapter = () => {
+        const n = novelRef.current || novel;
+        const totalChapters = n ? (n.chapters ? n.chapters.length : (n.chapterCount || 0)) : 0;
+        if (n && chapterIndexRef.current < totalChapters - 1) {
+            playIdRef.current += 1;
+            Speech.stop();
+            isSpeechPausedRef.current = false;
+            loadChapter(n, chapterIndexRef.current + 1, 0);
+        } else {
+            Alert.alert('提示', '已經是最後一章了');
+        }
+    };
 
     useEffect(() => {
         if (initialChapterIndex !== null && initialChapterIndex !== chapterIndexRef.current) {
@@ -341,6 +415,7 @@ export default function ReaderScreen({ route, navigation }) {
                 language: 'zh-TW',
                 voice: selectedVoice,
                 rate: rate,
+                pitch: pitch,
                 onDone: () => {
                     if (isPlayingRef.current && playId === playIdRef.current) {
                         loadChapter(novelRef.current, chapterIndexRef.current + 1, 0);
@@ -359,6 +434,7 @@ export default function ReaderScreen({ route, navigation }) {
                 language: 'zh-TW',
                 voice: selectedVoice,
                 rate: rate,
+                pitch: pitch,
                 onDone: () => {
                     if (isPlayingRef.current && playId === playIdRef.current) {
                         playFromIndex(index + 1, sents, playId);
@@ -378,14 +454,21 @@ export default function ReaderScreen({ route, navigation }) {
         setRate(newRate);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            
-            if (isContinuousModeRef.current) {
-                // In continuous mode on iOS, stop() fails if not paused first
-                await Speech.pause();
-            }
+            if (isContinuousModeRef.current) await Speech.pause();
             Speech.stop();
             isSpeechPausedRef.current = false;
-            
+            const currentPlayId = playIdRef.current;
+            setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
+        }
+    };
+
+    const changePitch = async (newPitch) => {
+        setPitch(newPitch);
+        if (isPlayingRef.current) {
+            playIdRef.current += 1;
+            if (isContinuousModeRef.current) await Speech.pause();
+            Speech.stop();
+            isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
         }
@@ -399,6 +482,16 @@ export default function ReaderScreen({ route, navigation }) {
         loadChapter(n, chapterIndexRef.current + 1, 0);
     };
 
+    const skipPrev = () => {
+        const n = novelRef.current || novel;
+        if (chapterIndexRef.current > 0) {
+            playIdRef.current += 1;
+            Speech.stop();
+            isSpeechPausedRef.current = false;
+            loadChapter(n, chapterIndexRef.current - 1, 0);
+        }
+    };
+
     const pagedHtmlSource = React.useMemo(() => {
         if (!chapterData || sentences.length === 0) return { html: '' };
         return { html: `
@@ -406,7 +499,7 @@ export default function ReaderScreen({ route, navigation }) {
         <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <style>
-          body {
+          html, body {
             margin: 0;
             padding: 0;
             background: ${colors.background};
@@ -416,9 +509,11 @@ export default function ReaderScreen({ route, navigation }) {
             height: 100vh;
             width: 100vw;
             box-sizing: border-box;
-            overflow-y: hidden;
+            overflow-y: hidden !important;
             overflow-x: scroll;
             scroll-snap-type: x mandatory;
+            touch-action: pan-x;
+            overscroll-behavior-y: none;
           }
           .content {
             column-width: 100vw;
@@ -426,13 +521,15 @@ export default function ReaderScreen({ route, navigation }) {
             height: 100vh;
             padding: 0;
             padding-top: 20px;
-            padding-bottom: 80px; /* space for controls */
+            padding-bottom: 80px;
             box-sizing: border-box;
           }
           .content p, .title {
             margin: 0 0 1em 0;
             padding: 0 20px;
             scroll-snap-align: center;
+            break-inside: avoid; /* Prevent sentences from crossing page boundaries */
+            -webkit-column-break-inside: avoid;
           }
           .content p.active {
             background-color: ${colors.highlight || 'rgba(100,149,237,0.3)'};
@@ -451,33 +548,79 @@ export default function ReaderScreen({ route, navigation }) {
             ${sentences.map((p, i) => `<p id="s${i}" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type: 'click', index: ${i}}))">${p}</p>`).join('')}
           </div>
           <script>
-            const pageWidth = window.innerWidth;
+            let pageWidth = window.innerWidth;
             let isScrolling;
-            
+            let anchorIndex = 0;
+
+            function updateAnchor() {
+                const ps = document.querySelectorAll('p');
+                for (let i = 0; i < ps.length; i++) {
+                    const rect = ps[i].getBoundingClientRect();
+                    if (rect.right > 10 && rect.left < window.innerWidth) {
+                        anchorIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            function getScrollPos() {
+                return window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+            }
+
             function reportPage() {
                 const content = document.querySelector('.content');
                 let totalPages = 1;
-                if (content && content.lastElementChild) {
-                    const rect = content.lastElementChild.getBoundingClientRect();
-                    const absoluteRight = rect.right + window.scrollX;
-                    totalPages = Math.max(1, Math.ceil((absoluteRight - 5) / pageWidth));
+                if (content) {
+                    totalPages = Math.max(1, Math.round(content.scrollWidth / pageWidth));
                 }
                 
-                let currentPos = window.scrollX;
+                let currentPos = getScrollPos();
                 let page = Math.round(currentPos / pageWidth) + 1;
                 if (page > totalPages) page = totalPages;
                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', current: page, total: totalPages }));
             }
+            
+            function restoreAnchor() {
+                const el = document.getElementById('s' + anchorIndex);
+                if (el) {
+                    document.body.style.scrollSnapType = 'none';
+                    document.documentElement.style.scrollSnapType = 'none';
+                    
+                    const rect = el.getBoundingClientRect();
+                    const currentPos = getScrollPos();
+                    const absoluteLeft = rect.left + currentPos;
+                    const newPage = Math.floor(Math.max(0, absoluteLeft) / window.innerWidth);
+                    const newLeft = newPage * window.innerWidth;
+                    
+                    window.scrollTo({ left: newLeft, behavior: 'auto' });
+                    document.documentElement.scrollLeft = newLeft;
+                    document.body.scrollLeft = newLeft;
+                    
+                    setTimeout(() => {
+                        document.body.style.scrollSnapType = 'x mandatory';
+                        document.documentElement.style.scrollSnapType = 'x mandatory';
+                        reportPage();
+                    }, 50);
+                }
+            }
 
-            window.addEventListener('scroll', () => {
+            function handleScroll() {
               window.clearTimeout(isScrolling);
               isScrolling = setTimeout(() => {
-                let currentPos = window.scrollX;
-                let page = Math.round(currentPos / pageWidth);
-                window.scrollTo({ left: page * pageWidth, behavior: 'auto' });
+                updateAnchor();
                 reportPage();
-              }, 100);
+              }, 150);
+            }
+            
+            window.addEventListener('scroll', handleScroll, true);
+            document.body.addEventListener('scroll', handleScroll, true);
+            window.addEventListener('resize', () => {
+                pageWidth = window.innerWidth;
+                restoreAnchor();
             });
+
+            // Initialize anchor on load
+            setTimeout(updateAnchor, 100);
 
             function highlightSentence(index) {
                 document.querySelectorAll('p').forEach(p => p.classList.remove('active'));
@@ -491,28 +634,14 @@ export default function ReaderScreen({ route, navigation }) {
             }
             
             document.body.addEventListener('click', function(e) {
-                // If the user clicked on a <p>, let it trigger the sentence selection 
-                // UNLESS we want pure 50/50 pagination. Wait, if we use capture phase 'true', 
-                // we prevent sentence clicks. The user asked for "直接切成各50%".
-                // But we still need sentence selection. So we check if the click target is a <p>.
-                // Actually, if we want to allow sentence selection, we should only prevent default 
-                // if they tap in the empty spaces? But the user wants exactly 50/50 tap zones.
-                // We'll let React Native handle the logic.
                 const x = e.clientX;
                 const y = e.clientY;
                 const w = window.innerWidth;
                 const h = window.innerHeight;
                 
-                // Only send tap event if it's NOT a paragraph click, OR if we force it.
-                // But wait, the previous code caught everything because of 'true' capture phase.
-                // Let's keep it 'true' but we can't select sentences anymore? 
-                // Let's pass the nodeName to RN to decide.
-                const targetNode = e.target.nodeName.toLowerCase();
-                const targetId = e.target.id;
-                
                 e.stopPropagation();
                 window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                    type: 'tap', x, y, w, h, targetNode, targetId 
+                    type: 'tap', x, y, w, h
                 }));
             }, true);
             
@@ -522,6 +651,31 @@ export default function ReaderScreen({ route, navigation }) {
         </html>
         `};
     }, [chapterData, sentences, colors]);
+
+    useEffect(() => {
+        if (pagingWebViewRef.current) {
+            const topPad = isFullScreen ? Math.max(20, safeTopRef.current + 10) : 20;
+            const botPad = isFullScreen ? Math.max(40, insets.bottom + 30) : 80;
+            
+            pagingWebViewRef.current.injectJavaScript(`
+                (function() {
+                    const content = document.querySelector('.content');
+                    if (!content) return;
+                    
+                    if (typeof updateAnchor === 'function') updateAnchor();
+                    
+                    content.style.paddingTop = '${topPad}px';
+                    content.style.paddingBottom = '${botPad}px';
+                    
+                    if (typeof restoreAnchor === 'function') {
+                        // Allow browser to apply padding reflow first
+                        setTimeout(restoreAnchor, 10);
+                    }
+                })();
+                true;
+            `);
+        }
+    }, [isFullScreen, insets.bottom]);
 
     if (errorLog) {
         return (
@@ -585,13 +739,45 @@ export default function ReaderScreen({ route, navigation }) {
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            {isPagingMode ? (
+            {isAudioOnlyMode ? (
+                <View style={[styles.textContainer, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Feather name="headphones" size={80} color="#fff" style={{ opacity: 0.3, marginBottom: 30 }} />
+                    <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', paddingHorizontal: 20 }}>
+                        {novel?.title}
+                    </Text>
+                    <Text style={{ color: '#aaa', fontSize: 18, textAlign: 'center', paddingHorizontal: 20 }}>
+                        {chapterData?.title || `第 ${chapterIndex + 1} 章`}
+                    </Text>
+                    
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 50, gap: 30 }}>
+                        <TouchableOpacity onPress={prevChapter} style={{ padding: 20 }}>
+                            <Feather name="skip-back" size={32} color="#fff" />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            onPress={togglePlay} 
+                            style={{ padding: 30, backgroundColor: colors.primary, borderRadius: 50 }}
+                        >
+                            <Feather name={isPlaying ? "pause" : "play"} size={40} color="#fff" />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity onPress={nextChapter} style={{ padding: 20 }}>
+                            <Feather name="skip-forward" size={32} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
+                    
+                    <Text style={{ color: '#555', marginTop: 50 }}>純語音省電模式</Text>
+                </View>
+            ) : isPagingMode ? (
                 <View style={styles.textContainer}>
                     <WebView 
                         ref={pagingWebViewRef}
                         source={pagedHtmlSource}
                         originWhitelist={['*']}
                         style={{ backgroundColor: 'transparent' }}
+                        bounces={false}
+                        showsVerticalScrollIndicator={false}
+                        overScrollMode="never"
                         onLoadEnd={() => {
                             if (pagingWebViewRef.current) {
                                 if (shouldStartAtLastPageRef.current) {
@@ -614,30 +800,34 @@ export default function ReaderScreen({ route, navigation }) {
                         onMessage={(event) => {
                             const data = JSON.parse(event.nativeEvent.data);
                             if (data.type === 'click') {
-                                // This is triggered by <p> tags, but since we capture clicks, it might not be triggered.
                                 playIdRef.current += 1;
                                 Speech.stop();
                                 isSpeechPausedRef.current = false;
                                 setCurrentSentenceIndex(data.index);
                                 if (isPlayingRef.current) playFromIndex(data.index, sentences, playIdRef.current);
                             } else if (data.type === 'tap') {
-                                // If they clicked a paragraph specifically, we can treat it as a sentence click
-                                // BUT the user specifically asked for exactly 50/50 pagination layout.
-                                // We will treat all taps as pagination.
                                 const { x, y, w, h } = data;
+                                
+                                // Toggle fullscreen if tapped in center area
+                                if (x > w * 0.3 && x < w * 0.7 && y > h * 0.3 && y < h * 0.7) {
+                                    setIsFullScreen(prev => !prev);
+                                    return; // STOP! Don't trigger a page turn!
+                                }
+                                
                                 let direction = 0;
                                 
                                 if (pagingDirectionRef.current === 'horizontal') {
-                                    if (x > w * 0.5) direction = 1; // Right 50%
-                                    else direction = -1; // Left 50%
+                                    if (x > w * 0.5) direction = 1;
+                                    else direction = -1;
                                 } else {
-                                    if (y < h * 0.5) direction = 1; // Top 50% -> Next
-                                    else direction = -1; // Bottom 50% -> Prev
+                                    if (y < h * 0.5) direction = 1;
+                                    else direction = -1;
                                 }
                                 
-                                pagingWebViewRef.current.injectJavaScript(`
-                                    (function() {
-                                        const pageWidth = window.innerWidth;
+                                if (pagingWebViewRef.current) {
+                                    pagingWebViewRef.current.injectJavaScript(`
+                                        (function() {
+                                            const pageWidth = window.innerWidth;
                                         const content = document.querySelector('.content');
                                         if (!content) return;
                                         
@@ -645,27 +835,36 @@ export default function ReaderScreen({ route, navigation }) {
                                             const lastEl = content.lastElementChild;
                                             if (lastEl) {
                                                 const rect = lastEl.getBoundingClientRect();
-                                                // If the right edge of the last element is visible on screen
                                                 if (rect.right <= window.innerWidth + 5) {
                                                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
                                                     return;
                                                 }
                                             }
                                         } else if (${direction} === -1) {
-                                            if (window.scrollX <= 5) {
+                                            const currentPos = window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+                                            if (currentPos <= 5) {
                                                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
                                                 return;
                                             }
                                         }
                                         
-                                        // Normal page turn
-                                        const currentPage = Math.round(window.scrollX / pageWidth);
+                                        const currentPos = window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+                                        const currentPage = Math.round(currentPos / pageWidth);
                                         const newPage = currentPage + ${direction};
-                                        window.scrollTo({ left: newPage * pageWidth, behavior: 'auto' });
-                                        reportPage();
+                                        const newLeft = newPage * pageWidth;
+                                        
+                                        window.scrollTo({ left: newLeft, behavior: 'smooth' });
+                                        
+                                        // Backup assignment if scrollTo fails
+                                        setTimeout(() => {
+                                            document.documentElement.scrollLeft = newLeft;
+                                            document.body.scrollLeft = newLeft;
+                                            reportPage();
+                                        }, 300);
                                     })();
                                     true;
                                 `);
+                                }
                             } else if (data.type === 'page') {
                                 setPageInfo({ current: data.current, total: data.total });
                             } else if (data.type === 'prev_chapter') {
@@ -696,93 +895,135 @@ export default function ReaderScreen({ route, navigation }) {
                 </View>
             ) : (
                 <ScrollView 
-                    style={styles.textContainer}
+                    style={[styles.textContainer, isFullScreen && { paddingTop: Math.max(0, safeTopRef.current - 20) }]}
                     ref={scrollViewRef}
                 >
-                    <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
-                    {sentences.map((sent, i) => (
-                        <Text 
-                            key={i} 
-                            style={[
-                                styles.text,
-                                { color: colors.text },
-                                currentSentenceIndex === i && { backgroundColor: colors.highlight, borderRadius: 4, overflow: 'hidden' }
-                            ]}
-                            onPress={() => {
-                                playIdRef.current += 1;
-                                Speech.stop();
-                                setCurrentSentenceIndex(i);
-                                if (isPlayingRef.current) playFromIndex(i, sentences, playIdRef.current);
-                            }}
-                        >
-                            {sent}
-                        </Text>
-                    ))}
-                    <View style={{height: 100}} />
+                    <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                        <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
+                        {sentences.map((sent, i) => (
+                            <Text 
+                                key={i} 
+                                style={[
+                                    styles.text,
+                                    { color: colors.text },
+                                    currentSentenceIndex === i && { backgroundColor: colors.highlight, borderRadius: 4, overflow: 'hidden' }
+                                ]}
+                                onPress={() => {
+                                    playIdRef.current += 1;
+                                    Speech.stop();
+                                    setCurrentSentenceIndex(i);
+                                    if (isPlayingRef.current) playFromIndex(i, sentences, playIdRef.current);
+                                }}
+                            >
+                                {sent}
+                            </Text>
+                        ))}
+                        <View style={{height: 120}} />
+                    </TouchableOpacity>
                 </ScrollView>
             )}
 
-            <View style={[styles.controls, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-                <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('Toc', { novel })}>
-                    <Feather name="list" color={colors.text} size={24} />
-                    <Text style={[styles.btnText, { color: colors.text }]}>目錄</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.btn} onPress={toggleTheme}>
-                    <Feather name={isDark ? "sun" : "moon"} color={colors.text} size={24} />
-                    <Text style={[styles.btnText, { color: colors.text }]}>{isDark ? "白天" : "黑夜"}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.playBtn, { backgroundColor: colors.primary }]} onPress={togglePlay}>
-                    {isPlayingRef.current ? <Feather name="pause" color="white" size={32} /> : <Feather name="play" color="white" size={32} />}
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.btn} onPress={() => setShowSettingsModal(true)}>
-                    <Feather name="settings" color={colors.text} size={24} />
-                    <Text style={[styles.btnText, { color: colors.text }]}>設定</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.btn} onPress={skipNext}>
-                    <Feather name="skip-forward" color={colors.text} size={24} />
-                    <Text style={[styles.btnText, { color: colors.text }]}>下一章</Text>
-                </TouchableOpacity>
-            </View>
+            <StatusBar style={isDark ? "light" : "dark"} hidden={isFullScreen} />
+
+            {isFullScreen && (
+                <View style={{
+                    position: 'absolute',
+                    bottom: Math.max(insets.bottom, 10),
+                    left: 20,
+                    right: 20,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    pointerEvents: 'none'
+                }}>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, opacity: 0.6, fontWeight: '500' }}>
+                        {currentTime}
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, opacity: 0.6, fontWeight: '500' }}>
+                        第 {chapterIndex + 1} 章 {isPagingMode && pageInfo ? `(${pageInfo.current}/${pageInfo.total})` : `(${sentences.length > 0 ? Math.round((currentSentenceIndex + 1) / sentences.length * 100) : 0}%)`}
+                    </Text>
+                </View>
+            )}
+
+            {!isFullScreen && (
+                <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={[styles.controls, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 20) }]}>
+                    
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 16 }}>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary, width: 36, textAlign: 'center', fontWeight: '600' }}>
+                            {sentences.length > 0 ? Math.round((currentSentenceIndex / (sentences.length - 1 || 1)) * 100) : 0}%
+                        </Text>
+                        <Slider
+                            style={{ flex: 1, height: 30, marginHorizontal: 8 }}
+                            minimumValue={0}
+                            maximumValue={sentences.length > 0 ? sentences.length - 1 : 1}
+                            value={currentSentenceIndex}
+                            minimumTrackTintColor={colors.primary}
+                            maximumTrackTintColor={colors.border}
+                            thumbTintColor={colors.primary}
+                            onSlidingComplete={(val) => {
+                                const idx = Math.floor(val);
+                                setCurrentSentenceIndex(idx);
+                                if (isPlayingRef.current) {
+                                    playIdRef.current += 1;
+                                    Speech.stop();
+                                    setTimeout(() => playFromIndex(idx, sentences, playIdRef.current), 100);
+                                }
+                            }}
+                        />
+                        <Text style={{ fontSize: 11, color: colors.textSecondary, width: 36, textAlign: 'center', fontWeight: '600' }}>
+                            100%
+                        </Text>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 }}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('Toc', { novel })}>
+                            <Feather name="list" color={colors.textSecondary} size={22} />
+                        </TouchableOpacity>
+                        
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 32 }}>
+                            <TouchableOpacity style={styles.iconBtn} onPress={skipPrev}>
+                                <Feather name="skip-back" color={colors.text} size={28} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.playBtn, { backgroundColor: colors.text }]} onPress={togglePlay}>
+                                {isPlayingRef.current ? <Feather name="pause" color={colors.background} size={28} /> : <Feather name="play" color={colors.background} size={28} style={{ marginLeft: 4 }} />}
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.iconBtn} onPress={skipNext}>
+                                <Feather name="skip-forward" color={colors.text} size={28} />
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsModal(true)}>
+                            <Feather name="sliders" color={colors.textSecondary} size={22} />
+                        </TouchableOpacity>
+                    </View>
+                </BlurView>
+            )}
 
             <Modal visible={showSettingsModal} animationType="slide" transparent={true}>
-                <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
-                    <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)' }]}>
                         <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
                             <Text style={[styles.modalTitle, { color: colors.text }]}>閱讀設定</Text>
                             <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
-                                <Feather name="x" size={24} color={colors.text} />
+                                <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
                         
                         <ScrollView style={{ padding: 16, maxHeight: '80%' }}>
-                            {/* Speech Mode */}
-                            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音播放模式</Text>
-                            <View style={styles.optionsRow}>
-                                <TouchableOpacity 
-                                    style={[styles.optionBtn, !isContinuousMode && { backgroundColor: colors.primary }]} 
-                                    onPress={() => { 
-                                        setIsContinuousMode(false); 
-                                        isContinuousModeRef.current = false; 
-                                        AsyncStorage.setItem('novel_reader_isContinuousMode', 'false');
-                                    }}
-                                >
-                                    <Text style={{ color: !isContinuousMode ? 'white' : colors.text }}>逐句亮字模式</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.optionBtn, isContinuousMode && { backgroundColor: colors.primary }]} 
-                                    onPress={() => { 
-                                        setIsContinuousMode(true); 
-                                        isContinuousModeRef.current = true; 
-                                        AsyncStorage.setItem('novel_reader_isContinuousMode', 'true');
-                                        Alert.alert('提示', '連續模式下將暫停逐句亮字，但可保證 iPhone 鎖定螢幕後能穩定播放。');
-                                    }}
-                                >
-                                    <Text style={{ color: isContinuousMode ? 'white' : colors.text }}>背景連續模式</Text>
-                                </TouchableOpacity>
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>主題風格</Text>
+                            <View style={[styles.optionsRow, { flexWrap: 'wrap', gap: 8 }]}>
+                                {availableThemes.map(t => (
+                                    <TouchableOpacity 
+                                        key={t.id}
+                                        style={[styles.optionBtn, themeId === t.id && { backgroundColor: colors.primary }]} 
+                                        onPress={() => changeTheme(t.id)}
+                                    >
+                                        <Text style={{ color: themeId === t.id ? 'white' : colors.text }}>{t.name}</Text>
+                                    </TouchableOpacity>
+                                ))}
                             </View>
 
-                            {/* Reading Mode */}
-                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 10 }]}>閱讀模式</Text>
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>閱讀模式</Text>
                             <View style={styles.optionsRow}>
                                 <TouchableOpacity 
                                     style={[styles.optionBtn, !isPagingMode && { backgroundColor: colors.primary }]} 
@@ -806,8 +1047,29 @@ export default function ReaderScreen({ route, navigation }) {
                                 </TouchableOpacity>
                             </View>
 
-                            {/* Paging Zone Mode (only visible in Paging Mode) */}
-                            {isPagingMode && (
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 10 }]}>顯示模式</Text>
+                            <View style={styles.optionsRow}>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, !isAudioOnlyMode && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setIsAudioOnlyMode(false);
+                                        AsyncStorage.setItem('novel_reader_audioOnly', 'false');
+                                    }}
+                                >
+                                    <Text style={{ color: !isAudioOnlyMode ? 'white' : colors.text }}>正常文字模式</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, isAudioOnlyMode && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setIsAudioOnlyMode(true);
+                                        AsyncStorage.setItem('novel_reader_audioOnly', 'true');
+                                    }}
+                                >
+                                    <Text style={{ color: isAudioOnlyMode ? 'white' : colors.text }}>純語音省電模式</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {isPagingMode && !isAudioOnlyMode && (
                                 <>
                                     <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>翻頁觸控區塊 (直接切各50%)</Text>
                                     <View style={styles.optionsRow}>
@@ -835,7 +1097,6 @@ export default function ReaderScreen({ route, navigation }) {
                                 </>
                             )}
 
-                            {/* TTS Speed */}
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音速度 ({rate.toFixed(2)}x)</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
                                 <Slider
@@ -853,14 +1114,27 @@ export default function ReaderScreen({ route, navigation }) {
                                         AsyncStorage.setItem('novel_reader_rate', val.toString());
                                     }}
                                 />
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 }}>
-                                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>0.5x</Text>
-                                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>1.5x</Text>
-                                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>2.5x</Text>
-                                </View>
                             </View>
 
-                            {/* TTS Voice */}
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音音調 ({pitch.toFixed(2)})</Text>
+                            <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
+                                <Slider
+                                    style={{ width: '100%', height: 40 }}
+                                    minimumValue={0.5}
+                                    maximumValue={2.0}
+                                    step={0.05}
+                                    value={pitch}
+                                    minimumTrackTintColor={colors.primary}
+                                    maximumTrackTintColor={colors.border}
+                                    thumbTintColor={colors.primary}
+                                    onValueChange={(val) => setPitch(val)}
+                                    onSlidingComplete={(val) => {
+                                        changePitch(val);
+                                        AsyncStorage.setItem('novel_reader_pitch', val.toString());
+                                    }}
+                                />
+                            </View>
+
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音音色</Text>
                             {voices.length === 0 ? (
                                 <Text style={{padding: 20, textAlign: 'center', color: colors.text}}>沒有找到中文語音包</Text>
@@ -893,7 +1167,7 @@ export default function ReaderScreen({ route, navigation }) {
                             <View style={{height: 40}} />
                         </ScrollView>
                     </View>
-                </View>
+                </BlurView>
             </Modal>
         </View>
     );
@@ -901,19 +1175,20 @@ export default function ReaderScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    textContainer: { flex: 1, padding: 16 },
-    title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
-    text: { fontSize: 18, lineHeight: 32, marginBottom: 8 },
-    controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', padding: 16, borderTopWidth: 1 },
+    textContainer: { flex: 1, padding: 0 },
+    title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, padding: 16 },
+    text: { fontSize: 18, lineHeight: 32, marginBottom: 8, paddingHorizontal: 16 },
+    controls: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: 1, paddingTop: 16 },
     btn: { alignItems: 'center', width: 48 },
+    iconBtn: { padding: 8 },
     btnText: { fontSize: 12, marginTop: 4 },
-    playBtn: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', elevation: 4 },
+    playBtn: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', elevation: 4, shadowColor: '#000', shadowOffset: {width:0, height:4}, shadowOpacity: 0.2, shadowRadius: 8 },
     webviewContainer: { height: 300, width: '100%', marginBottom: 16, borderRadius: 8, overflow: 'hidden', borderWidth: 1 },
     webviewTip: { textAlign: 'center', padding: 8, fontSize: 12 },
     modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-    modalContent: { borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1 },
-    modalTitle: { fontSize: 18, fontWeight: 'bold' },
+    modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '70%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
+    modalTitle: { fontSize: 20, fontWeight: '700' },
     sectionTitle: { fontSize: 14, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },
     optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
     optionBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: '#ccc' },

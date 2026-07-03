@@ -32,7 +32,7 @@ export default function TocScreen({ route, navigation }) {
                             style={[
                                 styles.item, 
                                 { borderBottomColor: colors.border },
-                                isCurrent && { backgroundColor: isDark ? '#2d3748' : '#e6f7ff' }
+                                isCurrent && { backgroundColor: colors.highlight }
                             ]}
                             onPress={() => {
                                 navigation.navigate('Reader', { novelId: novel.id, initialChapterIndex: index });

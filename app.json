@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "novel-reader-v2",
-    "slug": "novel-reader-v2",
+    "name": "聽小說",
+    "slug": "listen-novel",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,8 +16,10 @@
       "bundleIdentifier": "com.user.novelreaderv2",
       "infoPlist": {
         "UIBackgroundModes": [
+          "audio",
           "audio"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -30,6 +32,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "jsEngine": "jsc"
+    "jsEngine": "jsc",
+    "extra": {
+      "eas": {
+        "projectId": "a5d5c1d8-64eb-4f7e-8ba2-8d17d684f2c1"
+      }
+    }
   }
 }

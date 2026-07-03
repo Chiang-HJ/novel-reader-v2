@@ -1,17 +1,22 @@
 import React from 'react';
+import { View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './src/screens/HomeScreen';
+import FolderScreen from './src/screens/FolderScreen';
+import VaultScreen from './src/screens/VaultScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import TocScreen from './src/screens/TocScreen';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { DownloadProvider } from './src/context/DownloadContext';
+import DownloadWebViewHost from './src/components/DownloadWebViewHost';
+import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Stack = createNativeStackNavigator();
 
 function RootNavigator() {
   const { isDark, colors } = useTheme();
-  
+
   const MyTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),
     colors: {
@@ -27,32 +32,35 @@ function RootNavigator() {
   return (
     <NavigationContainer theme={MyTheme}>
       <Stack.Navigator initialRouteName="Home">
-        <Stack.Screen 
-          name="Home" 
-          component={HomeScreen} 
-          options={{ title: '我的書櫃' }}
-        />
-        <Stack.Screen 
-          name="Reader" 
-          component={ReaderScreen} 
-          options={{ title: '閱讀中' }}
-        />
-        <Stack.Screen 
-          name="Toc" 
-          component={TocScreen} 
-          options={{ title: '目錄' }}
-        />
+        <Stack.Screen name="Home" component={HomeScreen} options={{ title: '我的書架' }} />
+        <Stack.Screen name="Folder" component={FolderScreen} options={({ route }) => ({ title: route.params.folderName || '資料夾' })} />
+        <Stack.Screen name="Vault" component={VaultScreen} options={{ title: '私密金庫' }} />
+        <Stack.Screen name="Reader" component={ReaderScreen} options={{ title: '閱讀中' }} />
+        <Stack.Screen name="Toc" component={TocScreen} options={{ title: '目錄' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
 }
 
+function AppContent() {
+  return (
+    // This View is the single root. Both Navigator and WebViewHost live as siblings inside it.
+    <View style={{ flex: 1 }}>
+      <RootNavigator />
+      {/* WebView for download engine — rendered as sibling to navigator, NOT inside Provider */}
+      <DownloadWebViewHost />
+    </View>
+  );
+}
+
 export default function App() {
   return (
-    <ThemeProvider>
-      <DownloadProvider>
-        <RootNavigator />
-      </DownloadProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <DownloadProvider>
+          <AppContent />
+        </DownloadProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
