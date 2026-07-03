@@ -213,7 +213,7 @@ export default function HomeScreen({ navigation }) {
                         </View>
                         
                         <FlatList 
-                            data={[...folders]}
+                            data={[{ id: 'vault', name: '㊙️ 隱藏金庫 (需解鎖)' }, ...folders]}
                             keyExtractor={item => item.id}
                             style={{ maxHeight: 200 }}
                             renderItem={({ item }) => (
@@ -221,7 +221,7 @@ export default function HomeScreen({ navigation }) {
                                     style={[styles.modalFolderItem, { borderBottomColor: colors.border }]}
                                     onPress={() => handleMoveToFolder(item.id)}
                                 >
-                                    <Feather name={"folder"} size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                                    <Feather name={item.id === 'vault' ? "lock" : "folder"} size={20} color={colors.primary} style={{ marginRight: 12 }} />
                                     <Text style={{ color: colors.text, fontSize: 16 }}>{item.name}</Text>
                                 </TouchableOpacity>
                             )}

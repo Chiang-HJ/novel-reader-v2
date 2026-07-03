@@ -4,6 +4,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './src/screens/HomeScreen';
 import FolderScreen from './src/screens/FolderScreen';
+import VaultScreen from './src/screens/VaultScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import TocScreen from './src/screens/TocScreen';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
@@ -33,6 +34,7 @@ function RootNavigator() {
       <Stack.Navigator initialRouteName="Home">
         <Stack.Screen name="Home" component={HomeScreen} options={{ title: '我的書架' }} />
         <Stack.Screen name="Folder" component={FolderScreen} options={({ route }) => ({ title: route.params.folderName || '資料夾' })} />
+        <Stack.Screen name="Vault" component={VaultScreen} options={{ title: '私密金庫' }} />
         <Stack.Screen name="Reader" component={ReaderScreen} options={{ title: '閱讀中' }} />
         <Stack.Screen name="Toc" component={TocScreen} options={{ title: '目錄' }} />
       </Stack.Navigator>
