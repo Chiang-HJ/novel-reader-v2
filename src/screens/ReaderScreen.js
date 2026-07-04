@@ -16,6 +16,7 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MusicControl, { Command } from 'react-native-music-control';
 
 export default function ReaderScreen({ route, navigation }) {
     useKeepAwake();
@@ -124,6 +125,12 @@ export default function ReaderScreen({ route, navigation }) {
                 silentSoundRef.current.pauseAsync().catch(() => {});
             }
         }
+        // Sync lock screen control state
+        try {
+            MusicControl.updatePlayback({
+                state: state ? MusicControl.STATE_PLAYING : MusicControl.STATE_PAUSED,
+            });
+        } catch (e) {}
     };
 
     useFocusEffect(
@@ -190,8 +197,10 @@ export default function ReaderScreen({ route, navigation }) {
         setupAudio();
         loadNovel();
         loadVoices();
+        setupMusicControl();
         return () => {
             Speech.stop();
+            try { MusicControl.stopSession(); } catch (e) {}
         };
     }, []);
 
@@ -236,6 +245,8 @@ export default function ReaderScreen({ route, navigation }) {
                 title += ` (${pageInfo.current}/${pageInfo.total})`;
             }
             navigation.setOptions({ title });
+            // Update lock screen info
+            updateNowPlaying(novel.title, chapterData.title, isPlayingRef.current);
         }
     }, [novel, chapterData, isPagingMode, pageInfo]);
 
@@ -282,6 +293,53 @@ export default function ReaderScreen({ route, navigation }) {
             console.warn('Audio setup error:', e);
         }
     };
+
+    // ── Lock Screen / Remote Control (react-native-music-control) ──
+    const setupMusicControl = () => {
+        try {
+            MusicControl.enableBackgroundMode(true);
+            MusicControl.enableControl('play', true);
+            MusicControl.enableControl('pause', true);
+            MusicControl.enableControl('stop', false);
+            MusicControl.enableControl('nextTrack', true);
+            MusicControl.enableControl('previousTrack', true);
+            MusicControl.enableControl('changePlaybackPosition', false);
+            MusicControl.enableControl('seek', false);
+
+            MusicControl.on(Command.play, () => {
+                if (!isPlayingRef.current) togglePlay();
+            });
+            MusicControl.on(Command.pause, () => {
+                if (isPlayingRef.current) togglePlay();
+            });
+            MusicControl.on(Command.nextTrack, () => {
+                skipNext();
+            });
+            MusicControl.on(Command.previousTrack, () => {
+                skipPrev();
+            });
+        } catch (e) {
+            console.warn('MusicControl setup error:', e);
+        }
+    };
+
+    const updateNowPlaying = (novelTitle, chapterTitle, playing) => {
+        try {
+            MusicControl.setNowPlaying({
+                title: chapterTitle || '閱讀中',
+                artist: novelTitle || '聽小說',
+                album: novelTitle || '聽小說',
+                duration: 0,
+                color: 0x1C1E21,
+            });
+            MusicControl.updatePlayback({
+                state: playing ? MusicControl.STATE_PLAYING : MusicControl.STATE_PAUSED,
+            });
+        } catch (e) {
+            console.warn('MusicControl nowPlaying error:', e);
+        }
+    };
+
 
     const loadNovel = async () => {
         try {
