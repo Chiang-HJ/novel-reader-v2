@@ -84,8 +84,11 @@ export const ThemeProvider = ({ children }) => {
 
     const loadTheme = async () => {
         try {
-            // First check the new multi-theme key
-            const savedThemeId = await AsyncStorage.getItem('@app_theme_id');
+            // Add a timeout fallback in case AsyncStorage hangs (known iOS issue)
+            const fetchPromise = AsyncStorage.getItem('@app_theme_id');
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 1000));
+            const savedThemeId = await Promise.race([fetchPromise, timeoutPromise]);
+            
             if (!isMounted.current) return;
             if (savedThemeId && THEMES[savedThemeId]) {
                 setCurrentThemeId(savedThemeId);
