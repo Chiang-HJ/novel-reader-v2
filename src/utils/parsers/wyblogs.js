@@ -83,7 +83,7 @@ export const parseInfo = (html, url = '') => {
     const cleanUrl = (url || '').split('?')[0].split('#')[0];
     const urlParts = cleanUrl.split('/').filter(Boolean);
     return {
-        id: urlParts.length > 0 ? urlParts.pop().replace('.html', '') : 'unknown',
+        id: url.replace(/[^a-zA-Z0-9]/g, '_'),
         url: cleanUrl,
         title,
         cover: null,

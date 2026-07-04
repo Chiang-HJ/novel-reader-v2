@@ -87,9 +87,9 @@ export default function DownloadWebViewHost() {
                                 try {
                                     var mode = '${scrapeMode}';
                                     if (mode === 'chapter') {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.documentElement.outerHTML }));
                                     } else {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: document.body.innerHTML, url: window.location.href }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: document.documentElement.outerHTML, url: window.location.href }));
                                     }
                                 } catch(e) {
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));

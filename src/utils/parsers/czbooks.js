@@ -74,12 +74,20 @@ export const parseInfo = (html, url = '') => {
 };
 
 export const parseChapter = (html) => {
-    const contentMatch = html.match(/<div class="content">([\s\S]*?)<\/div>/);
+    const contentMatch = html.match(/<div class="content">([\s\S]*?)<\/div>/i) || 
+                         html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                         html.match(/<div[^>]*class=["']?[^"']*post-content[^"']*["']?[^>]*>([\s\S]*?)<\/div>/i) ||
+                         html.match(/<div[^>]*id=["']?content["']?[^>]*>([\s\S]*?)<\/div>/i);
+    
     if (!contentMatch) return '';
     
     let content = contentMatch[1];
     content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
+    content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
+    content = content.replace(/<ins[\s\S]*?<\/ins>/gi, '');
     content = content.replace(/<br\s*\/?>/gi, '\n');
+    content = content.replace(/<\/p>/gi, '\n');
+    content = content.replace(/<\/div>/gi, '\n');
     content = content.replace(/<[^>]+>/g, '');
     content = content.replace(/&nbsp;/g, ' ');
     content = content.replace(/[\r\n]+/g, '\n');

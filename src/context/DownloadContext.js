@@ -176,12 +176,18 @@ export const DownloadProvider = ({ children }) => {
                     const chapterUrl = novelInfo.chapters[i].url;
 
                     let html;
-                    const cleanChapterUrl = chapterUrl.split('#')[0].split('?')[0];
-                    const cleanScrapeUrl = (task?.url || '').split('#')[0].split('?')[0];
+                    let cleanChapterUrl = chapterUrl.split('#')[0].split('?')[0];
+                    let cleanScrapeUrl = (task?.url || '').split('#')[0].split('?')[0];
+                    
+                    try { cleanChapterUrl = decodeURIComponent(cleanChapterUrl); } catch(e) {}
+                    try { cleanScrapeUrl = decodeURIComponent(cleanScrapeUrl); } catch(e) {}
 
                     if (cleanChapterUrl === cleanScrapeUrl && cachedHtmlRef.current) {
                         html = cachedHtmlRef.current;
                     } else {
+                        // Add a small delay to prevent aggressive rate limiting from czbooks/Cloudflare
+                        await new Promise(r => setTimeout(r, 200));
+
                         html = await new Promise((resolve) => {
                             let timerId;
                             const cleanupAndResolve = (val) => {
@@ -204,11 +210,24 @@ export const DownloadProvider = ({ children }) => {
                                     
                                     // If the chapter is on the same page (single-page novel), just return the HTML
                                     if (currentUrl === targetUrl) {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.documentElement.outerHTML }));
                                         return;
                                     }
 
-                                    fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { redirect: 'follow' })
+                                    fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { 
+                                        credentials: 'include',
+                                        redirect: 'follow',
+                                        headers: {
+                                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                                            'Accept-Language': navigator.language || 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                                            'Cache-Control': 'no-cache',
+                                            'Pragma': 'no-cache',
+                                            'Sec-Fetch-Dest': 'document',
+                                            'Sec-Fetch-Mode': 'navigate',
+                                            'Sec-Fetch-Site': 'same-origin',
+                                            'Upgrade-Insecure-Requests': '1'
+                                        }
+                                    })
                                         .then(function(res) { return res.text(); })
                                         .then(function(text) {
                                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
@@ -250,15 +269,22 @@ export const DownloadProvider = ({ children }) => {
                             continue;
                         }
 
-                        setProgressText(`遇到防護網，請協助驗證 (${i + 1}/${novelInfo.chapters.length})`);
+                        setProgressText(`遇到防護網，嘗試自動繞過 (${i + 1}/${novelInfo.chapters.length})`);
                         scrapeModeRef.current = 'chapter';
                         setScrapeMode('chapter');
                         setScrapeUrl(chapterUrl);
-                        setIsCaptchaBlocked(true);
+                        
+                        // Wait 3 seconds for auto-pass before showing the WebView
+                        let showTimer = setTimeout(() => {
+                            setIsCaptchaBlocked(true);
+                            setProgressText(`遇到防護網，請協助驗證 (${i + 1}/${novelInfo.chapters.length})`);
+                        }, 3000);
 
                         const manualHtml = await new Promise((resolve) => {
                             chapterHtmlResolveRef.current = resolve;
                         });
+
+                        clearTimeout(showTimer);
 
                         if (cancelFlagRef.current.has(task?.url)) {
                             cancelFlagRef.current.delete(task?.url);
@@ -275,10 +301,6 @@ export const DownloadProvider = ({ children }) => {
 
                         text = parseChapterText(manualHtml, chapterUrl);
                         setIsCaptchaBlocked(false);
-                        scrapeModeRef.current = 'info';
-                        setScrapeMode('info');
-                        setScrapeUrl(novelInfo.url);
-                        await new Promise(r => setTimeout(r, 1000));
                     }
 
                     await saveChapterText(novelInfo.id, i, novelInfo.chapters[i].title, text);
