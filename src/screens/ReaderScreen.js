@@ -14,8 +14,6 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
-import { audioPlayer } from '../utils/AudioPlayer';
-import { EdgeVoices } from '../utils/edgeTts';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,8 +45,7 @@ export default function ReaderScreen({ route, navigation }) {
 
     const [voices, setVoices] = useState([]);
     const [selectedVoice, setSelectedVoice] = useState(null);
-    const [ttsEngine, setTtsEngine] = useState('apple');
-    const ttsEngineRef = useRef('apple');
+    
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [isPagingMode, setIsPagingMode] = useState(false);
     const isPagingModeRef = useRef(false);
@@ -134,11 +131,7 @@ export default function ReaderScreen({ route, navigation }) {
             return () => {
                 // When leaving the screen, stop audio
                 if (isPlayingRef.current) {
-                    if (ttsEngineRef.current === 'edge') {
-                        audioPlayer.stop();
-                    } else {
-                        Speech.stop();
-                    }
+                    
                     isSpeechPausedRef.current = false;
                     setPlayingState(false);
                 }
@@ -155,11 +148,7 @@ export default function ReaderScreen({ route, navigation }) {
                 const savedPitch = await AsyncStorage.getItem('novel_reader_pitch');
                 if (savedPitch) setPitch(parseFloat(savedPitch));
                 
-                const savedEngine = await AsyncStorage.getItem('novel_reader_ttsEngine');
-                if (savedEngine) {
-                    setTtsEngine(savedEngine);
-                    ttsEngineRef.current = savedEngine;
-                }
+                
                 
                 const savedPagingMode = await AsyncStorage.getItem('novel_reader_isPagingMode');
                 if (savedPagingMode !== null) {
@@ -255,29 +244,7 @@ export default function ReaderScreen({ route, navigation }) {
 
     const loadVoices = async (engine) => {
         try {
-            if (engine === 'edge') {
-                setVoices(EdgeVoices);
-                setSelectedVoice(EdgeVoices[0].id);
-                return;
-            }
-            const allVoices = await Speech.getAvailableVoicesAsync();
-            if (ttsEngineRef.current !== 'apple') return; // Prevent race condition overriding edge voices
             
-            // Debug: save all voices to a file so we can inspect them
-            try {
-                const debugPath = FileSystem.documentDirectory + 'voices_debug.json';
-                await FileSystem.writeAsStringAsync(debugPath, JSON.stringify(allVoices, null, 2));
-            } catch(e) {}
-
-            // The user only wants Li-mu (Regular, NOT Enhanced)
-            const limuVoices = allVoices.filter(v => v.name.toLowerCase().includes('li-mu') || v.name.includes('李牧'));
-            
-            if (limuVoices.length > 0) {
-                // Prefer Default over Enhanced
-                const regularLimu = limuVoices.find(v => v.quality === 'Default' || v.quality === Speech.VoiceQuality?.Default) || limuVoices[0];
-                setVoices([regularLimu]);
-                setSelectedVoice(regularLimu.identifier);
-            } else {
                 // Fallback to empty if Li-mu is strictly the only one wanted, 
                 // but just in case we provide at least one TW voice as an emergency fallback
                 const twVoices = allVoices.filter(v => v.language === 'zh-TW');
@@ -454,14 +421,7 @@ export default function ReaderScreen({ route, navigation }) {
         isTogglingRef.current = true;
         try {
             if (isPlayingRef.current) {
-                if (ttsEngineRef.current === 'edge') {
-                    await audioPlayer.pause();
-                    isSpeechPausedRef.current = true;
-                } else {
-                    if (isContinuousModeRef.current) {
-                        await Speech.pause();
-                        isSpeechPausedRef.current = true;
-                    } else {
+                 else {
                         playIdRef.current += 1; // Invalidate
                         Speech.stop();
                     }
@@ -471,14 +431,7 @@ export default function ReaderScreen({ route, navigation }) {
                 await setupAudio(); // Re-assert audio mode priority
                 setPlayingState(true);
                 if (isSpeechPausedRef.current) {
-                    if (ttsEngineRef.current === 'edge') {
-                        await audioPlayer.resume();
-                    } else {
-                        if (isContinuousModeRef.current) await Speech.resume();
-                        else {
-                            playIdRef.current += 1;
-                            playFromIndex(currentSentenceIndex, sentences, playIdRef.current);
-                        }
+                    
                     }
                     isSpeechPausedRef.current = false;
                 } else {
@@ -567,58 +520,7 @@ export default function ReaderScreen({ route, navigation }) {
             `);
         }
         
-        if (ttsEngineRef.current === 'edge') {
-            const remainingText = sents.slice(index).join('\n');
-            audioPlayer.play(remainingText, selectedVoice, (chunkIdx, total, text) => {
-                const absoluteIndex = index + chunkIdx;
-                setCurrentSentenceIndex(absoluteIndex);
-                updateReadingProgress(novelId, chapterIndexRef.current, absoluteIndex);
-                
-                if (isPagingModeRef.current && pagingWebViewRef.current && AppState.currentState === 'active') {
-                    pagingWebViewRef.current.injectJavaScript(`
-                        highlightSentence(${absoluteIndex});
-                        true;
-                    `);
-                }
-            }, () => {
-                if (isPlayingRef.current && playId === playIdRef.current) {
-                    loadChapter(novelRef.current, chapterIndexRef.current + 1, 0);
-                }
-            });
-            return;
-        }
-
-        if (isContinuousModeRef.current) {
-            // Join the remaining sentences for a single uninterrupted speech session
-            const remainingText = sents.slice(index).join(' ');
-            Speech.speak(remainingText, {
-                language: 'zh-TW',
-                voice: selectedVoice,
-                rate: rate,
-                pitch: pitch,
-                onDone: () => {
-                    if (isPlayingRef.current && playId === playIdRef.current) {
-                        loadChapter(novelRef.current, chapterIndexRef.current + 1, 0);
-                    }
-                },
-                onStopped: () => {},
-                onError: () => {
-                    if (playId === playIdRef.current) {
-                        setPlayingState(false);
-                    }
-                }
-            });
-        } else {
-            const textToSpeak = sents[index];
-            Speech.speak(textToSpeak, {
-                language: 'zh-TW',
-                voice: selectedVoice,
-                rate: rate,
-                pitch: pitch,
-                onDone: () => {
-                    if (isPlayingRef.current && playId === playIdRef.current) {
-                        playFromIndex(index + 1, sents, playId);
-                    }
+        
                 },
                 onStopped: () => {},
                 onError: () => {
@@ -634,12 +536,7 @@ export default function ReaderScreen({ route, navigation }) {
         setRate(newRate);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            if (ttsEngineRef.current === 'edge') {
-                await audioPlayer.stop();
-            } else {
-                if (isContinuousModeRef.current) await Speech.pause();
-                Speech.stop();
-            }
+            
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
@@ -650,38 +547,17 @@ export default function ReaderScreen({ route, navigation }) {
         setPitch(newPitch);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            if (ttsEngineRef.current === 'edge') {
-                await audioPlayer.stop();
-            } else {
-                if (isContinuousModeRef.current) await Speech.pause();
-                Speech.stop();
-            }
+            
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
         }
     };
 
-    const changeTtsEngine = async (engine) => {
-        setTtsEngine(engine);
-        ttsEngineRef.current = engine;
-        await AsyncStorage.setItem('novel_reader_ttsEngine', engine);
-        if (isPlayingRef.current) {
-            playIdRef.current += 1;
-            if (engine === 'apple') {
-                await audioPlayer.stop();
-            } else {
-                Speech.stop();
-            }
-            isSpeechPausedRef.current = false;
-            const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
-        }
-    };
-
+    
     const skipNext = () => {
         playIdRef.current += 1;
-        if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
+        Speech.stop();
         isSpeechPausedRef.current = false;
         const n = novelRef.current || novel;
         loadChapter(n, chapterIndexRef.current + 1, 0);
@@ -691,7 +567,7 @@ export default function ReaderScreen({ route, navigation }) {
         const n = novelRef.current || novel;
         if (chapterIndexRef.current > 0) {
             playIdRef.current += 1;
-            if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
+            Speech.stop();
             isSpeechPausedRef.current = false;
             loadChapter(n, chapterIndexRef.current - 1, 0);
         }
@@ -1537,7 +1413,7 @@ export default function ReaderScreen({ route, navigation }) {
                                             setSelectedVoice(item.identifier || item.id);
                                             if (isPlayingRef.current) {
                                                 playIdRef.current += 1;
-                                                if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
+                                                Speech.stop();
                                                 const currentPlayId = playIdRef.current;
                                                 setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
                                             }
