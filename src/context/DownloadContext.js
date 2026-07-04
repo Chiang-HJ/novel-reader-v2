@@ -180,8 +180,16 @@ export const DownloadProvider = ({ children }) => {
                         chapterHtmlResolveRef.current = cleanupAndResolve;
                         const code = `
                             (function() {
-                                var currentUrl = document.location.href.split('#')[0].split('?')[0];
-                                var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
+                                try {
+                                    var currentUrl = decodeURIComponent(document.location.href.split('#')[0].split('?')[0]);
+                                } catch(e) {
+                                    var currentUrl = document.location.href.split('#')[0].split('?')[0];
+                                }
+                                try {
+                                    var targetUrl = decodeURIComponent('${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0]);
+                                } catch(e) {
+                                    var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
+                                }
                                 
                                 // If the chapter is on the same page (single-page novel), just return the HTML immediately
                                 if (currentUrl === targetUrl) {
@@ -189,7 +197,7 @@ export const DownloadProvider = ({ children }) => {
                                     return;
                                 }
 
-                                fetch(targetUrl, { redirect: 'follow' })
+                                fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { redirect: 'follow' })
                                     .then(function(res) { return res.text(); })
                                     .then(function(text) {
                                         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
