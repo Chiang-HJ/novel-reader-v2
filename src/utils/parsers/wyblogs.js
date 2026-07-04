@@ -49,7 +49,10 @@ export const parseInfo = (html, url = '') => {
     }
 
     if (content) {
-        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n')
+        // Strip lists to remove "Related Posts" links that might contain false chapter headings
+        let cleanContent = content.replace(/<ul[\s\S]*?<\/ul>/gi, '')
+                                  .replace(/<ol[\s\S]*?<\/ol>/gi, '')
+                                  .replace(/<br\s*\/?>/gi, '\n')
                                   .replace(/<\/p>/gi, '\n')
                                   .replace(/<\/div>/gi, '\n')
                                   .replace(/&nbsp;/gi, ' ')
@@ -128,6 +131,8 @@ export const parseChapter = (html, url = '') => {
     }
     
     // 清理廣告與不必要的標籤
+    content = content.replace(/<ul[\s\S]*?<\/ul>/gi, '');
+    content = content.replace(/<ol[\s\S]*?<\/ol>/gi, '');
     content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
     content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
     content = content.replace(/<ins[\s\S]*?<\/ins>/gi, '');
