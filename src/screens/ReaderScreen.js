@@ -510,17 +510,25 @@ export default function ReaderScreen({ route, navigation }) {
                 true;
             `);
         }
-        
-        
-                },
-                onStopped: () => {},
-                onError: () => {
-                    if (playId === playIdRef.current) {
-                        setPlayingState(false);
-                    }
+
+        const text = sents[index];
+        Speech.speak(text, {
+            language: 'zh-TW',
+            voice: selectedVoice || undefined,
+            rate,
+            pitch,
+            onDone: () => {
+                if (playId === playIdRef.current && isPlayingRef.current) {
+                    playFromIndex(index + 1, sents, playId);
                 }
-            });
-        }
+            },
+            onStopped: () => {},
+            onError: () => {
+                if (playId === playIdRef.current) {
+                    setPlayingState(false);
+                }
+            }
+        });
     };
 
     const changeRate = async (newRate) => {
