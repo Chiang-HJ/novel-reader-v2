@@ -16,7 +16,16 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MediaControl, { Command, PlaybackState } from 'expo-media-control';
+
+let MediaControl, Command, PlaybackState;
+try {
+    const MediaControlModule = require('expo-media-control');
+    MediaControl = MediaControlModule.default;
+    Command = MediaControlModule.Command;
+    PlaybackState = MediaControlModule.PlaybackState;
+} catch (e) {
+    console.warn("MediaControl native module not found. Lock screen controls will be disabled.");
+}
 
 export default function ReaderScreen({ route, navigation }) {
     useKeepAwake();
@@ -126,11 +135,13 @@ export default function ReaderScreen({ route, navigation }) {
             }
         }
         // Sync lock screen control state
-        try {
-            MediaControl.updatePlaybackState(
-                state ? PlaybackState.PLAYING : PlaybackState.PAUSED
-            );
-        } catch (e) {}
+        if (MediaControl) {
+            try {
+                MediaControl.updatePlaybackState(
+                    state ? PlaybackState.PLAYING : PlaybackState.PAUSED
+                );
+            } catch (e) {}
+        }
     };
 
     useFocusEffect(
@@ -200,7 +211,9 @@ export default function ReaderScreen({ route, navigation }) {
         setupMusicControl();
         return () => {
             Speech.stop();
-            try { MediaControl.disableMediaControls(); } catch (e) {}
+            if (MediaControl) {
+                try { MediaControl.disableMediaControls(); } catch (e) {}
+            }
         };
     }, []);
 
@@ -296,6 +309,7 @@ export default function ReaderScreen({ route, navigation }) {
 
     // ── Lock Screen / Remote Control (expo-media-control) ──
     const setupMusicControl = async () => {
+        if (!MediaControl) return;
         try {
             await MediaControl.enableMediaControls({
                 capabilities: [
@@ -328,6 +342,7 @@ export default function ReaderScreen({ route, navigation }) {
     };
 
     const updateNowPlaying = async (novelTitle, chapterTitle, playing) => {
+        if (!MediaControl) return;
         try {
             await MediaControl.updateMetadata({
                 title: chapterTitle || '閱讀中',
