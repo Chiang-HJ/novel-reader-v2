@@ -43,13 +43,16 @@ export const parseInfo = (html, url = '') => {
     let chapters = [];
 
     if (!content) {
-        // If we can't find the content tag, it might be blocked by Cloudflare or a network error.
-        // Returning null prevents the app from saving a corrupted '未知書名' book.
-        return null;
+        // If we can't find the wrapper tags, it might mean the WebView already extracted the innerHTML,
+        // or the structure changed. Fallback to using the entire HTML string.
+        content = html;
     }
 
     if (content) {
-        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n').replace(/&nbsp;/gi, ' ').replace(/<[^>]+>/g, '');
+        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n').replace(/&nbsp;/gi, ' ').replace(/<[^>]+>/g, '').trim();
+        
+        if (!cleanContent) return null; // If it's completely empty after cleaning, it's invalid
+
         const headingRegex = /(第[零一二三四五六七八九十百千万0-9]+章[^\n]*)/g;
         const parts = cleanContent.split(headingRegex);
 
