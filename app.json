@@ -31,7 +31,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "jsEngine": "jsc",
     "extra": {
       "eas": {
         "projectId": "a5d5c1d8-64eb-4f7e-8ba2-8d17d684f2c1"
@@ -43,8 +42,7 @@
         {
           "photosPermission": "Allow app to access photos for Vault"
         }
-      ],
-      "expo-media-control"
+      ]
     ]
   }
 }

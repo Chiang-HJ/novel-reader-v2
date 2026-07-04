@@ -17,15 +17,7 @@ import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-let MediaControl, Command, PlaybackState;
-try {
-    const MediaControlModule = require('expo-media-control');
-    MediaControl = MediaControlModule.default;
-    Command = MediaControlModule.Command;
-    PlaybackState = MediaControlModule.PlaybackState;
-} catch (e) {
-    console.warn("MediaControl native module not found. Lock screen controls will be disabled.");
-}
+
 
 export default function ReaderScreen({ route, navigation }) {
     useKeepAwake();
@@ -134,14 +126,6 @@ export default function ReaderScreen({ route, navigation }) {
                 silentSoundRef.current.pauseAsync().catch(() => {});
             }
         }
-        // Sync lock screen control state
-        if (MediaControl) {
-            try {
-                MediaControl.updatePlaybackState(
-                    state ? PlaybackState.PLAYING : PlaybackState.PAUSED
-                );
-            } catch (e) {}
-        }
     };
 
     useFocusEffect(
@@ -208,12 +192,9 @@ export default function ReaderScreen({ route, navigation }) {
         setupAudio();
         loadNovel();
         loadVoices();
-        setupMusicControl();
         return () => {
             Speech.stop();
-            if (MediaControl) {
-                try { MediaControl.disableMediaControls(); } catch (e) {}
-            }
+
         };
     }, []);
 
@@ -258,8 +239,6 @@ export default function ReaderScreen({ route, navigation }) {
                 title += ` (${pageInfo.current}/${pageInfo.total})`;
             }
             navigation.setOptions({ title });
-            // Update lock screen info
-            updateNowPlaying(novel.title, chapterData.title, isPlayingRef.current);
         }
     }, [novel, chapterData, isPagingMode, pageInfo]);
 
@@ -306,59 +285,6 @@ export default function ReaderScreen({ route, navigation }) {
             console.warn('Audio setup error:', e);
         }
     };
-
-    // ── Lock Screen / Remote Control (expo-media-control) ──
-    const setupMusicControl = async () => {
-        if (!MediaControl) return;
-        try {
-            await MediaControl.enableMediaControls({
-                capabilities: [
-                    Command.PLAY,
-                    Command.PAUSE,
-                    Command.NEXT_TRACK,
-                    Command.PREVIOUS_TRACK,
-                ]
-            });
-
-            MediaControl.addListener((event) => {
-                switch (event.command) {
-                    case Command.PLAY:
-                        if (!isPlayingRef.current) togglePlay();
-                        break;
-                    case Command.PAUSE:
-                        if (isPlayingRef.current) togglePlay();
-                        break;
-                    case Command.NEXT_TRACK:
-                        skipNext();
-                        break;
-                    case Command.PREVIOUS_TRACK:
-                        skipPrev();
-                        break;
-                }
-            });
-        } catch (e) {
-            console.warn('MediaControl setup error:', e);
-        }
-    };
-
-    const updateNowPlaying = async (novelTitle, chapterTitle, playing) => {
-        if (!MediaControl) return;
-        try {
-            await MediaControl.updateMetadata({
-                title: chapterTitle || '閱讀中',
-                artist: novelTitle || '聽小說',
-                album: novelTitle || '聽小說',
-                duration: 0,
-                color: '#1C1E21',
-            });
-            await MediaControl.updatePlaybackState(
-                playing ? PlaybackState.PLAYING : PlaybackState.PAUSED
-            );
-        } catch (e) {
-            console.warn('MediaControl nowPlaying error:', e);
-        }
-    };
-
 
     const loadNovel = async () => {
         try {
