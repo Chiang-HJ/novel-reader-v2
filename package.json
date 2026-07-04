@@ -14,7 +14,6 @@
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.10.1",
     "@types/react": "~19.1.10",
-    "chinese-conv": "^4.0.0",
     "expo": "~54.0.0",
     "expo-av": "~16.0.8",
     "expo-blur": "~15.0.8",
