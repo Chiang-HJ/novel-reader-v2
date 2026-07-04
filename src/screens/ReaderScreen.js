@@ -189,6 +189,7 @@ export default function ReaderScreen({ route, navigation }) {
         loadSettings();
         setupAudio();
         loadNovel();
+        loadVoices();
         return () => {
             Speech.stop();
         };
@@ -229,10 +230,6 @@ export default function ReaderScreen({ route, navigation }) {
     }, [initialChapterIndex]);
 
     useEffect(() => {
-        loadVoices(ttsEngine);
-    }, [ttsEngine]);
-
-    useEffect(() => {
         if (novel && chapterData) {
             let title = novel.title;
             if (isPagingMode && pageInfo) {
@@ -242,18 +239,17 @@ export default function ReaderScreen({ route, navigation }) {
         }
     }, [novel, chapterData, isPagingMode, pageInfo]);
 
-    const loadVoices = async (engine) => {
+    const loadVoices = async () => {
         try {
-            
-                // Fallback to empty if Li-mu is strictly the only one wanted, 
-                // but just in case we provide at least one TW voice as an emergency fallback
-                const twVoices = allVoices.filter(v => v.language === 'zh-TW');
-                if (twVoices.length > 0) {
-                    setVoices([twVoices[0]]);
-                    setSelectedVoice(twVoices[0].identifier);
-                } else {
-                    setVoices([]);
-                }
+            const allVoices = await Speech.getAvailableVoicesAsync();
+            const twVoices = allVoices.filter(v => v.language === 'zh-TW');
+            if (twVoices.length > 0) {
+                setVoices(twVoices);
+                setSelectedVoice(twVoices[0].identifier);
+            } else {
+                const zhVoices = allVoices.filter(v => v.language && v.language.startsWith('zh'));
+                setVoices(zhVoices);
+                if (zhVoices.length > 0) setSelectedVoice(zhVoices[0].identifier);
             }
         } catch(e) {
             console.warn('Failed to load voices', e);
@@ -1023,7 +1019,6 @@ export default function ReaderScreen({ route, navigation }) {
                                 shouldStartAtBottomRef.current = true;
                                 playIdRef.current += 1;
                                 Speech.stop();
-                                if (ttsEngineRef.current === 'edge') audioPlayer.stop();
                                 isSpeechPausedRef.current = false;
                                 loadChapter(n, chapterIndexRef.current - 1, 0);
                             }
@@ -1032,7 +1027,6 @@ export default function ReaderScreen({ route, navigation }) {
                             if (chapterIndexRef.current < (n.chapterCount - 1)) {
                                 playIdRef.current += 1;
                                 Speech.stop();
-                                if (ttsEngineRef.current === 'edge') audioPlayer.stop();
                                 isSpeechPausedRef.current = false;
                                 loadChapter(n, chapterIndexRef.current + 1, 0);
                             }
@@ -1269,21 +1263,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     thumbTintColor={colors.primary}
                                 />
                             </View>
-                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>語音引擎</Text>
-                            <View style={[styles.optionsRow, { gap: 8 }]}>
-                                <TouchableOpacity 
-                                    style={[styles.optionBtn, ttsEngine === 'apple' && { backgroundColor: colors.primary }]} 
-                                    onPress={() => changeTtsEngine('apple')}
-                                >
-                                    <Text style={{ color: ttsEngine === 'apple' ? 'white' : colors.text }}>蘋果原生</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={[styles.optionBtn, ttsEngine === 'edge' && { backgroundColor: colors.primary }]} 
-                                    onPress={() => changeTtsEngine('edge')}
-                                >
-                                    <Text style={{ color: ttsEngine === 'edge' ? 'white' : colors.text }}>微軟高音質</Text>
-                                </TouchableOpacity>
-                            </View>
+
 
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>閱讀模式</Text>
                             <View style={styles.optionsRow}>
