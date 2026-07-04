@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-export default function NovelListItem({ item, onPress, onMove, onDelete, customActions, colors, isDark }) {
+const NovelListItem = React.memo(({ item, onPress, onLongPress, onMove, onDelete, customActions, colors, isDark }) => {
     const progressPercent = item.chapterCount > 0 ? ((item.downloadedChapters || 0) / item.chapterCount) * 100 : 0;
     const readingPercent = item.chapterCount > 0 ? (((item.progressIndex || 0) + 1) / item.chapterCount) * 100 : 0;
 
@@ -14,6 +14,7 @@ export default function NovelListItem({ item, onPress, onMove, onDelete, customA
                 elevation: isDark ? 4 : 8,
             }]}
             onPress={onPress}
+            onLongPress={onLongPress}
             activeOpacity={0.8}
         >
             <View style={styles.coverWrapper}>
@@ -72,7 +73,9 @@ export default function NovelListItem({ item, onPress, onMove, onDelete, customA
             </View>
         </TouchableOpacity>
     );
-}
+});
+
+export default NovelListItem;
 
 const styles = StyleSheet.create({
     bookItem: { 

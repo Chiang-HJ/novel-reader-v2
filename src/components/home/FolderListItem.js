@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, TouchableOpacity, StyleSheet, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-export default function FolderListItem({ folder, onPress, colors }) {
+const FolderListItem = React.memo(({ folder, onPress, colors }) => {
     return (
         <TouchableOpacity 
             style={[styles.folderItem, { backgroundColor: colors.surface, shadowColor: '#000' }]}
@@ -16,7 +16,9 @@ export default function FolderListItem({ folder, onPress, colors }) {
             <Feather name="chevron-right" size={20} color={colors.textSecondary} style={styles.chevron} />
         </TouchableOpacity>
     );
-}
+});
+
+export default FolderListItem;
 
 const styles = StyleSheet.create({
     folderItem: { 

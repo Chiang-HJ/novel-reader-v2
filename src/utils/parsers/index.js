@@ -1,9 +1,13 @@
 import * as czbooks from './czbooks';
 import * as twkan from './twkan';
+import * as wyblogs from './wyblogs';
+import * as blogspot from './blogspot';
 
 export const parsers = [
     czbooks,
-    twkan
+    twkan,
+    wyblogs,
+    blogspot
 ];
 
 export const getParserForUrl = (url) => {

@@ -1,8 +1,22 @@
 import { getParserForUrl } from './parsers';
+import { convertS2T } from './opencc';
 
 export const parseNovelInfo = (html, url) => {
     const parser = getParserForUrl(url);
-    return parser.parseInfo(html, url);
+    const info = parser.parseInfo(html, url);
+    
+    // 轉換書名與章節標題為繁體
+    if (info) {
+        if (info.title) info.title = convertS2T(info.title);
+        if (info.chapters && Array.isArray(info.chapters)) {
+            info.chapters = info.chapters.map(ch => ({
+                ...ch,
+                title: convertS2T(ch.title)
+            }));
+        }
+    }
+    if (info && !info.id) info.id = encodeURIComponent(url);
+    return info;
 };
 
 export const fetchNovelInfo = async (url) => {
@@ -22,7 +36,8 @@ export const fetchNovelInfo = async (url) => {
 
 export const parseChapterText = (html, url) => {
     const parser = getParserForUrl(url);
-    return parser.parseChapter(html);
+    const text = parser.parseChapter(html, url);
+    return convertS2T(text);
 };
 
 export const fetchChapterText = async (chapterUrl) => {

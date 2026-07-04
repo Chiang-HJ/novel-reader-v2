@@ -14,6 +14,8 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
+import { audioPlayer } from '../utils/AudioPlayer';
+import { EdgeVoices } from '../utils/edgeTts';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,8 +36,19 @@ export default function ReaderScreen({ route, navigation }) {
     const [rate, setRate] = useState(1.0);
     const [pitch, setPitch] = useState(1.0);
     const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+
+    // Save exact sentence progress whenever it changes (e.g. from manual paging or TTS)
+    useEffect(() => {
+        if (novelRef.current && chapterIndexRef.current !== null && currentSentenceIndex !== null) {
+            // Debounce or just save directly since AsyncStorage is reasonably fast
+            updateReadingProgress(novelRef.current.id, chapterIndexRef.current, currentSentenceIndex);
+        }
+    }, [currentSentenceIndex]);
+
     const [voices, setVoices] = useState([]);
     const [selectedVoice, setSelectedVoice] = useState(null);
+    const [ttsEngine, setTtsEngine] = useState('apple');
+    const ttsEngineRef = useRef('apple');
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [isPagingMode, setIsPagingMode] = useState(false);
     const isPagingModeRef = useRef(false);
@@ -43,10 +56,27 @@ export default function ReaderScreen({ route, navigation }) {
     const pagingDirectionRef = useRef('horizontal');
     const [pageInfo, setPageInfo] = useState(null);
     const shouldStartAtLastPageRef = useRef(false);
+    const shouldStartAtBottomRef = useRef(false);
     
     const [isAudioOnlyMode, setIsAudioOnlyMode] = useState(false);
     
     const [isContinuousMode, setIsContinuousMode] = useState(false);
+
+    // Advanced Typography State
+    const [fontSize, setFontSize] = useState(20);
+    const [lineHeight, setLineHeight] = useState(1.8);
+    const [letterSpacing, setLetterSpacing] = useState(0);
+
+    // Sleep Timer State
+    const [showSleepTimerModal, setShowSleepTimerModal] = useState(false);
+    const [sleepTimerMinutes, setSleepTimerMinutesState] = useState(0); // 0 means off
+    const sleepTimerMinutesRef = useRef(0);
+    const setSleepTimerMinutes = (min) => {
+        sleepTimerMinutesRef.current = min;
+        setSleepTimerMinutesState(min);
+    };
+    const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0); // in seconds
+    const sleepTimerIntervalRef = useRef(null);
     const isContinuousModeRef = useRef(false);
     const isSpeechPausedRef = useRef(false);
     
@@ -54,6 +84,7 @@ export default function ReaderScreen({ route, navigation }) {
     const pagingWebViewRef = useRef(null);
     const sentenceRefs = useRef([]);
     const playIdRef = useRef(0);
+    const isTogglingRef = useRef(false);
     const silentSoundRef = useRef(null);
     const novelRef = useRef(null);
     const [videoUri, setVideoUri] = useState(null);
@@ -103,7 +134,11 @@ export default function ReaderScreen({ route, navigation }) {
             return () => {
                 // When leaving the screen, stop audio
                 if (isPlayingRef.current) {
-                    Speech.stop();
+                    if (ttsEngineRef.current === 'edge') {
+                        audioPlayer.stop();
+                    } else {
+                        Speech.stop();
+                    }
                     isSpeechPausedRef.current = false;
                     setPlayingState(false);
                 }
@@ -119,6 +154,12 @@ export default function ReaderScreen({ route, navigation }) {
                 
                 const savedPitch = await AsyncStorage.getItem('novel_reader_pitch');
                 if (savedPitch) setPitch(parseFloat(savedPitch));
+                
+                const savedEngine = await AsyncStorage.getItem('novel_reader_ttsEngine');
+                if (savedEngine) {
+                    setTtsEngine(savedEngine);
+                    ttsEngineRef.current = savedEngine;
+                }
                 
                 const savedPagingMode = await AsyncStorage.getItem('novel_reader_isPagingMode');
                 if (savedPagingMode !== null) {
@@ -136,12 +177,21 @@ export default function ReaderScreen({ route, navigation }) {
                 const savedAudioOnly = await AsyncStorage.getItem('novel_reader_audioOnly');
                 if (savedAudioOnly === 'true') setIsAudioOnlyMode(true);
                 
-                const savedContinuous = await AsyncStorage.getItem('novel_reader_isContinuousMode');
+                const savedContinuous = await AsyncStorage.getItem('novel_reader_continuous_mode');
                 if (savedContinuous !== null) {
                     const mode = savedContinuous === 'true';
                     setIsContinuousMode(mode);
                     isContinuousModeRef.current = mode;
                 }
+
+                const savedFontSize = await AsyncStorage.getItem('novel_reader_fontSize');
+                if (savedFontSize) setFontSize(parseInt(savedFontSize, 10));
+
+                const savedLineHeight = await AsyncStorage.getItem('novel_reader_lineHeight');
+                if (savedLineHeight) setLineHeight(parseFloat(savedLineHeight));
+
+                const savedLetterSpacing = await AsyncStorage.getItem('novel_reader_letterSpacing');
+                if (savedLetterSpacing) setLetterSpacing(parseFloat(savedLetterSpacing));
             } catch (e) {
                 console.warn('Failed to load settings', e);
             }
@@ -149,7 +199,6 @@ export default function ReaderScreen({ route, navigation }) {
 
         loadSettings();
         setupAudio();
-        loadVoices();
         loadNovel();
         return () => {
             Speech.stop();
@@ -191,6 +240,10 @@ export default function ReaderScreen({ route, navigation }) {
     }, [initialChapterIndex]);
 
     useEffect(() => {
+        loadVoices(ttsEngine);
+    }, [ttsEngine]);
+
+    useEffect(() => {
         if (novel && chapterData) {
             let title = novel.title;
             if (isPagingMode && pageInfo) {
@@ -200,9 +253,15 @@ export default function ReaderScreen({ route, navigation }) {
         }
     }, [novel, chapterData, isPagingMode, pageInfo]);
 
-    const loadVoices = async () => {
+    const loadVoices = async (engine) => {
         try {
+            if (engine === 'edge') {
+                setVoices(EdgeVoices);
+                setSelectedVoice(EdgeVoices[0].id);
+                return;
+            }
             const allVoices = await Speech.getAvailableVoicesAsync();
+            if (ttsEngineRef.current !== 'apple') return; // Prevent race condition overriding edge voices
             
             // Debug: save all voices to a file so we can inspect them
             try {
@@ -295,12 +354,14 @@ export default function ReaderScreen({ route, navigation }) {
             
             // Check if data is missing or empty (which means previous fetch failed due to Cloudflare)
             if (!data || !data.text || data.text.trim() === '') {
-                if (n.chapters && n.chapters[idx]) {
+                const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
+                if (url && String(url).startsWith('http')) {
                     // Start scraping via WebView
-                    setScrapeUrl(n.chapters[idx].url);
+                    setScrapeUrl(url);
                     return; // Wait for onWebViewMessage
                 } else {
-                    Alert.alert('錯誤', `找不到章節連結，無法下載第 ${idx + 1} 章`);
+                    // Local file missing, cannot scrape
+                    applyChapterData({ title: '檔案遺失', text: '此章節的本地檔案已遺失。若是剛才匯入的書籍發生此問題，請刪除後重新匯入。' }, n.id, idx, sentenceIdx);
                     return;
                 }
             }
@@ -313,9 +374,34 @@ export default function ReaderScreen({ route, navigation }) {
 
     const applyChapterData = (data, nid, idx, sentenceIdx) => {
         setChapterData(data);
-        const textContent = data.text || '無內容';
+        const rawText = data.text || '無內容';
+        const textContent = rawText;
+        
         const parts = textContent.match(/[^。！？\n]+[。！？\n]*/g) || [textContent];
-        const newSents = parts.map(p => p.trim()).filter(p => p.length > 0);
+        let newSents = [];
+        parts.forEach(p => {
+            let text = p.trim();
+            while (text.length > 0) {
+                if (text.length <= 300) {
+                    newSents.push(text);
+                    break;
+                }
+                let sliceIdx = 300;
+                let lastComma = Math.max(
+                    text.lastIndexOf('，', 300),
+                    text.lastIndexOf(',', 300),
+                    text.lastIndexOf('；', 300),
+                    text.lastIndexOf(';', 300),
+                    text.lastIndexOf('、', 300)
+                );
+                if (lastComma > 0) {
+                    sliceIdx = lastComma + 1;
+                }
+                newSents.push(text.substring(0, sliceIdx).trim());
+                text = text.substring(sliceIdx).trim();
+            }
+        });
+        newSents = newSents.filter(p => p.length > 0);
         setSentences(newSents);
         setCurrentSentenceIndex(sentenceIdx);
         
@@ -364,34 +450,107 @@ export default function ReaderScreen({ route, navigation }) {
     };
 
     const togglePlay = async () => {
-        if (isPlayingRef.current) {
-            if (isContinuousModeRef.current) {
-                await Speech.pause();
-                isSpeechPausedRef.current = true;
+        if (isTogglingRef.current) return;
+        isTogglingRef.current = true;
+        try {
+            if (isPlayingRef.current) {
+                if (ttsEngineRef.current === 'edge') {
+                    await audioPlayer.pause();
+                    isSpeechPausedRef.current = true;
+                } else {
+                    if (isContinuousModeRef.current) {
+                        await Speech.pause();
+                        isSpeechPausedRef.current = true;
+                    } else {
+                        playIdRef.current += 1; // Invalidate
+                        Speech.stop();
+                    }
+                }
+                setPlayingState(false);
             } else {
-                playIdRef.current += 1; // Invalidate
-                Speech.stop();
+                await setupAudio(); // Re-assert audio mode priority
+                setPlayingState(true);
+                if (isSpeechPausedRef.current) {
+                    if (ttsEngineRef.current === 'edge') {
+                        await audioPlayer.resume();
+                    } else {
+                        if (isContinuousModeRef.current) await Speech.resume();
+                        else {
+                            playIdRef.current += 1;
+                            playFromIndex(currentSentenceIndex, sentences, playIdRef.current);
+                        }
+                    }
+                    isSpeechPausedRef.current = false;
+                } else {
+                    playIdRef.current += 1;
+                    isSpeechPausedRef.current = false;
+                    playFromIndex(currentSentenceIndex, sentences, playIdRef.current);
+                }
             }
-            setPlayingState(false);
-        } else {
-            await setupAudio(); // Re-assert audio mode priority
-            setPlayingState(true);
-            if (isContinuousModeRef.current && isSpeechPausedRef.current) {
-                await Speech.resume();
-                isSpeechPausedRef.current = false;
-            } else {
-                playIdRef.current += 1;
-                isSpeechPausedRef.current = false;
-                playFromIndex(currentSentenceIndex, sentences, playIdRef.current);
-            }
+        } finally {
+            isTogglingRef.current = false;
         }
     };
+
+    const startSleepTimer = (minutes) => {
+        setSleepTimerMinutes(minutes);
+        setShowSleepTimerModal(false);
+        
+        if (sleepTimerIntervalRef.current) clearInterval(sleepTimerIntervalRef.current);
+        
+        if (minutes > 0) {
+            setSleepTimerRemaining(minutes * 60);
+            sleepTimerIntervalRef.current = setInterval(() => {
+                setSleepTimerRemaining(prev => {
+                    if (prev <= 1) {
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        } else if (minutes === -1) {
+            // "End of chapter" mode, remaining time is irrelevant
+            setSleepTimerRemaining(0); 
+        } else {
+            setSleepTimerRemaining(0);
+        }
+    };
+
+    useEffect(() => {
+        if (sleepTimerMinutes > 0 && sleepTimerRemaining === 0) {
+            if (sleepTimerIntervalRef.current) clearInterval(sleepTimerIntervalRef.current);
+            if (isPlayingRef.current) {
+                togglePlay(); // Pause
+            }
+            setSleepTimerMinutes(0);
+        }
+    }, [sleepTimerRemaining, sleepTimerMinutes]);
+
+    // Make sure we clear interval on unmount
+    useEffect(() => {
+        return () => {
+            if (sleepTimerIntervalRef.current) clearInterval(sleepTimerIntervalRef.current);
+        };
+    }, []);
 
     const playFromIndex = async (index, sents, playId) => {
         if (playId !== playIdRef.current) return;
         
         if (index >= sents.length) {
-            // Chapter finished, go next
+            // Chapter finished
+            if (sleepTimerMinutesRef.current === -1) {
+                isPlayingRef.current = false;
+                setPlayingState(false);
+                setSleepTimerMinutes(0); // Timer finished
+                // Still load the next chapter, but it won't auto-play because isPlayingRef is false
+                loadChapter(novel, chapterIndexRef.current + 1, 0);
+                return;
+            }
+
+            if (!isContinuousModeRef.current) {
+                isPlayingRef.current = false;
+                setPlayingState(false);
+            }
             loadChapter(novel, chapterIndexRef.current + 1, 0);
             return;
         }
@@ -408,6 +567,27 @@ export default function ReaderScreen({ route, navigation }) {
             `);
         }
         
+        if (ttsEngineRef.current === 'edge') {
+            const remainingText = sents.slice(index).join('\n');
+            audioPlayer.play(remainingText, selectedVoice, (chunkIdx, total, text) => {
+                const absoluteIndex = index + chunkIdx;
+                setCurrentSentenceIndex(absoluteIndex);
+                updateReadingProgress(novelId, chapterIndexRef.current, absoluteIndex);
+                
+                if (isPagingModeRef.current && pagingWebViewRef.current && AppState.currentState === 'active') {
+                    pagingWebViewRef.current.injectJavaScript(`
+                        highlightSentence(${absoluteIndex});
+                        true;
+                    `);
+                }
+            }, () => {
+                if (isPlayingRef.current && playId === playIdRef.current) {
+                    loadChapter(novelRef.current, chapterIndexRef.current + 1, 0);
+                }
+            });
+            return;
+        }
+
         if (isContinuousModeRef.current) {
             // Join the remaining sentences for a single uninterrupted speech session
             const remainingText = sents.slice(index).join(' ');
@@ -454,8 +634,12 @@ export default function ReaderScreen({ route, navigation }) {
         setRate(newRate);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            if (isContinuousModeRef.current) await Speech.pause();
-            Speech.stop();
+            if (ttsEngineRef.current === 'edge') {
+                await audioPlayer.stop();
+            } else {
+                if (isContinuousModeRef.current) await Speech.pause();
+                Speech.stop();
+            }
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
@@ -466,8 +650,29 @@ export default function ReaderScreen({ route, navigation }) {
         setPitch(newPitch);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            if (isContinuousModeRef.current) await Speech.pause();
-            Speech.stop();
+            if (ttsEngineRef.current === 'edge') {
+                await audioPlayer.stop();
+            } else {
+                if (isContinuousModeRef.current) await Speech.pause();
+                Speech.stop();
+            }
+            isSpeechPausedRef.current = false;
+            const currentPlayId = playIdRef.current;
+            setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
+        }
+    };
+
+    const changeTtsEngine = async (engine) => {
+        setTtsEngine(engine);
+        ttsEngineRef.current = engine;
+        await AsyncStorage.setItem('novel_reader_ttsEngine', engine);
+        if (isPlayingRef.current) {
+            playIdRef.current += 1;
+            if (engine === 'apple') {
+                await audioPlayer.stop();
+            } else {
+                Speech.stop();
+            }
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
@@ -476,7 +681,7 @@ export default function ReaderScreen({ route, navigation }) {
 
     const skipNext = () => {
         playIdRef.current += 1;
-        Speech.stop();
+        if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
         isSpeechPausedRef.current = false;
         const n = novelRef.current || novel;
         loadChapter(n, chapterIndexRef.current + 1, 0);
@@ -486,7 +691,7 @@ export default function ReaderScreen({ route, navigation }) {
         const n = novelRef.current || novel;
         if (chapterIndexRef.current > 0) {
             playIdRef.current += 1;
-            Speech.stop();
+            if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
             isSpeechPausedRef.current = false;
             loadChapter(n, chapterIndexRef.current - 1, 0);
         }
@@ -504,8 +709,9 @@ export default function ReaderScreen({ route, navigation }) {
             padding: 0;
             background: ${colors.background};
             color: ${colors.text};
-            font-size: 20px;
-            line-height: 1.8;
+            font-size: ${fontSize}px;
+            line-height: ${lineHeight};
+            letter-spacing: ${letterSpacing}px;
             height: 100vh;
             width: 100vw;
             box-sizing: border-box;
@@ -577,7 +783,14 @@ export default function ReaderScreen({ route, navigation }) {
                 let currentPos = getScrollPos();
                 let page = Math.round(currentPos / pageWidth) + 1;
                 if (page > totalPages) page = totalPages;
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', current: page, total: totalPages }));
+                
+                updateAnchor();
+                window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                    type: 'page', 
+                    current: page, 
+                    total: totalPages,
+                    anchorIndex: anchorIndex
+                }));
             }
             
             function restoreAnchor() {
@@ -627,9 +840,18 @@ export default function ReaderScreen({ route, navigation }) {
                 const el = document.getElementById('s' + index);
                 if(el) {
                     el.classList.add('active');
-                    // Scroll to make element visible horizontally instantly
-                    el.scrollIntoView({ inline: 'center', behavior: 'auto', block: 'nearest' });
-                    setTimeout(reportPage, 150);
+                    
+                    const rect = el.getBoundingClientRect();
+                    const currentPos = getScrollPos();
+                    const absoluteLeft = rect.left + currentPos;
+                    const targetPage = Math.floor(Math.max(0, absoluteLeft) / window.innerWidth);
+                    const newLeft = targetPage * window.innerWidth;
+                    
+                    window.scrollTo({ left: newLeft, behavior: 'auto' });
+                    document.documentElement.scrollLeft = newLeft;
+                    document.body.scrollLeft = newLeft;
+                    
+                    setTimeout(reportPage, 50);
                 }
             }
             
@@ -649,8 +871,19 @@ export default function ReaderScreen({ route, navigation }) {
           </script>
         </body>
         </html>
-        `};
-    }, [chapterData, sentences, colors]);
+        ` };
+    }, [chapterData, sentences, colors, isDark, fontSize, lineHeight, letterSpacing]);
+
+    useEffect(() => {
+        if (!isPagingMode && scrollViewRef.current && sentences.length > 0) {
+            if (shouldStartAtBottomRef.current) {
+                setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: false });
+                }, 100);
+                shouldStartAtBottomRef.current = false;
+            }
+        }
+    }, [sentences, isPagingMode]);
 
     useEffect(() => {
         if (pagingWebViewRef.current) {
@@ -681,8 +914,8 @@ export default function ReaderScreen({ route, navigation }) {
         return (
             <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{padding: 20}}>
                 <Text style={{fontSize: 20, color: colors.danger, fontWeight: 'bold', marginBottom: 10}}>出現錯誤</Text>
-                <Text style={{ fontSize: 16, color: colors.textSecondary, flex: 1, textAlign: 'center' }} numberOfLines={1}>
-                    {novel?.title || '載入中...'} {isPagingMode && pageInfo ? `(${pageInfo.current}/${pageInfo.total})` : ''}
+                <Text style={{ fontSize: 16, color: colors.textSecondary, flex: 1, textAlign: 'center', marginBottom: 20 }}>
+                    {errorLog}
                 </Text>
                 <TouchableOpacity 
                     style={{backgroundColor: colors.primary, padding: 12, borderRadius: 8, alignItems: 'center'}}
@@ -782,10 +1015,15 @@ export default function ReaderScreen({ route, navigation }) {
                             if (pagingWebViewRef.current) {
                                 if (shouldStartAtLastPageRef.current) {
                                     pagingWebViewRef.current.injectJavaScript(`
-                                        const contentEl = document.querySelector('.content');
-                                        const totalPages = Math.round((contentEl ? contentEl.scrollWidth : document.body.scrollWidth) / window.innerWidth) || 1;
-                                        window.scrollTo({ left: (totalPages - 1) * window.innerWidth, behavior: 'auto' });
-                                        reportPage();
+                                        setTimeout(function() {
+                                            const contentEl = document.querySelector('.content');
+                                            const totalPages = Math.round((contentEl ? contentEl.scrollWidth : document.body.scrollWidth) / window.innerWidth) || 1;
+                                            const targetScroll = (totalPages - 1) * window.innerWidth;
+                                            window.scrollTo({ left: targetScroll, behavior: 'instant' });
+                                            document.documentElement.scrollLeft = targetScroll;
+                                            document.body.scrollLeft = targetScroll;
+                                            reportPage();
+                                        }, 150);
                                         true;
                                     `);
                                     shouldStartAtLastPageRef.current = false;
@@ -867,6 +1105,9 @@ export default function ReaderScreen({ route, navigation }) {
                                 }
                             } else if (data.type === 'page') {
                                 setPageInfo({ current: data.current, total: data.total });
+                                if (data.anchorIndex !== undefined) {
+                                    setCurrentSentenceIndex(data.anchorIndex);
+                                }
                             } else if (data.type === 'prev_chapter') {
                                 if (chapterIndexRef.current > 0) {
                                     shouldStartAtLastPageRef.current = true;
@@ -897,6 +1138,30 @@ export default function ReaderScreen({ route, navigation }) {
                 <ScrollView 
                     style={[styles.textContainer, isFullScreen && { paddingTop: Math.max(0, safeTopRef.current - 20) }]}
                     ref={scrollViewRef}
+                    scrollEventThrottle={100}
+                    onScrollEndDrag={(e) => {
+                        const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                        if (contentOffset.y < -120) {
+                            const n = novelRef.current || novel;
+                            if (chapterIndexRef.current > 0) {
+                                shouldStartAtBottomRef.current = true;
+                                playIdRef.current += 1;
+                                Speech.stop();
+                                if (ttsEngineRef.current === 'edge') audioPlayer.stop();
+                                isSpeechPausedRef.current = false;
+                                loadChapter(n, chapterIndexRef.current - 1, 0);
+                            }
+                        } else if (contentOffset.y + layoutMeasurement.height > contentSize.height + 120) {
+                            const n = novelRef.current || novel;
+                            if (chapterIndexRef.current < (n.chapterCount - 1)) {
+                                playIdRef.current += 1;
+                                Speech.stop();
+                                if (ttsEngineRef.current === 'edge') audioPlayer.stop();
+                                isSpeechPausedRef.current = false;
+                                loadChapter(n, chapterIndexRef.current + 1, 0);
+                            }
+                        }
+                    }}
                 >
                     <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
                         <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
@@ -992,12 +1257,54 @@ export default function ReaderScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsModal(true)}>
-                            <Feather name="sliders" color={colors.textSecondary} size={22} />
-                        </TouchableOpacity>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 16}}>
+                            {sleepTimerMinutes > 0 && (
+                                <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                                    {Math.floor(sleepTimerRemaining / 60)}:{(sleepTimerRemaining % 60).toString().padStart(2, '0')}
+                                </Text>
+                            )}
+                            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSleepTimerModal(true)}>
+                                <Feather name="moon" color={sleepTimerMinutes > 0 ? colors.primary : colors.textSecondary} size={22} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsModal(true)}>
+                                <Feather name="sliders" color={colors.textSecondary} size={22} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </BlurView>
             )}
+
+            <Modal visible={showSleepTimerModal} animationType="fade" transparent={true}>
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSleepTimerModal(false)}>
+                    <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.95)' : 'rgba(255,255,255,0.95)', paddingBottom: 30 }]}>
+                        <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>睡眠定時器</Text>
+                            <TouchableOpacity onPress={() => setShowSleepTimerModal(false)}>
+                                <Feather name="x" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{ padding: 16, gap: 12 }}>
+                            <TouchableOpacity style={[styles.optionBtn, sleepTimerMinutes === 15 && { borderColor: colors.primary, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f0f0f0' }]} onPress={() => startSleepTimer(15)}>
+                                <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>15 分鐘</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.optionBtn, sleepTimerMinutes === 30 && { borderColor: colors.primary, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f0f0f0' }]} onPress={() => startSleepTimer(30)}>
+                                <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>30 分鐘</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.optionBtn, sleepTimerMinutes === 60 && { borderColor: colors.primary, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f0f0f0' }]} onPress={() => startSleepTimer(60)}>
+                                <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>60 分鐘</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.optionBtn, sleepTimerMinutes === -1 && { borderColor: colors.primary, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f0f0f0' }]} onPress={() => startSleepTimer(-1)}>
+                                <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center' }}>播完本章</Text>
+                            </TouchableOpacity>
+                            {sleepTimerMinutes !== 0 && (
+                                <TouchableOpacity style={[styles.optionBtn, { borderColor: colors.danger, marginTop: 10 }]} onPress={() => startSleepTimer(0)}>
+                                    <Text style={{ color: colors.danger, fontSize: 16, textAlign: 'center' }}>關閉定時</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
 
             <Modal visible={showSettingsModal} animationType="slide" transparent={true}>
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
@@ -1021,6 +1328,85 @@ export default function ReaderScreen({ route, navigation }) {
                                         <Text style={{ color: themeId === t.id ? 'white' : colors.text }}>{t.name}</Text>
                                     </TouchableOpacity>
                                 ))}
+                            </View>
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>進階排版設定</Text>
+                            
+                            <View style={{ marginBottom: 15 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                                    <Text style={{ color: colors.text }}>字體大小</Text>
+                                    <Text style={{ color: colors.textSecondary }}>{fontSize}px</Text>
+                                </View>
+                                <Slider
+                                    style={{ width: '100%', height: 40 }}
+                                    minimumValue={14}
+                                    maximumValue={36}
+                                    step={1}
+                                    value={fontSize}
+                                    onValueChange={(val) => {
+                                        setFontSize(val);
+                                        AsyncStorage.setItem('novel_reader_fontSize', val.toString());
+                                    }}
+                                    minimumTrackTintColor={colors.primary}
+                                    maximumTrackTintColor={colors.border}
+                                    thumbTintColor={colors.primary}
+                                />
+                            </View>
+
+                            <View style={{ marginBottom: 15 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                                    <Text style={{ color: colors.text }}>行距</Text>
+                                    <Text style={{ color: colors.textSecondary }}>{lineHeight.toFixed(1)}x</Text>
+                                </View>
+                                <Slider
+                                    style={{ width: '100%', height: 40 }}
+                                    minimumValue={1.2}
+                                    maximumValue={3.0}
+                                    step={0.1}
+                                    value={lineHeight}
+                                    onValueChange={(val) => {
+                                        setLineHeight(val);
+                                        AsyncStorage.setItem('novel_reader_lineHeight', val.toString());
+                                    }}
+                                    minimumTrackTintColor={colors.primary}
+                                    maximumTrackTintColor={colors.border}
+                                    thumbTintColor={colors.primary}
+                                />
+                            </View>
+
+                            <View style={{ marginBottom: 15 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                                    <Text style={{ color: colors.text }}>字距</Text>
+                                    <Text style={{ color: colors.textSecondary }}>{letterSpacing.toFixed(1)}px</Text>
+                                </View>
+                                <Slider
+                                    style={{ width: '100%', height: 40 }}
+                                    minimumValue={0}
+                                    maximumValue={5}
+                                    step={0.5}
+                                    value={letterSpacing}
+                                    onValueChange={(val) => {
+                                        setLetterSpacing(val);
+                                        AsyncStorage.setItem('novel_reader_letterSpacing', val.toString());
+                                    }}
+                                    minimumTrackTintColor={colors.primary}
+                                    maximumTrackTintColor={colors.border}
+                                    thumbTintColor={colors.primary}
+                                />
+                            </View>
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>語音引擎</Text>
+                            <View style={[styles.optionsRow, { gap: 8 }]}>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, ttsEngine === 'apple' && { backgroundColor: colors.primary }]} 
+                                    onPress={() => changeTtsEngine('apple')}
+                                >
+                                    <Text style={{ color: ttsEngine === 'apple' ? 'white' : colors.text }}>蘋果原生</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, ttsEngine === 'edge' && { backgroundColor: colors.primary }]} 
+                                    onPress={() => changeTtsEngine('edge')}
+                                >
+                                    <Text style={{ color: ttsEngine === 'edge' ? 'white' : colors.text }}>微軟高音質</Text>
+                                </TouchableOpacity>
                             </View>
 
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 16 }]}>閱讀模式</Text>
@@ -1141,24 +1527,24 @@ export default function ReaderScreen({ route, navigation }) {
                             ) : (
                                 voices.map((item) => (
                                     <TouchableOpacity 
-                                        key={item.identifier}
+                                        key={item.identifier || item.id}
                                         style={[
                                             styles.voiceItem, 
                                             { borderBottomColor: colors.border },
-                                            selectedVoice === item.identifier && { backgroundColor: isDark ? '#2d3748' : '#e6f4ea' }
+                                            selectedVoice === (item.identifier || item.id) && { backgroundColor: isDark ? '#2d3748' : '#e6f4ea' }
                                         ]}
                                         onPress={() => {
-                                            setSelectedVoice(item.identifier);
+                                            setSelectedVoice(item.identifier || item.id);
                                             if (isPlayingRef.current) {
                                                 playIdRef.current += 1;
-                                                Speech.stop();
+                                                if (ttsEngineRef.current === 'edge') audioPlayer.stop(); else Speech.stop();
                                                 const currentPlayId = playIdRef.current;
                                                 setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
                                             }
                                         }}
                                     >
-                                        <Text style={[styles.voiceName, { color: selectedVoice === item.identifier ? colors.primary : colors.text }, selectedVoice === item.identifier && { fontWeight: 'bold' }]}>
-                                            {item.name} ({item.language})
+                                        <Text style={[styles.voiceName, { color: selectedVoice === (item.identifier || item.id) ? colors.primary : colors.text }, selectedVoice === (item.identifier || item.id) && { fontWeight: 'bold' }]}>
+                                            {item.name} {item.language ? `(${item.language})` : ''}
                                         </Text>
                                         <Text style={{ fontSize: 12, color: colors.textSecondary }}>{item.quality}</Text>
                                     </TouchableOpacity>

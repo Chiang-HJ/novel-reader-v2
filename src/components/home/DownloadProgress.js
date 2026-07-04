@@ -33,7 +33,7 @@ export default function DownloadProgress({ queue, activeTask, progressText, canc
                 </View>
             )}
             {queue.slice(activeTask ? 1 : 0).map((q) => (
-                <View key={q.addedAt} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 }}>
+                <View key={q.url} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
                         <Feather name="clock" size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
                         <Text style={{ color: colors.textSecondary, fontSize: 12 }} numberOfLines={1}>

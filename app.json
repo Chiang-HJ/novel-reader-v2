@@ -16,7 +16,6 @@
       "bundleIdentifier": "com.user.novelreaderv2",
       "infoPlist": {
         "UIBackgroundModes": [
-          "audio",
           "audio"
         ],
         "ITSAppUsesNonExemptEncryption": false

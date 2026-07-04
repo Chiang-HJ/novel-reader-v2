@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ThemeContext = createContext();
@@ -72,15 +72,21 @@ export const THEMES = {
 
 export const ThemeProvider = ({ children }) => {
     const [currentThemeId, setCurrentThemeId] = useState('softDark'); // Default to new premium theme
+    const isMounted = useRef(true);
 
     useEffect(() => {
+        isMounted.current = true;
         loadTheme();
+        return () => {
+            isMounted.current = false;
+        };
     }, []);
 
     const loadTheme = async () => {
         try {
             // First check the new multi-theme key
             const savedThemeId = await AsyncStorage.getItem('@app_theme_id');
+            if (!isMounted.current) return;
             if (savedThemeId && THEMES[savedThemeId]) {
                 setCurrentThemeId(savedThemeId);
                 return;
@@ -88,6 +94,7 @@ export const ThemeProvider = ({ children }) => {
             
             // Fallback for older version
             const legacyDark = await AsyncStorage.getItem('@theme_isDark');
+            if (!isMounted.current) return;
             if (legacyDark !== null) {
                 setCurrentThemeId(JSON.parse(legacyDark) ? 'softDark' : 'minimalist');
             }

@@ -23,6 +23,9 @@ export const DownloadProvider = ({ children }) => {
     const chapterHtmlResolveRef = useRef(null);
     const cancelFlagRef = useRef(new Set());
     const activeTaskRef = useRef(null);
+    const downloadingNovelIdRef = useRef(null);
+    const scrapeModeRef = useRef(null);
+    const initialFetchTimerRef = useRef(null);
 
     React.useEffect(() => {
         const loadQueue = async () => {
@@ -52,10 +55,12 @@ export const DownloadProvider = ({ children }) => {
             return;
         }
         const trimmedUrl = url.trim();
-        if (!queue.find(q => q.url === trimmedUrl) && (!activeTaskRef.current || activeTaskRef.current.url !== trimmedUrl)) {
-            setQueue(prev => [...prev, { url: trimmedUrl, addedAt: Date.now() }]);
+        setQueue(prevQueue => {
+            if (prevQueue.find(q => q.url === trimmedUrl)) return prevQueue;
+            if (activeTaskRef.current && activeTaskRef.current.url === trimmedUrl) return prevQueue;
             cancelFlagRef.current.delete(trimmedUrl);
-        }
+            return [...prevQueue, { url: trimmedUrl, addedAt: Date.now() }];
+        });
     };
 
     const cancelDownload = (url) => {
@@ -67,6 +72,7 @@ export const DownloadProvider = ({ children }) => {
                 chapterHtmlResolveRef.current('');
             }
             setIsCaptchaBlocked(false);
+            downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);
             setActiveTask(null);
             activeTaskRef.current = null;
@@ -77,13 +83,24 @@ export const DownloadProvider = ({ children }) => {
     const processNextTask = (task) => {
         activeTaskRef.current = task;
         setActiveTask(task);
-        setProgressText('正在通過 Cloudflare 驗證...');
+        setProgressText('正在初始化下載與解析目錄...');
+        scrapeModeRef.current = 'info';
         setScrapeMode('info');
         let finalUrl = (task.url || '').trim();
         if (!finalUrl.startsWith('http')) {
             finalUrl = 'https://' + finalUrl;
         }
         setScrapeUrl(finalUrl);
+
+        if (initialFetchTimerRef.current) clearTimeout(initialFetchTimerRef.current);
+        initialFetchTimerRef.current = setTimeout(() => {
+            if (scrapeModeRef.current === 'info') {
+                setProgressText('獲取目錄超時，跳過此任務。');
+                setTimeout(() => {
+                    cancelDownload(finalUrl);
+                }, 2000);
+            }
+        }, 20000); // 20 seconds timeout for initial novel info fetch
     };
 
     const onWebViewMessage = async (event) => {
@@ -102,15 +119,21 @@ export const DownloadProvider = ({ children }) => {
                 return;
             }
 
-            if (parsed.type === 'novelInfoHtml' || scrapeMode === 'info') {
-                if (downloadingNovelId) return;
+            if (parsed.type === 'novelInfoHtml' || scrapeModeRef.current === 'info') {
+                if (initialFetchTimerRef.current) clearTimeout(initialFetchTimerRef.current);
+                if (downloadingNovelIdRef.current) return;
                 if (parsed.error) throw new Error(parsed.error);
 
                 const novelInfo = parseNovelInfo(parsed.html, parsed.url || task?.url);
                 if (!novelInfo || !novelInfo.chapters || novelInfo.chapters.length === 0) {
-                    throw new Error('找不到章節 (網址無效、解析失敗或被阻擋)');
+                    setIsCaptchaBlocked(true);
+                    setProgressText('遇到防護網或內容警告，請協助驗證...');
+                    return; // Wait for user to interact and navigate
+                } else {
+                    setIsCaptchaBlocked(false);
                 }
 
+                downloadingNovelIdRef.current = novelInfo.id;
                 setDownloadingNovelId(novelInfo.id);
                 setProgressText('正在準備下載章節...');
 
@@ -120,6 +143,7 @@ export const DownloadProvider = ({ children }) => {
 
                 if (startIndex >= novelInfo.chapters.length) {
                     setScrapeUrl(null);
+                    downloadingNovelIdRef.current = null;
                     setDownloadingNovelId(null);
                     setProgressText('已下載完畢');
                     setActiveTask(null);
@@ -135,6 +159,7 @@ export const DownloadProvider = ({ children }) => {
                     if (cancelFlagRef.current.has(task?.url)) {
                         cancelFlagRef.current.delete(task?.url);
                         setScrapeUrl(null);
+                        downloadingNovelIdRef.current = null;
                         setDownloadingNovelId(null);
                         setProgressText('');
                         setActiveTask(null);
@@ -147,35 +172,40 @@ export const DownloadProvider = ({ children }) => {
                     const chapterUrl = novelInfo.chapters[i].url;
 
                     const html = await new Promise((resolve) => {
-                        chapterHtmlResolveRef.current = resolve;
+                        let timerId;
+                        const cleanupAndResolve = (val) => {
+                            clearTimeout(timerId);
+                            resolve(val);
+                        };
+                        chapterHtmlResolveRef.current = cleanupAndResolve;
                         const code = `
                             (function() {
-                                var iframe = document.createElement('iframe');
-                                iframe.style.cssText = 'display:none;position:absolute;width:1px;height:1px;';
-                                iframe.src = '${chapterUrl.replace(/'/g, "\\'")}';
-                                iframe.onload = function() {
-                                    try {
-                                        var h = iframe.contentWindow.document.body.innerHTML;
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: h }));
-                                    } catch(e) {
+                                var currentUrl = document.location.href.split('#')[0].split('?')[0];
+                                var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
+                                
+                                // If the chapter is on the same page (single-page novel), just return the HTML immediately
+                                if (currentUrl === targetUrl) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
+                                    return;
+                                }
+
+                                fetch(targetUrl, { redirect: 'follow' })
+                                    .then(function(res) { return res.text(); })
+                                    .then(function(text) {
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
+                                    })
+                                    .catch(function(e) {
                                         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: '' }));
-                                    }
-                                    document.body.removeChild(iframe);
-                                };
-                                iframe.onerror = function() {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: '' }));
-                                    document.body.removeChild(iframe);
-                                };
-                                document.body.appendChild(iframe);
+                                    });
                             })();
                             true;
                         `;
                         if (webViewRef.current) {
                             webViewRef.current.injectJavaScript(code);
                         } else {
-                            resolve('');
+                            cleanupAndResolve('');
                         }
-                        setTimeout(() => resolve(''), 15000);
+                        timerId = setTimeout(() => cleanupAndResolve(''), 15000);
                     });
 
                     if (cancelFlagRef.current.has(task?.url)) {
@@ -192,7 +222,16 @@ export const DownloadProvider = ({ children }) => {
                     let text = parseChapterText(html, chapterUrl);
 
                     if (!text) {
+                        if (html === '') {
+                            // If html is empty string, it's a network error/timeout from iframe, not CAPTCHA
+                            console.log('Network error or timeout on chapter:', chapterUrl);
+                            setProgressText(`網路錯誤，跳過 (${i + 1}/${novelInfo.chapters.length})`);
+                            await new Promise(r => setTimeout(r, 2000));
+                            continue;
+                        }
+
                         setProgressText(`遇到防護網，請協助驗證 (${i + 1}/${novelInfo.chapters.length})`);
+                        scrapeModeRef.current = 'chapter';
                         setScrapeMode('chapter');
                         setScrapeUrl(chapterUrl);
                         setIsCaptchaBlocked(true);
@@ -204,6 +243,7 @@ export const DownloadProvider = ({ children }) => {
                         if (cancelFlagRef.current.has(task?.url)) {
                             cancelFlagRef.current.delete(task?.url);
                             setScrapeUrl(null);
+                            downloadingNovelIdRef.current = null;
                             setDownloadingNovelId(null);
                             setProgressText('');
                             setActiveTask(null);
@@ -215,6 +255,7 @@ export const DownloadProvider = ({ children }) => {
 
                         text = parseChapterText(manualHtml, chapterUrl);
                         setIsCaptchaBlocked(false);
+                        scrapeModeRef.current = 'info';
                         setScrapeMode('info');
                         setScrapeUrl(novelInfo.url);
                         await new Promise(r => setTimeout(r, 1000));
@@ -227,11 +268,12 @@ export const DownloadProvider = ({ children }) => {
                         setBookshelfUpdated(Date.now());
                     }
 
-                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1500) + 1000));
+                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 500) + 300));
                 }
 
                 await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: novelInfo.chapters.length });
                 setScrapeUrl(null);
+                downloadingNovelIdRef.current = null;
                 setDownloadingNovelId(null);
                 setProgressText('下載完成！');
                 setActiveTask(null);
@@ -241,6 +283,7 @@ export const DownloadProvider = ({ children }) => {
         } catch (error) {
             console.error('Download error:', error);
             setScrapeUrl(null);
+            downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);
             setProgressText('');
             setActiveTask(null);

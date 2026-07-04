@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useDownload } from '../context/DownloadContext';
 import { useTheme } from '../context/ThemeContext';
@@ -10,12 +10,44 @@ import { useTheme } from '../context/ThemeContext';
  * This is the correct iOS-safe architecture.
  */
 export default function DownloadWebViewHost() {
-    const { scrapeUrl, scrapeMode, isCaptchaBlocked, webViewRef, onWebViewMessage } = useDownload();
+    const { scrapeUrl, scrapeMode, isCaptchaBlocked, webViewRef, onWebViewMessage, activeTask, cancelDownload } = useDownload();
     const { colors } = useTheme();
 
-    if (!scrapeUrl) return null;
-
     const isVisible = isCaptchaBlocked;
+
+    React.useEffect(() => {
+        if (webViewRef && webViewRef.current && isVisible) {
+            webViewRef.current.injectJavaScript(`
+                (function() {
+                    var _manualCheckDone = false;
+                    var _manualCheckInterval = setInterval(function() {
+                        if (_manualCheckDone) return;
+                        if (window.location.href === 'about:blank' || !document.body || document.body.innerHTML.trim() === '') return;
+                        var title = document.title || '';
+                        if (title.indexOf('Just a moment') === -1 &&
+                            title.indexOf('Cloudflare') === -1 &&
+                            title.indexOf('Attention Required') === -1) {
+                            _manualCheckDone = true;
+                            clearInterval(_manualCheckInterval);
+                            try {
+                                var mode = '${scrapeMode}';
+                                if (mode === 'chapter') {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
+                                } else {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: document.body.innerHTML, url: window.location.href }));
+                                }
+                            } catch(e) {
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));
+                            }
+                        }
+                    }, 1000);
+                })();
+                true;
+            `);
+        }
+    }, [isVisible, scrapeUrl, scrapeMode, webViewRef]);
+
+    if (!scrapeUrl) return null;
 
     return (
         <View
@@ -23,11 +55,19 @@ export default function DownloadWebViewHost() {
             pointerEvents={isVisible ? 'auto' : 'none'}
         >
             {isVisible && (
-                <Text style={[styles.tip, { backgroundColor: colors.surface, color: colors.text }]}>
-                    {isCaptchaBlocked
-                        ? '防護網啟動中，請先勾選「我不是機器人」以繼續下載'
-                        : '請稍候，正在載入中...'}
-                </Text>
+                <View style={styles.header}>
+                    <Text style={[styles.tip, { backgroundColor: colors.surface, color: colors.text }]}>
+                        {isCaptchaBlocked
+                            ? '遇到防護網，請協助完成驗證'
+                            : '請稍候，正在載入中...'}
+                    </Text>
+                    <TouchableOpacity 
+                        style={styles.cancelBtn} 
+                        onPress={() => activeTask && cancelDownload(activeTask.url)}
+                    >
+                        <Text style={styles.cancelText}>取消</Text>
+                    </TouchableOpacity>
+                </View>
             )}
             <View style={[styles.webviewWrapper, isVisible ? styles.webviewVisible : styles.webviewHidden]}>
                 <WebView
@@ -37,6 +77,7 @@ export default function DownloadWebViewHost() {
                         var _checkDone = false;
                         var _checkInterval = setInterval(function() {
                             if (_checkDone) return;
+                            if (window.location.href === 'about:blank' || !document.body || document.body.innerHTML.trim() === '') return;
                             var title = document.title || '';
                             if (title.indexOf('Just a moment') === -1 &&
                                 title.indexOf('Cloudflare') === -1 &&
@@ -85,6 +126,24 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
         zIndex: -1,
         opacity: 0,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
+        gap: 10,
+    },
+    cancelBtn: {
+        backgroundColor: '#FF3B30',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 8,
+    },
+    cancelText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
     },
     tip: {
         textAlign: 'center',

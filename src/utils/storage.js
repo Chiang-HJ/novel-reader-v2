@@ -3,38 +3,53 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 const NOVELS_KEY = '@novels_list';
 
-export const saveNovelToBookshelf = async (novelInfo) => {
-    const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
-    let currentList = currentListStr ? JSON.parse(currentListStr) : [];
-    
-    const existing = currentList.find(n => n.id === novelInfo.id);
-    currentList = currentList.filter(n => n.id !== novelInfo.id);
-    
-    currentList.unshift({
-        ...existing,
-        id: novelInfo.id,
-        url: novelInfo.url,
-        title: novelInfo.title,
-        cover: novelInfo.cover,
-        chapters: novelInfo.chapters,
-        chapterCount: novelInfo.chapters ? novelInfo.chapters.length : (novelInfo.chapterCount || 0),
-        progressIndex: existing ? existing.progressIndex : 0,
-        progressSentence: existing ? existing.progressSentence : 0,
-        downloadedChapters: novelInfo.downloadedChapters !== undefined ? novelInfo.downloadedChapters : (existing ? existing.downloadedChapters : 0)
-    });
-    await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+// Helper to get individual novel key
+const getNovelKey = (id) => `@novel_meta_${id}`;
+
+// Concurrency Mutex
+let storageMutex = Promise.resolve();
+const lockStorage = async (task) => {
+    let release;
+    const next = new Promise(resolve => release = resolve);
+    const prev = storageMutex;
+    storageMutex = storageMutex.then(() => next);
+    try {
+        await prev;
+        return await task();
+    } finally {
+        release();
+    }
 };
 
-export const moveNovelToFolder = async (novelId, folderId) => {
-    const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
-    if (!currentListStr) return;
-    const currentList = JSON.parse(currentListStr);
-    
-    const index = currentList.findIndex(n => n.id === novelId);
-    if (index !== -1) {
-        currentList[index].folderId = folderId;
+export const saveNovelToBookshelf = async (novelInfo) => {
+    return lockStorage(async () => {
+        // Save lightweight summary to list
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        
+        const existing = currentList.find(n => n.id === novelInfo.id);
+        currentList = currentList.filter(n => n.id !== novelInfo.id);
+        
+        const summary = {
+            id: novelInfo.id,
+            url: novelInfo.url,
+            title: novelInfo.title,
+            cover: novelInfo.cover,
+            chapterCount: novelInfo.chapters ? novelInfo.chapters.length : (novelInfo.chapterCount || 0),
+            progressIndex: existing ? existing.progressIndex : 0,
+            progressSentence: existing ? existing.progressSentence : 0,
+            downloadedChapters: novelInfo.downloadedChapters !== undefined ? novelInfo.downloadedChapters : (existing ? existing.downloadedChapters : 0),
+            folderId: existing ? existing.folderId : null,
+            isHidden: existing ? existing.isHidden : false
+        };
+        
+        currentList.unshift(summary);
         await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
-    }
+
+        // Save heavy full metadata (with chapters) to separate key
+        const fullNovel = { ...novelInfo, ...summary };
+        await AsyncStorage.setItem(getNovelKey(novelInfo.id), JSON.stringify(fullNovel));
+    });
 };
 
 export const getBookshelf = async () => {
@@ -42,97 +57,249 @@ export const getBookshelf = async () => {
         const listStr = await AsyncStorage.getItem(NOVELS_KEY);
         return listStr ? JSON.parse(listStr) : [];
     } catch (e) {
-        console.error('getBookshelf error:', e);
+        console.error('getBookshelf error', e);
         return [];
     }
 };
 
-export const getNovelById = async (novelId) => {
-    const list = await getBookshelf();
-    return list.find(n => n.id === novelId);
+export const getNovelMetadata = async (novelId) => {
+    try {
+        const dataStr = await AsyncStorage.getItem(getNovelKey(novelId));
+        if (dataStr) return JSON.parse(dataStr);
+        
+        // Backward compatibility: fetch from list if separate key not found
+        const list = await getBookshelf();
+        return list.find(n => n.id === novelId);
+    } catch (e) {
+        console.error('getNovelMetadata error', e);
+        return null;
+    }
 };
 
-export const updateReadingProgress = async (novelId, chapterIndex, sentenceIndex) => {
+export const updateNovelMetadata = async (novelId, updates) => {
+    return lockStorage(async () => {
+        // Update full metadata
+        const fullNovel = await getNovelMetadata(novelId);
+        if (fullNovel) {
+            const updatedNovel = { ...fullNovel, ...updates };
+            await AsyncStorage.setItem(getNovelKey(novelId), JSON.stringify(updatedNovel));
+        }
+
+        // Update list summary
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        const index = currentList.findIndex(n => n.id === novelId);
+        if (index !== -1) {
+            currentList[index] = { ...currentList[index], ...updates };
+            // Ensure chapters array isn't accidentally pushed back into the list
+            delete currentList[index].chapters;
+            await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        }
+    });
+};
+
+export const moveNovelToFolder = async (novelId, folderId) => {
+    await updateNovelMetadata(novelId, { folderId });
+};
+
+export const toggleNovelVisibility = async (novelId) => {
     const list = await getBookshelf();
-    const index = list.findIndex(n => n.id === novelId);
-    if (index !== -1) {
-        list[index].progressIndex = chapterIndex;
-        list[index].progressSentence = sentenceIndex;
-        await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(list));
+    const novel = list.find(n => n.id === novelId);
+    if (novel) {
+        await updateNovelMetadata(novelId, { isHidden: !novel.isHidden });
     }
+};
+
+export const updateReadingProgress = async (novelId, progressIndex, progressSentence = 0) => {
+    await updateNovelMetadata(novelId, { progressIndex, progressSentence });
 };
 
 export const deleteNovel = async (novelId) => {
-    const list = await getBookshelf();
-    const newList = list.filter(n => n.id !== novelId);
-    await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(newList));
-    
-    const dir = getNovelDir(novelId);
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (dirInfo.exists) {
-        await FileSystem.deleteAsync(dir, { idempotent: true });
+    return lockStorage(async () => {
+        // Remove from list
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        currentList = currentList.filter(n => n.id !== novelId);
+        await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+
+        // Remove full metadata
+        await AsyncStorage.removeItem(getNovelKey(novelId));
+
+        // Delete files
+        const folderPath = `${FileSystem.documentDirectory}novels/${novelId}/`;
+        try {
+            const info = await FileSystem.getInfoAsync(folderPath);
+            if (info.exists) {
+                await FileSystem.deleteAsync(folderPath, { idempotent: true });
+            }
+        } catch (e) {
+            console.error('Failed to delete novel files', e);
+        }
+    });
+};
+
+
+export const getNovelById = getNovelMetadata;
+
+export const getNovelDir = (novelId) => {
+    return `${FileSystem.documentDirectory}novels/${novelId}/`;
+};
+
+export const saveChapterText = async (novelId, chapterIndex, title, text) => {
+    const folderPath = getNovelDir(novelId);
+    try {
+        const info = await FileSystem.getInfoAsync(folderPath);
+        if (!info.exists) {
+            await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+        }
+        
+        // We use chapterIndex for backward compatibility, but we should make sure it's safely written
+        const fileId = typeof chapterIndex === 'number' ? chapterIndex.toString() : chapterIndex;
+        const filePath = `${folderPath}${fileId}.json`;
+        
+        const data = { title, text, id: fileId };
+        await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+        
+        return fileId;
+    } catch (e) {
+        console.error('Error saving chapter text', e);
+        throw e;
     }
 };
 
-export const getStorageUsage = async () => {
+export const getChapterText = async (novelId, fileId) => {
+    // Add .json if missing
+    let fileName = typeof fileId === 'number' ? fileId.toString() : fileId;
+    if (!fileName.endsWith('.json')) {
+        fileName = fileName + '.json';
+    }
+
+    const filePath = `${getNovelDir(novelId)}${fileName}`;
     try {
-        const novelsDir = FileSystem.documentDirectory + 'novels/';
-        const dirInfo = await FileSystem.getInfoAsync(novelsDir);
-        if (!dirInfo.exists) return '0 MB';
+        const info = await FileSystem.getInfoAsync(filePath);
+        if (info.exists) {
+            const content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+            return JSON.parse(content);
+        }
+        return null;
+    } catch (e) {
+        console.error('Error reading chapter text', e);
+        return null;
+    }
+};
 
-        let totalBytes = 0;
-        let fileCount = 0;
+export const deleteChapterData = async (novelId, fileId) => {
+    let fileName = typeof fileId === 'number' ? fileId.toString() : fileId;
+    if (!fileName.endsWith('.json')) fileName = fileName + '.json';
+    const filePath = `${getNovelDir(novelId)}${fileName}`;
+    try {
+        const info = await FileSystem.getInfoAsync(filePath);
+        if (info.exists) {
+            await FileSystem.deleteAsync(filePath, { idempotent: true });
+        }
+    } catch (e) {
+        console.error('Error deleting chapter file', e);
+    }
+};
+
+export const addChapterData = async (novelId, insertIndex, title, text) => {
+    return lockStorage(async () => {
+        const fullNovel = await getNovelMetadata(novelId);
+        if (!fullNovel) throw new Error('Novel not found');
         
-        // Helper to yield back to JS thread so UI doesn't freeze during heavy async iteration
-        const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
+        // Shift existing chapter files down to make room
+        for (let i = fullNovel.chapters.length - 1; i >= insertIndex; i--) {
+            const oldPath = `${getNovelDir(novelId)}${i}.json`;
+            const newPath = `${getNovelDir(novelId)}${i + 1}.json`;
+            try {
+                const info = await FileSystem.getInfoAsync(oldPath);
+                if (info.exists) {
+                    await FileSystem.moveAsync({ from: oldPath, to: newPath });
+                }
+            } catch (e) {
+                console.error('Error shifting chapter file', e);
+            }
+        }
+        
+        // Save the new chapter
+        await saveChapterText(novelId, insertIndex, title, text);
+        
+        // Update chapters array
+        const newChapter = { title, url: insertIndex };
+        fullNovel.chapters.splice(insertIndex, 0, newChapter);
+        
+        // Update URLs for shifted chapters
+        for (let i = insertIndex + 1; i < fullNovel.chapters.length; i++) {
+            fullNovel.chapters[i].url = i;
+        }
+        
+        fullNovel.chapterCount = fullNovel.chapters.length;
+        
+        // Update metadata
+        await AsyncStorage.setItem(getNovelKey(novelId), JSON.stringify(fullNovel));
+        
+        // Update list summary
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        const idx = currentList.findIndex(n => n.id === novelId);
+        if (idx !== -1) {
+            currentList[idx].chapterCount = fullNovel.chapterCount;
+            await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        }
+    });
+};
 
-        const novels = await FileSystem.readDirectoryAsync(novelsDir);
-        for (const novelId of novels) {
-            const novelPath = novelsDir + novelId + '/';
-            const novelInfo = await FileSystem.getInfoAsync(novelPath);
-            if (novelInfo.isDirectory) {
-                const chapters = await FileSystem.readDirectoryAsync(novelPath);
-                for (const chapter of chapters) {
-                    const chapterInfo = await FileSystem.getInfoAsync(novelPath + chapter);
-                    if (chapterInfo.exists) {
-                        totalBytes += chapterInfo.size || 0;
+export const splitChapterData = async (novelId, index, newChaptersData) => {
+    return lockStorage(async () => {
+        const fullNovel = await getNovelMetadata(novelId);
+        if (!fullNovel) throw new Error('Novel not found');
+        
+        const shiftCount = newChaptersData.length - 1;
+        
+        // Shift existing chapter files down to make room
+        if (shiftCount > 0) {
+            for (let i = fullNovel.chapters.length - 1; i > index; i--) {
+                const oldPath = `${getNovelDir(novelId)}${i}.json`;
+                const newPath = `${getNovelDir(novelId)}${i + shiftCount}.json`;
+                try {
+                    const info = await FileSystem.getInfoAsync(oldPath);
+                    if (info.exists) {
+                        await FileSystem.moveAsync({ from: oldPath, to: newPath });
                     }
-                    
-                    fileCount++;
-                    // Yield every 50 files to prevent JS thread starvation / touch unresponsiveness
-                    if (fileCount % 50 === 0) {
-                        await yieldToMain();
-                    }
+                } catch (e) {
+                    console.error('Error shifting chapter file', e);
                 }
             }
         }
         
-        const mb = totalBytes / (1024 * 1024);
-        return mb.toFixed(2) + ' MB';
-    } catch (e) {
-        console.warn('Failed to calculate storage', e);
-        return '未知';
-    }
-};
-
-export const getNovelDir = (novelId) => {
-    return FileSystem.documentDirectory + `novels/${novelId}/`;
-};
-
-export const saveChapterText = async (novelId, chapterIndex, title, text) => {
-    const dir = getNovelDir(novelId);
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    }
-    const filePath = dir + `${chapterIndex}.json`;
-    await FileSystem.writeAsStringAsync(filePath, JSON.stringify({ title, text }));
-};
-
-export const getChapterText = async (novelId, chapterIndex) => {
-    const filePath = getNovelDir(novelId) + `${chapterIndex}.json`;
-    const info = await FileSystem.getInfoAsync(filePath);
-    if (!info.exists) return null;
-    const content = await FileSystem.readAsStringAsync(filePath);
-    return JSON.parse(content);
+        // Save the new chapters
+        for (let i = 0; i < newChaptersData.length; i++) {
+            const ch = newChaptersData[i];
+            const path = `${getNovelDir(novelId)}${index + i}.json`;
+            await FileSystem.writeAsStringAsync(path, JSON.stringify({ title: ch.title, text: ch.text }));
+        }
+        
+        // Update chapters array
+        const insertedChapters = newChaptersData.map((ch, i) => ({ title: ch.title, url: index + i }));
+        fullNovel.chapters.splice(index, 1, ...insertedChapters);
+        
+        // Update URLs for shifted chapters
+        for (let i = index + newChaptersData.length; i < fullNovel.chapters.length; i++) {
+            fullNovel.chapters[i].url = i;
+        }
+        
+        fullNovel.chapterCount = fullNovel.chapters.length;
+        
+        // Update metadata
+        await AsyncStorage.setItem(getNovelKey(novelId), JSON.stringify(fullNovel));
+        
+        // Update list summary
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        const idx = currentList.findIndex(n => n.id === novelId);
+        if (idx !== -1) {
+            currentList[idx].chapterCount = fullNovel.chapterCount;
+            await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        }
+    });
 };

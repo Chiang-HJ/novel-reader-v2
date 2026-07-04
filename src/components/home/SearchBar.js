@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Text } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet, Text, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
-export default function SearchBar({ searchInput, setSearchInput, onSearch, colors }) {
+export default function SearchBar({ searchInput, setSearchInput, onSearch, onImportText, onImportFile, colors }) {
     const handlePaste = async () => {
         const text = await Clipboard.getStringAsync();
         if (text) {
@@ -21,7 +21,7 @@ export default function SearchBar({ searchInput, setSearchInput, onSearch, color
                 <Feather name="link" size={20} color={colors.textSecondary} style={styles.icon} />
                 <TextInput 
                     style={[styles.input, { backgroundColor: colors.surface, color: colors.text }]}
-                    placeholder="請貼上小說狂人 (czbooks) 網址..."
+                    placeholder="搜尋書名、作者或貼上網址下載..."
                     placeholderTextColor={colors.textSecondary}
                     value={searchInput}
                     onChangeText={setSearchInput}
@@ -38,17 +38,27 @@ export default function SearchBar({ searchInput, setSearchInput, onSearch, color
                 </TouchableOpacity>
             </View>
             
-            <View style={styles.actionRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRow}>
                 <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.surface }]} onPress={handleClear}>
                     <Feather name="x-circle" size={16} color={colors.textSecondary} style={{ marginRight: 6 }} />
-                    <Text style={{ color: colors.textSecondary, fontSize: 14, fontWeight: '600' }}>清除內容</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 14, fontWeight: '600' }}>清除</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.surface }]} onPress={handlePaste}>
                     <Feather name="clipboard" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '600' }}>貼上連結</Text>
+                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '600' }}>貼上網址</Text>
                 </TouchableOpacity>
-            </View>
+
+                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.surface }]} onPress={onImportText}>
+                    <Feather name="edit-3" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '600' }}>貼上文字</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary }]} onPress={onImportFile}>
+                    <Feather name="file-plus" size={16} color="white" style={{ marginRight: 6 }} />
+                    <Text style={{ color: "white", fontSize: 14, fontWeight: '600' }}>匯入檔案</Text>
+                </TouchableOpacity>
+            </ScrollView>
         </View>
     );
 }

@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder } from '../utils/storage';
+import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, toggleNovelVisibility } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { useDownload } from '../context/DownloadContext';
+
+import * as FileSystem from 'expo-file-system/legacy';
+import * as DocumentPicker from 'expo-document-picker';
+import { parseEpub } from '../utils/epubParser';
+import { convertS2T } from '../utils/opencc';
 
 import SearchBar from '../components/home/SearchBar';
 import DownloadProgress from '../components/home/DownloadProgress';
@@ -27,6 +32,16 @@ export default function HomeScreen({ navigation }) {
     const [selectedNovel, setSelectedNovel] = useState(null);
     const [newFolderName, setNewFolderName] = useState('');
 
+    const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+    const [importTitle, setImportTitle] = useState('');
+    const [importText, setImportText] = useState('');
+    const [isImporting, setIsImporting] = useState(false);
+    const [splitRegexStr, setSplitRegexStr] = useState('第[零一二三四五六七八九十百千万0-9]+[章回節][^\\n]*');
+
+    const [isOptionsModalVisible, setIsOptionsModalVisible] = useState(false);
+    const [editTitle, setEditTitle] = useState('');
+    const [editAuthor, setEditAuthor] = useState('');
+
     useEffect(() => {
         const unsubscribe = navigation.addListener('focus', () => {
             loadBookshelf();
@@ -40,7 +55,7 @@ export default function HomeScreen({ navigation }) {
 
     const loadBookshelf = async () => {
         const list = await getBookshelf();
-        setBookshelf(list.filter(n => !n.folderId)); // Only show uncategorized novels
+        setBookshelf(list.filter(n => !n.folderId && !n.isHidden)); // Exclude hidden books and folders from main view
         setFolders(await getFolders());
         setStorageUsage(await getStorageUsage());
     };
@@ -67,11 +82,10 @@ export default function HomeScreen({ navigation }) {
                     }
                 }
             } else {
-                Alert.alert('解鎖提示', '因環境限制，直接為您開啟金庫', [{ text: '確定', onPress: () => navigation.navigate('Vault') }]);
+                Alert.alert('解鎖失敗', '請先至系統設定中啟用生物辨識（Face ID / Touch ID）或設定密碼。');
             }
         } catch (e) {
-            Alert.alert('解鎖發生錯誤', e.message + '\n\n直接為您進入金庫！');
-            navigation.navigate('Vault');
+            Alert.alert('解鎖發生錯誤', e.message);
         }
     };
 
@@ -114,17 +128,247 @@ export default function HomeScreen({ navigation }) {
         const input = searchInput.trim();
         if (!input) return;
         
-        if ((input.startsWith('http://') || input.startsWith('https://')) && input.includes('czbooks')) {
+        if (input.startsWith('http://') || input.startsWith('https://')) {
             if (queue.some(q => q.url === input) || activeTask?.url === input) {
-                Alert.alert('提示', '這個網址已經在下載排程中囉！');
+                Alert.alert('提示', '這個網址已經在下載序列中了');
             } else {
                 startDownload(input);
             }
         } else {
-            Alert.alert('輸入錯誤', '為確保穩定性，目前僅支援「貼上小說狂人 (czbooks) 的網址」進行下載，暫時移除書名搜尋功能。');
+            Alert.alert('輸入錯誤', '這不是網址，目前支援從狂人網與微風小說網下載 (例如 czbooks, wyblogs 等)。');
         }
         setSearchInput('');
     };
+
+    const openOptionsModal = (novel) => {
+        setSelectedNovel(novel);
+        setEditTitle(novel.title || '');
+        setEditAuthor(novel.author || '');
+        setIsOptionsModalVisible(true);
+    };
+
+    const handleEditNovel = async () => {
+        if (!selectedNovel) return;
+        if (!editTitle.trim()) {
+            Alert.alert('提示', '書名不能為空');
+            return;
+        }
+        await updateNovelMetadata(selectedNovel.id, {
+            title: editTitle.trim(),
+            author: editAuthor.trim()
+        });
+        setIsOptionsModalVisible(false);
+        setSelectedNovel(null);
+        loadBookshelf();
+    };
+
+    const handleToggleVisibility = async (novel) => {
+        await toggleNovelVisibility(novel.id);
+        if (isOptionsModalVisible) {
+            setIsOptionsModalVisible(false);
+            setSelectedNovel(null);
+        }
+        loadBookshelf();
+    };
+
+        const processLargeTextImport = async (title, rawContent) => {
+        setIsImporting(true);
+        try {
+            const novelId = 'manual_' + Date.now();
+            let chapters = [];
+            
+            // Yield UI
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Normalize newlines and convert to Traditional Chinese
+            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+            let textData = rawContent.replace(/\r\n/g, '\n');
+            textData = converter(textData);
+
+            // Yield UI
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            let headingRegex;
+            try {
+                headingRegex = new RegExp('(' + splitRegexStr + ')', 'g');
+            } catch (e) {
+                Alert.alert('正則表達式錯誤', '您輸入的章節分割規則格式有誤。');
+                setIsImporting(false);
+                return;
+            }
+
+            const parts = textData.split(headingRegex);
+
+            if (parts.length > 1) {
+                let chapterIndex = 0;
+                
+                if (parts[0].trim().length > 0) {
+                    chapters.push({ title: '前言/簡介', id: chapterIndex });
+                    await saveChapterText(novelId, chapterIndex, '前言/簡介', parts[0].trim());
+                    chapterIndex++;
+                }
+
+                for (let i = 1; i < parts.length; i += 2) {
+                    const chTitle = parts[i].trim();
+                    const textContent = parts[i + 1] ? parts[i + 1].trim() : '';
+                    
+                    if (textContent.length === 0) continue;
+
+                    chapters.push({ title: chTitle, id: chapterIndex });
+                    await saveChapterText(novelId, chapterIndex, chTitle, textContent);
+                    chapterIndex++;
+
+                    if (i % 50 === 1) {
+                        await new Promise(resolve => setTimeout(resolve, 0)); // Yield UI
+                    }
+                }
+            } else {
+                const lines = textData.trim().split('\n');
+                const MAX_CHARS = 10000;
+                let currentChunkLines = [];
+                let currentLength = 0;
+                let chapterIndex = 0;
+
+                for (let i = 0; i < lines.length; i++) {
+                    currentChunkLines.push(lines[i]);
+                    currentLength += lines[i].length + 1;
+
+                    if (currentLength > MAX_CHARS) {
+                        const chTitle = `第 ${chapterIndex + 1} 部分`;
+                        const chunkText = currentChunkLines.join('\n');
+                        chapters.push({ title: chTitle, id: chapterIndex });
+                        await saveChapterText(novelId, chapterIndex, chTitle, chunkText);
+                        chapterIndex++;
+                        currentChunkLines = [];
+                        currentLength = 0;
+                        await new Promise(resolve => setTimeout(resolve, 0)); // Yield UI
+                    }
+                }
+                if (currentChunkLines.length > 0) {
+                    const chTitle = `第 ${chapterIndex + 1} 部分`;
+                    chapters.push({ title: chTitle, id: chapterIndex });
+                    await saveChapterText(novelId, chapterIndex, chTitle, currentChunkLines.join('\n'));
+                }
+            }
+
+            const novelInfo = {
+                id: novelId,
+                title: title.trim(),
+                author: '自訂匯入',
+                cover: '',
+                url: 'manual',
+                chapters,
+                chapterCount: chapters.length,
+                downloadedChapters: chapters.length,
+            };
+
+            await saveNovelToBookshelf(novelInfo);
+            setIsImportModalVisible(false);
+            setImportTitle('');
+            setImportText('');
+            loadBookshelf();
+            
+            Alert.alert('成功', '小說匯入完成！');
+        } catch (error) {
+            console.error('Import error:', error);
+            Alert.alert('錯誤', '匯入過程中發生問題');
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
+    const handleImportText = () => {
+        if (!importTitle.trim()) {
+            Alert.alert('提示', '請輸入小說名稱');
+            return;
+        }
+        if (!importText.trim()) {
+            Alert.alert('提示', '請輸入或貼上小說內容');
+            return;
+        }
+        processLargeTextImport(importTitle, importText);
+    };
+
+    const handleFileImport = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['text/plain', 'application/epub+zip', 'application/epub'],
+                copyToCacheDirectory: true
+            });
+
+            if (result.canceled || !result.assets || result.assets.length === 0) {
+                return;
+            }
+
+            const file = result.assets[0];
+            setIsImporting(true);
+            
+            if (file.name.toLowerCase().endsWith('.epub')) {
+                // Handle EPUB
+                try {
+                    const parsed = await parseEpub(file.uri);
+                    const novelId = 'novel_epub_' + Date.now();
+                    
+                    for (let i = 0; i < parsed.chapters.length; i++) {
+                        await saveChapterText(novelId, i, parsed.chapters[i].title, parsed.chapters[i].text);
+                    }
+                    
+                    const novelInfo = {
+                        id: novelId,
+                        title: parsed.title,
+                        author: parsed.author,
+                        cover: '',
+                        url: 'local_epub',
+                        chapters: parsed.chapters.map((c, i) => ({ title: c.title, url: `local_${i}` })),
+                        chapterCount: parsed.chapters.length,
+                        downloadedChapters: parsed.chapters.length,
+                    };
+                    
+                    await saveNovelToBookshelf(novelInfo);
+                    loadBookshelf();
+                    Alert.alert('成功', 'EPUB 匯入完成！');
+                } catch (e) {
+                    console.error('EPUB parse error:', e);
+                    Alert.alert('錯誤', '無法解析 EPUB 檔案: ' + e.message);
+                }
+            } else if (file.name.toLowerCase().endsWith('.txt')) {
+                // Handle TXT
+                const txtContent = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
+                const baseName = file.name.replace('.txt', '');
+                
+                Alert.alert(
+                    '確認匯入',
+                    `即將匯入文字檔：${file.name}\n\n(系統將使用您在手動匯入視窗中設定的「章節分割規則」來切分)`,
+                    [
+                        { text: '取消', style: 'cancel' },
+                        { 
+                            text: '開始匯入', 
+                            onPress: () => processLargeTextImport(baseName, txtContent) 
+                        }
+                    ]
+                );
+            } else {
+                Alert.alert('不支援的格式', '目前只支援 .txt 與 .epub 檔案');
+            }
+        } catch (error) {
+            console.error('File import error:', error);
+            Alert.alert('錯誤', '選取檔案時發生問題');
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
+    const filteredBookshelf = React.useMemo(() => {
+        return bookshelf.filter(novel => {
+            // Apply search filter (unless searchInput is a URL)
+            if (searchInput.trim() && !searchInput.trim().startsWith('http')) {
+                const query = searchInput.trim().toLowerCase();
+                return (novel.title && novel.title.toLowerCase().includes(query)) || 
+                       (novel.author && novel.author.toLowerCase().includes(query));
+            }
+            return true;
+        });
+    }, [bookshelf, searchInput]);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -145,13 +389,14 @@ export default function HomeScreen({ navigation }) {
             </BlurView>
 
             <FlatList 
-                data={bookshelf}
-                keyExtractor={item => item.id}
+                data={filteredBookshelf}
+                keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
                 contentContainerStyle={{ paddingBottom: 40, paddingTop: 130 }}
                 renderItem={({ item }) => (
                     <NovelListItem 
                         item={item}
                         onPress={() => navigation.navigate('Reader', { novelId: item.id, title: item.title })}
+                        onLongPress={() => openOptionsModal(item)}
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}
                         colors={colors}
@@ -166,6 +411,8 @@ export default function HomeScreen({ navigation }) {
                             searchInput={searchInput} 
                             setSearchInput={setSearchInput} 
                             onSearch={handleSearchOrDownload} 
+                            onImportText={() => setIsImportModalVisible(true)}
+                            onImportFile={handleFileImport}
                             colors={colors} 
                         />
                         
@@ -177,9 +424,11 @@ export default function HomeScreen({ navigation }) {
                             colors={colors} 
                         />
                         
-                        <View style={styles.sectionHeader}>
-                            <Text style={[styles.sectionTitle, { color: colors.text }]}>我的書櫃</Text>
-                            <Text style={[styles.storageText, { color: colors.textSecondary }]}>使用空間: {storageUsage}</Text>
+                        <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書櫃</Text>
+                            </View>
+                            <Text style={[styles.storageText, { color: colors.textSecondary, marginBottom: 0 }]}>使用空間: {storageUsage}</Text>
                         </View>
 
                         {folders.map(folder => (
@@ -252,6 +501,89 @@ export default function HomeScreen({ navigation }) {
                         </View>
                     </View>
                 </BlurView>
+            </Modal>
+            {/* Import Text Modal */}
+            <Modal visible={isImportModalVisible} transparent={true} animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '80%', padding: 20 }]}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>手動匯入小說</Text>
+                            <TouchableOpacity onPress={() => setIsImportModalVisible(false)} style={{padding: 5}}>
+                                <Feather name="x" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{flex: 1, width: '100%'}}>
+                            <TextInput
+                                style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
+                                placeholder="請輸入小說名稱..."
+                                placeholderTextColor={colors.textSecondary}
+                                value={importTitle}
+                                onChangeText={setImportTitle}
+                            />
+                            <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>章節分割規則 (Regular Expression)：</Text>
+                            <TextInput
+                                style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
+                                placeholder="正則表達式"
+                                placeholderTextColor={colors.textSecondary}
+                                value={splitRegexStr}
+                                onChangeText={setSplitRegexStr}
+                            />
+                            <TextInput
+                                style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, flex: 1, textAlignVertical: 'top', padding: 15, borderRadius: 8, marginBottom: 15 }]}
+                                placeholder={"請貼上整本小說的純文字內容...\n(系統將自動依據『第X章』來切割章節)"}
+                                placeholderTextColor={colors.textSecondary}
+                                value={importText}
+                                onChangeText={setImportText}
+                                multiline={true}
+                            />
+                            <TouchableOpacity 
+                                style={[{ backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center', opacity: isImporting ? 0.7 : 1 }]} 
+                                onPress={handleImportText}
+                                disabled={isImporting}
+                            >
+                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>
+                                    {isImporting ? '解析並匯入中...' : '開始解析並匯入'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+            {/* Options Modal */}
+            <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)}>
+                    <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>編輯書籍資訊</Text>
+                            <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}}>
+                                <Feather name="x" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>書名</Text>
+                        <TextInput
+                            style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
+                            value={editTitle}
+                            onChangeText={setEditTitle}
+                        />
+
+                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>作者</Text>
+                        <TextInput
+                            style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 20, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
+                            value={editAuthor}
+                            onChangeText={setEditAuthor}
+                        />
+
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={handleEditNovel}
+                            >
+                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>儲存變更</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
             </Modal>
         </View>
     );
