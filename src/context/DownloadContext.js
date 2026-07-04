@@ -26,6 +26,7 @@ export const DownloadProvider = ({ children }) => {
     const downloadingNovelIdRef = useRef(null);
     const scrapeModeRef = useRef(null);
     const initialFetchTimerRef = useRef(null);
+    const cachedHtmlRef = useRef(null);
 
     React.useEffect(() => {
         const loadQueue = async () => {
@@ -77,6 +78,7 @@ export const DownloadProvider = ({ children }) => {
             setActiveTask(null);
             activeTaskRef.current = null;
             setProgressText('');
+            cachedHtmlRef.current = null;
         }
     };
 
@@ -86,6 +88,7 @@ export const DownloadProvider = ({ children }) => {
         setProgressText('正在初始化下載與解析目錄...');
         scrapeModeRef.current = 'info';
         setScrapeMode('info');
+        cachedHtmlRef.current = null;
         let finalUrl = (task.url || '').trim();
         if (!finalUrl.startsWith('http')) {
             finalUrl = 'https://' + finalUrl;
@@ -131,6 +134,7 @@ export const DownloadProvider = ({ children }) => {
                     return; // Wait for user to interact and navigate
                 } else {
                     setIsCaptchaBlocked(false);
+                    cachedHtmlRef.current = parsed.html; // CACHE IT HERE!
                 }
 
                 downloadingNovelIdRef.current = novelInfo.id;
@@ -171,60 +175,68 @@ export const DownloadProvider = ({ children }) => {
                     setProgressText(`背景下載中... ${i + 1}/${novelInfo.chapters.length}`);
                     const chapterUrl = novelInfo.chapters[i].url;
 
-                    const html = await new Promise((resolve) => {
-                        let timerId;
-                        const cleanupAndResolve = (val) => {
-                            clearTimeout(timerId);
-                            resolve(val);
-                        };
-                        chapterHtmlResolveRef.current = cleanupAndResolve;
-                        const code = `
-                            (function() {
-                                var _extractContent = function() {
-                                    var el = document.querySelector('article') ||
-                                             document.querySelector('.post-content') ||
-                                             document.querySelector('.post-body') ||
-                                             document.querySelector('.entry-content') ||
-                                             document.querySelector('#content') ||
-                                             document.body;
-                                    return el ? el.innerHTML : document.body.innerHTML;
-                                };
-                                try {
-                                    var currentUrl = decodeURIComponent(document.location.href.split('#')[0].split('?')[0]);
-                                } catch(e) {
-                                    var currentUrl = document.location.href.split('#')[0].split('?')[0];
-                                }
-                                try {
-                                    var targetUrl = decodeURIComponent('${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0]);
-                                } catch(e) {
-                                    var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
-                                }
-                                
-                                // If the chapter is on the same page (single-page novel), just return the extracted content
-                                if (currentUrl === targetUrl) {
-                                    var extracted = _extractContent();
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: extracted }));
-                                    return;
-                                }
+                    let html;
+                    const cleanChapterUrl = chapterUrl.split('#')[0].split('?')[0];
+                    const cleanScrapeUrl = (task?.url || '').split('#')[0].split('?')[0];
 
-                                fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { redirect: 'follow' })
-                                    .then(function(res) { return res.text(); })
-                                    .then(function(text) {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
-                                    })
-                                    .catch(function(e) {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: '' }));
-                                    });
-                            })();
-                            true;
-                        `;
-                        if (webViewRef.current) {
-                            webViewRef.current.injectJavaScript(code);
-                        } else {
-                            cleanupAndResolve('');
-                        }
-                        timerId = setTimeout(() => cleanupAndResolve(''), 15000);
-                    });
+                    if (cleanChapterUrl === cleanScrapeUrl && cachedHtmlRef.current) {
+                        html = cachedHtmlRef.current;
+                    } else {
+                        html = await new Promise((resolve) => {
+                            let timerId;
+                            const cleanupAndResolve = (val) => {
+                                clearTimeout(timerId);
+                                resolve(val);
+                            };
+                            chapterHtmlResolveRef.current = cleanupAndResolve;
+                            const code = `
+                                (function() {
+                                    var _extractContent = function() {
+                                        var el = document.querySelector('article') ||
+                                                 document.querySelector('.post-content') ||
+                                                 document.querySelector('.post-body') ||
+                                                 document.querySelector('.entry-content') ||
+                                                 document.querySelector('#content') ||
+                                                 document.body;
+                                        return el ? el.innerHTML : document.body.innerHTML;
+                                    };
+                                    try {
+                                        var currentUrl = decodeURIComponent(document.location.href.split('#')[0].split('?')[0]);
+                                    } catch(e) {
+                                        var currentUrl = document.location.href.split('#')[0].split('?')[0];
+                                    }
+                                    try {
+                                        var targetUrl = decodeURIComponent('${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0]);
+                                    } catch(e) {
+                                        var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
+                                    }
+                                    
+                                    // If the chapter is on the same page (single-page novel), just return the extracted content
+                                    if (currentUrl === targetUrl) {
+                                        var extracted = _extractContent();
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: extracted }));
+                                        return;
+                                    }
+
+                                    fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { redirect: 'follow' })
+                                        .then(function(res) { return res.text(); })
+                                        .then(function(text) {
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
+                                        })
+                                        .catch(function(e) {
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: '' }));
+                                        });
+                                })();
+                                true;
+                            `;
+                            if (webViewRef.current) {
+                                webViewRef.current.injectJavaScript(code);
+                            } else {
+                                cleanupAndResolve('');
+                            }
+                            timerId = setTimeout(() => cleanupAndResolve(''), 15000);
+                        });
+                    }
 
                     if (cancelFlagRef.current.has(task?.url)) {
                         cancelFlagRef.current.delete(task?.url);
