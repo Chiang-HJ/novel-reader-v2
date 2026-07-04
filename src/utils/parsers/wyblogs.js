@@ -10,30 +10,31 @@ export const parseInfo = (html, url = '') => {
     let title = titleMatch ? titleMatch[1].replace('- sexy gay wyblogs', '').trim() : '未知書名';
 
     let content = '';
-    const articleStart = html.indexOf('<article');
-    const postBodyStart = html.indexOf('post-body');
-    const postContentStart = html.indexOf('post-content');
-    const entryContentStart = html.indexOf('entry-content');
+    const lowerHtml = html.toLowerCase();
+    const articleStart = lowerHtml.indexOf('<article');
+    const postBodyStart = lowerHtml.indexOf('post-body');
+    const postContentStart = lowerHtml.indexOf('post-content');
+    const entryContentStart = lowerHtml.indexOf('entry-content');
     
     let startIndex = -1;
     let endStr = '';
 
     if (articleStart !== -1) {
-        startIndex = html.indexOf('>', articleStart) + 1;
+        startIndex = lowerHtml.indexOf('>', articleStart) + 1;
         endStr = '</article>';
     } else if (postBodyStart !== -1) {
-        startIndex = html.indexOf('>', postBodyStart) + 1;
+        startIndex = lowerHtml.indexOf('>', postBodyStart) + 1;
         endStr = '</div>';
     } else if (postContentStart !== -1) {
-        startIndex = html.indexOf('>', postContentStart) + 1;
+        startIndex = lowerHtml.indexOf('>', postContentStart) + 1;
         endStr = '</div>';
     } else if (entryContentStart !== -1) {
-        startIndex = html.indexOf('>', entryContentStart) + 1;
+        startIndex = lowerHtml.indexOf('>', entryContentStart) + 1;
         endStr = '</div>';
     }
 
     if (startIndex !== -1 && startIndex !== 0) {
-        const endIndex = html.indexOf(endStr, startIndex);
+        const endIndex = lowerHtml.indexOf(endStr, startIndex);
         if (endIndex !== -1) {
             content = html.substring(startIndex, endIndex);
         }
@@ -84,30 +85,31 @@ export const parseInfo = (html, url = '') => {
 
 export const parseChapter = (html, url = '') => {
     let content = '';
-    const articleStart = html.indexOf('<article');
-    const postBodyStart = html.indexOf('post-body');
-    const postContentStart = html.indexOf('post-content');
-    const entryContentStart = html.indexOf('entry-content');
+    const lowerHtml = html.toLowerCase();
+    const articleStart = lowerHtml.indexOf('<article');
+    const postBodyStart = lowerHtml.indexOf('post-body');
+    const postContentStart = lowerHtml.indexOf('post-content');
+    const entryContentStart = lowerHtml.indexOf('entry-content');
     
     let startIndex = -1;
     let endStr = '';
 
     if (articleStart !== -1) {
-        startIndex = html.indexOf('>', articleStart) + 1;
+        startIndex = lowerHtml.indexOf('>', articleStart) + 1;
         endStr = '</article>';
     } else if (postBodyStart !== -1) {
-        startIndex = html.indexOf('>', postBodyStart) + 1;
+        startIndex = lowerHtml.indexOf('>', postBodyStart) + 1;
         endStr = '</div>';
     } else if (postContentStart !== -1) {
-        startIndex = html.indexOf('>', postContentStart) + 1;
+        startIndex = lowerHtml.indexOf('>', postContentStart) + 1;
         endStr = '</div>';
     } else if (entryContentStart !== -1) {
-        startIndex = html.indexOf('>', entryContentStart) + 1;
+        startIndex = lowerHtml.indexOf('>', entryContentStart) + 1;
         endStr = '</div>';
     }
 
     if (startIndex !== -1 && startIndex !== 0) {
-        const endIndex = html.indexOf(endStr, startIndex);
+        const endIndex = lowerHtml.indexOf(endStr, startIndex);
         if (endIndex !== -1) {
             content = html.substring(startIndex, endIndex);
         }
