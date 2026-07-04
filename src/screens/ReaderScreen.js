@@ -417,18 +417,13 @@ export default function ReaderScreen({ route, navigation }) {
         isTogglingRef.current = true;
         try {
             if (isPlayingRef.current) {
-                 else {
-                        playIdRef.current += 1; // Invalidate
-                        Speech.stop();
-                    }
-                }
+                playIdRef.current += 1;
+                Speech.stop();
                 setPlayingState(false);
             } else {
-                await setupAudio(); // Re-assert audio mode priority
+                await setupAudio();
                 setPlayingState(true);
                 if (isSpeechPausedRef.current) {
-                    
-                    }
                     isSpeechPausedRef.current = false;
                 } else {
                     playIdRef.current += 1;
