@@ -9,22 +9,48 @@ export const parseInfo = (html, url = '') => {
     let titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     let title = titleMatch ? titleMatch[1].replace('- sexy gay wyblogs', '').trim() : '未知書名';
 
-    let contentMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                       html.match(/<div[^>]*class=["'][^"']*post-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-                       html.match(/<div[^>]*class=["'][^"']*post-body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-                       html.match(/<div[^>]*class=["'][^"']*entry-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    let content = '';
+    const articleStart = html.indexOf('<article');
+    const postBodyStart = html.indexOf('post-body');
+    const postContentStart = html.indexOf('post-content');
+    const entryContentStart = html.indexOf('entry-content');
+    
+    let startIndex = -1;
+    let endStr = '';
+
+    if (articleStart !== -1) {
+        startIndex = html.indexOf('>', articleStart) + 1;
+        endStr = '</article>';
+    } else if (postBodyStart !== -1) {
+        startIndex = html.indexOf('>', postBodyStart) + 1;
+        endStr = '</div>';
+    } else if (postContentStart !== -1) {
+        startIndex = html.indexOf('>', postContentStart) + 1;
+        endStr = '</div>';
+    } else if (entryContentStart !== -1) {
+        startIndex = html.indexOf('>', entryContentStart) + 1;
+        endStr = '</div>';
+    }
+
+    if (startIndex !== -1 && startIndex !== 0) {
+        const endIndex = html.indexOf(endStr, startIndex);
+        if (endIndex !== -1) {
+            content = html.substring(startIndex, endIndex);
+        }
+    }
+
     let chapters = [];
 
-    if (!contentMatch) {
-        // If we can't find the article tag, it might be blocked by Cloudflare or a network error.
+    if (!content) {
+        // If we can't find the content tag, it might be blocked by Cloudflare or a network error.
         // Returning null prevents the app from saving a corrupted '未知書名' book.
         return null;
     }
 
-    if (contentMatch) {
-        let content = contentMatch[1].replace(/<br\s*\/?>/gi, '\n').replace(/&nbsp;/gi, ' ').replace(/<[^>]+>/g, '');
+    if (content) {
+        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n').replace(/&nbsp;/gi, ' ').replace(/<[^>]+>/g, '');
         const headingRegex = /(第[零一二三四五六七八九十百千万0-9]+章[^\n]*)/g;
-        const parts = content.split(headingRegex);
+        const parts = cleanContent.split(headingRegex);
 
         if (parts.length > 1) {
             const numChapters = (parts.length - 1) / 2;
@@ -57,12 +83,39 @@ export const parseInfo = (html, url = '') => {
 };
 
 export const parseChapter = (html, url = '') => {
-    let contentMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                       html.match(/<div[^>]*class=["'][^"']*post-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-                       html.match(/<div[^>]*class=["'][^"']*entry-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-                       [null, html]; // Fallback to full HTML if tags are missing or modified by JS
+    let content = '';
+    const articleStart = html.indexOf('<article');
+    const postBodyStart = html.indexOf('post-body');
+    const postContentStart = html.indexOf('post-content');
+    const entryContentStart = html.indexOf('entry-content');
+    
+    let startIndex = -1;
+    let endStr = '';
 
-    let content = contentMatch[1];
+    if (articleStart !== -1) {
+        startIndex = html.indexOf('>', articleStart) + 1;
+        endStr = '</article>';
+    } else if (postBodyStart !== -1) {
+        startIndex = html.indexOf('>', postBodyStart) + 1;
+        endStr = '</div>';
+    } else if (postContentStart !== -1) {
+        startIndex = html.indexOf('>', postContentStart) + 1;
+        endStr = '</div>';
+    } else if (entryContentStart !== -1) {
+        startIndex = html.indexOf('>', entryContentStart) + 1;
+        endStr = '</div>';
+    }
+
+    if (startIndex !== -1 && startIndex !== 0) {
+        const endIndex = html.indexOf(endStr, startIndex);
+        if (endIndex !== -1) {
+            content = html.substring(startIndex, endIndex);
+        }
+    }
+
+    if (!content) {
+        content = html; // Fallback
+    }
     
     // 清理廣告與不必要的標籤
     content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
