@@ -49,7 +49,12 @@ export const parseInfo = (html, url = '') => {
     }
 
     if (content) {
-        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n').replace(/&nbsp;/gi, ' ').replace(/<[^>]+>/g, '').trim();
+        let cleanContent = content.replace(/<br\s*\/?>/gi, '\n')
+                                  .replace(/<\/p>/gi, '\n')
+                                  .replace(/<\/div>/gi, '\n')
+                                  .replace(/&nbsp;/gi, ' ')
+                                  .replace(/<[^>]+>/g, '')
+                                  .trim();
         
         if (!cleanContent) return null; // If it's completely empty after cleaning, it's invalid
 
@@ -128,6 +133,8 @@ export const parseChapter = (html, url = '') => {
     content = content.replace(/<ins[\s\S]*?<\/ins>/gi, '');
     
     content = content.replace(/<br\s*\/?>/gi, '\n');
+    content = content.replace(/<\/p>/gi, '\n');
+    content = content.replace(/<\/div>/gi, '\n');
     content = content.replace(/&nbsp;/g, ' ');
     content = content.replace(/<[^>]+>/g, '');
     content = content.replace(/[\r\n]+/g, '\n');

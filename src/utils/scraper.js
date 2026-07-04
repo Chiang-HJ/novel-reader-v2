@@ -15,7 +15,10 @@ export const parseNovelInfo = (html, url) => {
             }));
         }
     }
-    if (info && !info.id) info.id = encodeURIComponent(url);
+    if (info && !info.id) {
+        // Create a safe ID from URL for file system paths
+        info.id = url.replace(/[^a-zA-Z0-9]/g, '_');
+    }
     return info;
 };
 

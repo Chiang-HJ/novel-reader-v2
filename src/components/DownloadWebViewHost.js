@@ -20,15 +20,6 @@ export default function DownloadWebViewHost() {
             webViewRef.current.injectJavaScript(`
                 (function() {
                     var _manualCheckDone = false;
-                    var _extractContent = function() {
-                        var el = document.querySelector('article') ||
-                                 document.querySelector('.post-content') ||
-                                 document.querySelector('.post-body') ||
-                                 document.querySelector('.entry-content') ||
-                                 document.querySelector('#content') ||
-                                 document.body;
-                        return el ? el.innerHTML : document.body.innerHTML;
-                    };
                     var _manualCheckInterval = setInterval(function() {
                         if (_manualCheckDone) return;
                         if (window.location.href === 'about:blank' || !document.body || document.body.innerHTML.trim() === '') return;
@@ -40,12 +31,10 @@ export default function DownloadWebViewHost() {
                             clearInterval(_manualCheckInterval);
                             try {
                                 var mode = '${scrapeMode}';
-                                var extracted = _extractContent();
-                                var pageTitle = document.title || '';
                                 if (mode === 'chapter') {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: extracted }));
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
                                 } else {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: '<title>' + pageTitle + '</title>' + extracted, url: window.location.href }));
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: document.body.innerHTML, url: window.location.href }));
                                 }
                             } catch(e) {
                                 window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));
@@ -86,15 +75,6 @@ export default function DownloadWebViewHost() {
                     source={{ uri: scrapeUrl }}
                     injectedJavaScript={`
                         var _checkDone = false;
-                        var _extractContent = function() {
-                            var el = document.querySelector('article') ||
-                                     document.querySelector('.post-content') ||
-                                     document.querySelector('.post-body') ||
-                                     document.querySelector('.entry-content') ||
-                                     document.querySelector('#content') ||
-                                     document.body;
-                            return el ? el.innerHTML : document.body.innerHTML;
-                        };
                         var _checkInterval = setInterval(function() {
                             if (_checkDone) return;
                             if (window.location.href === 'about:blank' || !document.body || document.body.innerHTML.trim() === '') return;
@@ -106,12 +86,10 @@ export default function DownloadWebViewHost() {
                                 clearInterval(_checkInterval);
                                 try {
                                     var mode = '${scrapeMode}';
-                                    var extracted = _extractContent();
-                                    var pageTitle = document.title || '';
                                     if (mode === 'chapter') {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: extracted }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
                                     } else {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: '<title>' + pageTitle + '</title>' + extracted, url: window.location.href }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'novelInfoHtml', html: document.body.innerHTML, url: window.location.href }));
                                     }
                                 } catch(e) {
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));

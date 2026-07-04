@@ -181,9 +181,8 @@ export default function HomeScreen({ navigation }) {
             await new Promise(resolve => setTimeout(resolve, 10));
 
             // Normalize newlines and convert to Traditional Chinese
-            const converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
             let textData = rawContent.replace(/\r\n/g, '\n');
-            textData = converter(textData);
+            textData = convertS2T(textData);
 
             // Yield UI
             await new Promise(resolve => setTimeout(resolve, 10));

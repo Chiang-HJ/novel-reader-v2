@@ -191,15 +191,6 @@ export const DownloadProvider = ({ children }) => {
                             chapterHtmlResolveRef.current = cleanupAndResolve;
                             const code = `
                                 (function() {
-                                    var _extractContent = function() {
-                                        var el = document.querySelector('article') ||
-                                                 document.querySelector('.post-content') ||
-                                                 document.querySelector('.post-body') ||
-                                                 document.querySelector('.entry-content') ||
-                                                 document.querySelector('#content') ||
-                                                 document.body;
-                                        return el ? el.innerHTML : document.body.innerHTML;
-                                    };
                                     try {
                                         var currentUrl = decodeURIComponent(document.location.href.split('#')[0].split('?')[0]);
                                     } catch(e) {
@@ -211,10 +202,9 @@ export const DownloadProvider = ({ children }) => {
                                         var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
                                     }
                                     
-                                    // If the chapter is on the same page (single-page novel), just return the extracted content
+                                    // If the chapter is on the same page (single-page novel), just return the HTML
                                     if (currentUrl === targetUrl) {
-                                        var extracted = _extractContent();
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: extracted }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.body.innerHTML }));
                                         return;
                                     }
 
