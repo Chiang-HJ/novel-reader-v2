@@ -34,6 +34,7 @@ jobs:
           WORKSPACE=$(ls -1 | grep '\.xcworkspace$' | head -n 1)
           SCHEME=$(basename "$WORKSPACE" .xcworkspace)
           echo "Building Workspace: $WORKSPACE, Scheme: $SCHEME"
+          export NODE_BINARY=$(command -v node)
           xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -45,10 +46,15 @@ jobs:
             CODE_SIGNING_IDENTITY="" \
             SYMROOT=$PWD/build
 
+      - name: Force Bundle React Native JS
+        run: npx expo export:embed --platform ios --dev false --entry-file node_modules/expo/AppEntry.js --bundle-output ios/main.jsbundle --assets-dest ios/assets
+
       - name: Package into IPA
         run: |
           mkdir -p Payload
           mv ios/build/Release-iphoneos/*.app Payload/
+          cp ios/main.jsbundle Payload/*.app/main.jsbundle
+          cp -R ios/assets Payload/*.app/assets || true
           zip -r novel-reader.ipa Payload
 
       - name: Upload Artifact

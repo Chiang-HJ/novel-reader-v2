@@ -9,7 +9,10 @@ export const parseInfo = (html, url = '') => {
     let titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     let title = titleMatch ? titleMatch[1].replace('- sexy gay wyblogs', '').trim() : '未知書名';
 
-    let contentMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+    let contentMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                       html.match(/<div[^>]*class=["'][^"']*post-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                       html.match(/<div[^>]*class=["'][^"']*post-body[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                       html.match(/<div[^>]*class=["'][^"']*entry-content[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
     let chapters = [];
 
     if (!contentMatch) {
