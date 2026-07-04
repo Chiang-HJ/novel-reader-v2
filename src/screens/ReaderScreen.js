@@ -16,7 +16,7 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MusicControl, { Command } from 'react-native-music-control';
+import MediaControl, { Command, PlaybackState } from 'expo-media-control';
 
 export default function ReaderScreen({ route, navigation }) {
     useKeepAwake();
@@ -127,9 +127,9 @@ export default function ReaderScreen({ route, navigation }) {
         }
         // Sync lock screen control state
         try {
-            MusicControl.updatePlayback({
-                state: state ? MusicControl.STATE_PLAYING : MusicControl.STATE_PAUSED,
-            });
+            MediaControl.updatePlaybackState(
+                state ? PlaybackState.PLAYING : PlaybackState.PAUSED
+            );
         } catch (e) {}
     };
 
@@ -200,7 +200,7 @@ export default function ReaderScreen({ route, navigation }) {
         setupMusicControl();
         return () => {
             Speech.stop();
-            try { MusicControl.stopSession(); } catch (e) {}
+            try { MediaControl.disableMediaControls(); } catch (e) {}
         };
     }, []);
 
@@ -294,49 +294,53 @@ export default function ReaderScreen({ route, navigation }) {
         }
     };
 
-    // ── Lock Screen / Remote Control (react-native-music-control) ──
-    const setupMusicControl = () => {
+    // ── Lock Screen / Remote Control (expo-media-control) ──
+    const setupMusicControl = async () => {
         try {
-            MusicControl.enableBackgroundMode(true);
-            MusicControl.enableControl('play', true);
-            MusicControl.enableControl('pause', true);
-            MusicControl.enableControl('stop', false);
-            MusicControl.enableControl('nextTrack', true);
-            MusicControl.enableControl('previousTrack', true);
-            MusicControl.enableControl('changePlaybackPosition', false);
-            MusicControl.enableControl('seek', false);
+            await MediaControl.enableMediaControls({
+                capabilities: [
+                    Command.PLAY,
+                    Command.PAUSE,
+                    Command.NEXT_TRACK,
+                    Command.PREVIOUS_TRACK,
+                ]
+            });
 
-            MusicControl.on(Command.play, () => {
-                if (!isPlayingRef.current) togglePlay();
-            });
-            MusicControl.on(Command.pause, () => {
-                if (isPlayingRef.current) togglePlay();
-            });
-            MusicControl.on(Command.nextTrack, () => {
-                skipNext();
-            });
-            MusicControl.on(Command.previousTrack, () => {
-                skipPrev();
+            MediaControl.addListener((event) => {
+                switch (event.command) {
+                    case Command.PLAY:
+                        if (!isPlayingRef.current) togglePlay();
+                        break;
+                    case Command.PAUSE:
+                        if (isPlayingRef.current) togglePlay();
+                        break;
+                    case Command.NEXT_TRACK:
+                        skipNext();
+                        break;
+                    case Command.PREVIOUS_TRACK:
+                        skipPrev();
+                        break;
+                }
             });
         } catch (e) {
-            console.warn('MusicControl setup error:', e);
+            console.warn('MediaControl setup error:', e);
         }
     };
 
-    const updateNowPlaying = (novelTitle, chapterTitle, playing) => {
+    const updateNowPlaying = async (novelTitle, chapterTitle, playing) => {
         try {
-            MusicControl.setNowPlaying({
+            await MediaControl.updateMetadata({
                 title: chapterTitle || '閱讀中',
                 artist: novelTitle || '聽小說',
                 album: novelTitle || '聽小說',
                 duration: 0,
-                color: 0x1C1E21,
+                color: '#1C1E21',
             });
-            MusicControl.updatePlayback({
-                state: playing ? MusicControl.STATE_PLAYING : MusicControl.STATE_PAUSED,
-            });
+            await MediaControl.updatePlaybackState(
+                playing ? PlaybackState.PLAYING : PlaybackState.PAUSED
+            );
         } catch (e) {
-            console.warn('MusicControl nowPlaying error:', e);
+            console.warn('MediaControl nowPlaying error:', e);
         }
     };
 
