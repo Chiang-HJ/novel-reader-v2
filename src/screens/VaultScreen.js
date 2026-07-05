@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, ScrollView, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, ScrollView, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { getBookshelf, deleteNovel, updateNovelMetadata } from '../utils/storage';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
 import NovelListItem from '../components/home/NovelListItem';
@@ -22,11 +22,21 @@ export default function VaultScreen({ navigation }) {
     const [mediaList, setMediaList] = useState([]);
     
     // Media tools state
+    const [selectedMedia, setSelectedMedia] = useState(null);
+    const player = useVideoPlayer(selectedMedia?.uri || null, (player) => {
+        player.loop = false;
+        player.play();
+    });
+    
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedItems, setSelectedItems] = useState(new Set());
     const [filterBy, setFilterBy] = useState('all'); // 'all', 'image', 'video'
     const [filterTag, setFilterTag] = useState(null); // specific tag string
     const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest'
+
+    // Storage Management state
+    const [storageItems, setStorageItems] = useState([]);
+    const [isScanningStorage, setIsScanningStorage] = useState(false);
     
     // Tag management state
     const [availableTags, setAvailableTags] = useState([]);
@@ -50,9 +60,6 @@ export default function VaultScreen({ navigation }) {
     useEffect(() => {
         isSelectionModeRef.current = isSelectionMode;
     }, [isSelectionMode]);
-
-    // Viewer state
-    const [selectedMedia, setSelectedMedia] = useState(null);
 
     useEffect(() => {
         const unsubscribe = navigation.addListener('focus', () => {
@@ -85,7 +92,7 @@ export default function VaultScreen({ navigation }) {
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.All,
+            mediaTypes: ['images', 'videos'],
             allowsMultipleSelection: true,
             quality: 1,
         });
@@ -149,6 +156,124 @@ export default function VaultScreen({ navigation }) {
             setMediaList(newMedia);
             Alert.alert('匯入完畢', `成功處理 ${assets.length} 個檔案！`);
         }
+    };
+
+    // --- Storage Management Logic ---
+
+    const calculateFolderSize = async (uri) => {
+        try {
+            const info = await FileSystem.getInfoAsync(uri);
+            if (!info.exists) return 0;
+            if (!info.isDirectory) return info.size || 0;
+            
+            const children = await FileSystem.readDirectoryAsync(uri);
+            let totalSize = 0;
+            for (const child of children) {
+                totalSize += await calculateFolderSize(uri + '/' + child);
+            }
+            return totalSize;
+        } catch (e) {
+            return 0;
+        }
+    };
+
+    const formatBytes = (bytes, decimals = 2) => {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    };
+
+    const scanStorage = async () => {
+        setIsScanningStorage(true);
+        try {
+            const items = [];
+            const allNovels = await getBookshelf();
+            
+            const novelsDir = FileSystem.documentDirectory + 'novels/';
+            const novelsDirInfo = await FileSystem.getInfoAsync(novelsDir);
+            if (novelsDirInfo.exists) {
+                const folders = await FileSystem.readDirectoryAsync(novelsDir);
+                for (const folder of folders) {
+                    const size = await calculateFolderSize(novelsDir + folder);
+                    const matchedNovel = allNovels.find(n => n.id === folder);
+                    items.push({
+                        id: `novel_${folder}`,
+                        type: 'novel',
+                        rawId: folder,
+                        path: novelsDir + folder,
+                        name: matchedNovel ? matchedNovel.title : folder,
+                        isOrphan: !matchedNovel,
+                        size: size
+                    });
+                }
+            }
+            
+            const mediaDir = FileSystem.documentDirectory + 'vault_media/';
+            const mediaDirInfo = await FileSystem.getInfoAsync(mediaDir);
+            if (mediaDirInfo.exists) {
+                const files = await FileSystem.readDirectoryAsync(mediaDir);
+                for (const file of files) {
+                    const size = await calculateFolderSize(mediaDir + file);
+                    const matchedMedia = mediaList.find(m => m.id === file);
+                    items.push({
+                        id: `media_${file}`,
+                        type: 'media',
+                        rawId: file,
+                        path: mediaDir + file,
+                        name: matchedMedia ? (matchedMedia.title || file) : file,
+                        isOrphan: !matchedMedia,
+                        size: size
+                    });
+                }
+            }
+            
+            items.sort((a, b) => b.size - a.size);
+            setStorageItems(items);
+        } catch (e) {
+            console.error('Scan storage failed:', e);
+        } finally {
+            setIsScanningStorage(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'storage') {
+            scanStorage();
+        }
+    }, [activeTab]);
+
+    const handleDeleteStorageItem = (item) => {
+        Alert.alert(
+            '刪除檔案',
+            `確定要刪除「${item.name}」嗎？\n這將會釋放 ${formatBytes(item.size)} 空間。`,
+            [
+                { text: '取消', style: 'cancel' },
+                { text: '確定刪除', style: 'destructive', onPress: async () => {
+                    try {
+                        if (item.type === 'novel' && !item.isOrphan) {
+                            await deleteNovel(item.rawId);
+                            loadBookshelf();
+                        } else if (item.type === 'media' && !item.isOrphan) {
+                            const newMediaList = mediaList.filter(m => m.id !== item.rawId);
+                            setMediaList(newMediaList);
+                            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMediaList));
+                            await FileSystem.deleteAsync(item.path, { idempotent: true });
+                        } else {
+                            // Orphan files
+                            await FileSystem.deleteAsync(item.path, { idempotent: true });
+                        }
+                        
+                        // Rescan
+                        scanStorage();
+                    } catch (e) {
+                        Alert.alert('刪除失敗', e.message);
+                    }
+                }}
+            ]
+        );
     };
 
     const getDisplayedMedia = () => {
@@ -419,9 +544,64 @@ export default function VaultScreen({ navigation }) {
                 >
                     <Text style={{ color: activeTab === 'media' ? '#fff' : colors.text }}>私密相簿</Text>
                 </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.tab, activeTab === 'storage' && { backgroundColor: colors.primary }]}
+                    onPress={() => setActiveTab('storage')}
+                >
+                    <Text style={{ color: activeTab === 'storage' ? '#fff' : colors.text }}>空間管理</Text>
+                </TouchableOpacity>
             </View>
 
-            {activeTab === 'novels' ? (
+            {activeTab === 'storage' ? (
+                <View style={{ flex: 1 }}>
+                    {isScanningStorage ? (
+                        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                            <ActivityIndicator size="large" color={colors.primary} />
+                            <Text style={{ color: colors.textSecondary, marginTop: 16 }}>正在掃描儲存空間...</Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={storageItems}
+                            keyExtractor={item => item.id}
+                            contentContainerStyle={{ padding: 16 }}
+                            ListHeaderComponent={
+                                <View style={{ marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+                                        總共 {storageItems.length} 個項目
+                                    </Text>
+                                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: 'bold' }}>
+                                        合計: {formatBytes(storageItems.reduce((acc, curr) => acc + curr.size, 0))}
+                                    </Text>
+                                </View>
+                            }
+                            renderItem={({ item }) => (
+                                <View style={[styles.storageItem, { backgroundColor: colors.surface, borderLeftColor: item.isOrphan ? (colors.danger || '#ff4444') : colors.primary }]}>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }} numberOfLines={1}>
+                                            {item.name}
+                                        </Text>
+                                        <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
+                                            {item.type === 'novel' ? '📚 書籍/文章' : '🖼️ 媒體檔案'} {item.isOrphan && ' (未知殘留)'}
+                                        </Text>
+                                    </View>
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: 'bold', marginBottom: 8 }}>
+                                            {formatBytes(item.size)}
+                                        </Text>
+                                        <TouchableOpacity 
+                                            style={[styles.storageDeleteBtn, { backgroundColor: 'rgba(255, 68, 68, 0.1)' }]}
+                                            onPress={() => handleDeleteStorageItem(item)}
+                                        >
+                                            <Feather name="trash-2" size={16} color="#ff4444" />
+                                            <Text style={{ color: '#ff4444', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>刪除</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+                        />
+                    )}
+                </View>
+            ) : activeTab === 'novels' ? (
                 <FlatList 
                     data={bookshelf}
                     keyExtractor={item => item.id}
@@ -592,7 +772,7 @@ export default function VaultScreen({ navigation }) {
             
             {/* Fullscreen Media Viewer */}
             <Modal visible={!!selectedMedia} transparent={false} animationType="fade">
-                <View style={[styles.viewerContainer, { backgroundColor: '#000' }]}>
+                <View style={{ flex: 1, justifyContent: 'center', backgroundColor: '#000' }}>
                     <View style={styles.viewerHeader}>
                         <TouchableOpacity onPress={() => setSelectedMedia(null)} style={{ padding: 16 }}>
                             <Feather name="x" size={28} color="#fff" />
@@ -603,13 +783,11 @@ export default function VaultScreen({ navigation }) {
                     </View>
                     
                     {selectedMedia?.type === 'video' ? (
-                        <Video
+                        <VideoView
                             style={styles.fullMedia}
-                            source={{ uri: selectedMedia.uri }}
-                            useNativeControls
-                            resizeMode={ResizeMode.CONTAIN}
-                            isLooping={false}
-                            shouldPlay
+                            player={player}
+                            allowsFullscreen
+                            allowsPictureInPicture
                         />
                     ) : (
                         selectedMedia && <Image source={{ uri: selectedMedia.uri }} style={styles.fullMedia} resizeMode="contain" />
@@ -716,4 +894,19 @@ const styles = StyleSheet.create({
     modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40, maxHeight: '80%', overflow: 'hidden' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
     modalTitle: { fontSize: 20, fontWeight: '700' },
+    storageItem: {
+        flexDirection: 'row',
+        padding: 16,
+        borderRadius: 8,
+        marginBottom: 12,
+        alignItems: 'center',
+        borderLeftWidth: 4,
+    },
+    storageDeleteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    }
 });

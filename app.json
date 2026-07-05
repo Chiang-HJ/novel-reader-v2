@@ -44,7 +44,8 @@
           "cameraPermission": "Allow app to access camera for Vault",
           "microphonePermission": "Allow app to access microphone for video processing"
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BLOG_FEED_URL = 'https://yuluji.blogspot.com/feeds/posts/summary?alt=json';
 const BLOG_CACHE_KEY = '@blog_feed_cache';
-const MAX_RESULTS = 150;
+const MAX_RESULTS = 500;
 
 /**
  * Fetch all articles from the Blogger JSON Feed API with automatic pagination.
@@ -29,25 +29,7 @@ export async function fetchAllArticles(onProgress) {
         if (entries.length === 0) break;
 
         for (const entry of entries) {
-            const title = entry.title?.$t || '(無標題)';
-            const tags = (entry.category || []).map(c => c.term);
-            const publishedAt = entry.published?.$t || '';
-            const linkObj = (entry.link || []).find(l => l.rel === 'alternate');
-            const url = linkObj?.href || '';
-            const summary = entry.summary?.$t || '';
-
-            // Extract a stable ID from Blogger's post ID
-            const rawId = entry.id?.$t || '';
-            const postId = rawId.split('.post-')[1] || rawId;
-
-            allArticles.push({
-                id: postId,
-                title,
-                tags,
-                publishedAt,
-                url,
-                summary,
-            });
+            allArticles.push(parseEntry(entry));
         }
 
         startIndex += entries.length;
@@ -58,6 +40,60 @@ export async function fetchAllArticles(onProgress) {
     }
 
     return allArticles;
+}
+
+/**
+ * Parse a single Blogger feed entry into our article format.
+ */
+function parseEntry(entry) {
+    const title = entry.title?.$t || '(無標題)';
+    const tags = (entry.category || []).map(c => c.term);
+    const publishedAt = entry.published?.$t || '';
+    const linkObj = (entry.link || []).find(l => l.rel === 'alternate');
+    const url = linkObj?.href || '';
+    const summary = entry.summary?.$t || '';
+    const rawId = entry.id?.$t || '';
+    const postId = rawId.split('.post-')[1] || rawId;
+
+    return { id: postId, title, tags, publishedAt, url, summary };
+}
+
+/**
+ * Fetch only articles published after a given date (incremental update).
+ * Uses Blogger's published-min parameter.
+ */
+async function fetchNewArticlesSince(sinceDate, onProgress) {
+    const isoDate = new Date(sinceDate).toISOString();
+    let newArticles = [];
+    let startIndex = 1;
+    let totalResults = Infinity;
+
+    while (startIndex <= totalResults) {
+        const url = `${BLOG_FEED_URL}&max-results=${MAX_RESULTS}&start-index=${startIndex}&published-min=${encodeURIComponent(isoDate)}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+
+        if (totalResults === Infinity) {
+            totalResults = parseInt(data.feed?.openSearch$totalResults?.$t || '0', 10);
+        }
+
+        const entries = data.feed?.entry || [];
+        if (entries.length === 0) break;
+
+        for (const entry of entries) {
+            newArticles.push(parseEntry(entry));
+        }
+
+        startIndex += entries.length;
+
+        if (onProgress && totalResults !== Infinity) {
+            onProgress(Math.min(startIndex - 1, totalResults), totalResults);
+        }
+    }
+
+    return newArticles;
 }
 
 /**
@@ -90,19 +126,48 @@ export async function saveFeedToCache(articles) {
 }
 
 /**
- * Check if the cache is stale (older than 24 hours).
+ * Check if the cache is stale (older than 7 days).
  */
 export function isCacheStale(lastUpdated) {
     if (!lastUpdated) return true;
-    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-    return (Date.now() - lastUpdated) > ONE_DAY_MS;
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    return (Date.now() - lastUpdated) > SEVEN_DAYS_MS;
 }
 
 /**
- * Refresh the feed: fetch from network and update cache.
+ * Refresh the feed: use incremental update if cache exists, otherwise full fetch.
  * Returns the fresh articles array.
  */
 export async function refreshFeed(onProgress) {
+    const cached = await getCachedFeed();
+
+    if (cached && cached.articles && cached.articles.length > 0) {
+        // Find the newest article's publish date from cache
+        const newestDate = cached.articles.reduce((latest, a) => {
+            const d = new Date(a.publishedAt).getTime();
+            return d > latest ? d : latest;
+        }, 0);
+
+        if (newestDate > 0) {
+            if (onProgress) onProgress(0, 1, '檢查新文章...');
+            const newArticles = await fetchNewArticlesSince(newestDate, onProgress);
+
+            if (newArticles.length > 0) {
+                // Merge: add new articles, deduplicate by id
+                const existingIds = new Set(cached.articles.map(a => a.id));
+                const uniqueNew = newArticles.filter(a => !existingIds.has(a.id));
+                const merged = [...uniqueNew, ...cached.articles];
+                await saveFeedToCache(merged);
+                return merged;
+            } else {
+                // No new articles, just refresh timestamp
+                await saveFeedToCache(cached.articles);
+                return cached.articles;
+            }
+        }
+    }
+
+    // No usable cache, do full fetch
     const articles = await fetchAllArticles(onProgress);
     await saveFeedToCache(articles);
     return articles;
