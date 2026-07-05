@@ -141,6 +141,28 @@ export const deleteNovel = async (novelId) => {
 
 export const getNovelById = getNovelMetadata;
 
+export const getStorageUsage = async () => {
+    try {
+        const novelDir = `${FileSystem.documentDirectory}novels/`;
+        const vaultDir = `${FileSystem.documentDirectory}vault_media/`;
+        let totalBytes = 0;
+
+        for (const dir of [novelDir, vaultDir]) {
+            const info = await FileSystem.getInfoAsync(dir);
+            if (info.exists) {
+                totalBytes += info.size || 0;
+            }
+        }
+
+        if (totalBytes < 1024) return `${totalBytes} B`;
+        if (totalBytes < 1024 * 1024) return `${(totalBytes / 1024).toFixed(1)} KB`;
+        if (totalBytes < 1024 * 1024 * 1024) return `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+        return `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    } catch (e) {
+        return '無法計算';
+    }
+};
+
 export const getNovelDir = (novelId) => {
     return `${FileSystem.documentDirectory}novels/${novelId}/`;
 };

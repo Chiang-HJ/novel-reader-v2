@@ -15,13 +15,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps
 
       - name: Expo Prebuild (Generate iOS folder)
         run: npx expo prebuild --platform ios --clean
+
+      - name: Setup Xcode Node Environment
+        run: |
+          echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
 
       - name: Install CocoaPods
         run: |
@@ -34,7 +38,6 @@ jobs:
           WORKSPACE=$(ls -1 | grep '\.xcworkspace$' | head -n 1)
           SCHEME=$(basename "$WORKSPACE" .xcworkspace)
           echo "Building Workspace: $WORKSPACE, Scheme: $SCHEME"
-          export NODE_BINARY=$(command -v node)
           xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -45,6 +48,32 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
             SYMROOT=$PWD/build
+
+      - name: Ensure JS Bundle Exists in App
+        run: |
+          APP_PATH=$(find ios/build/Release-iphoneos -name "*.app" -type d | head -n 1)
+          echo "App path: $APP_PATH"
+          
+          # Check if main.jsbundle exists inside the .app
+          if [ ! -f "$APP_PATH/main.jsbundle" ]; then
+            echo "⚠️ main.jsbundle not found in .app — generating manually..."
+            
+            # Generate the bundle using react-native's bundler
+            npx react-native bundle \
+              --platform ios \
+              --dev false \
+              --entry-file node_modules/expo/AppEntry.js \
+              --bundle-output "$APP_PATH/main.jsbundle" \
+              --assets-dest "$APP_PATH"
+            
+            echo "✅ JS Bundle manually injected into .app"
+          else
+            echo "✅ main.jsbundle already exists in .app"
+          fi
+          
+          # Verify
+          ls -la "$APP_PATH/main.jsbundle"
+          echo "Bundle size: $(wc -c < "$APP_PATH/main.jsbundle") bytes"
 
       - name: Package into IPA
         run: |
