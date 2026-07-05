@@ -606,10 +606,16 @@ export default function VaultScreen({ navigation }) {
                     data={bookshelf}
                     keyExtractor={item => item.id}
                     ListHeaderComponent={
-                        <TouchableOpacity style={[styles.importBtn, { backgroundColor: colors.surface, borderColor: colors.primary, marginTop: 12, marginHorizontal: 16 }]} onPress={() => navigation.navigate('BlogFeed')}>
-                            <Feather name="book-open" size={24} color={colors.primary} style={{ marginRight: 8 }} />
-                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginTop: 12, gap: 12, marginBottom: 16 }}>
+                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('BlogFeed')}>
+                                <Feather name="book-open" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('WyblogsFeed')}>
+                                <Feather name="book" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                <Text style={{ color: colors.primary, fontWeight: 'bold' }}>Wyblogs</Text>
+                            </TouchableOpacity>
+                        </View>
                     }
                     renderItem={({ item }) => (
                         <NovelListItem 

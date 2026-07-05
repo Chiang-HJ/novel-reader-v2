@@ -36,7 +36,9 @@ export default function HomeScreen({ navigation }) {
     const [importTitle, setImportTitle] = useState('');
     const [importText, setImportText] = useState('');
     const [isImporting, setIsImporting] = useState(false);
-    const [splitRegexStr, setSplitRegexStr] = useState('第[零一二三四五六七八九十百千万0-9]+[章回節][^\\n]*');
+    const [splitRegexStr, setSplitRegexStr] = useState('第[零一二三四五六七八九十百千0-9]+[章節][^\\n]*');
+    const [splitExampleStr, setSplitExampleStr] = useState('1.');
+    const [splitMode, setSplitMode] = useState('regex');
 
     const [isOptionsModalVisible, setIsOptionsModalVisible] = useState(false);
     const [editTitle, setEditTitle] = useState('');
@@ -189,9 +191,18 @@ export default function HomeScreen({ navigation }) {
 
             let headingRegex;
             try {
-                headingRegex = new RegExp('(' + splitRegexStr + ')', 'g');
+                let finalRegexStr = splitRegexStr;
+                if (splitMode === 'example') {
+                    if (!splitExampleStr.trim()) {
+                        setIsImporting(false);
+                        return;
+                    }
+                    const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    finalRegexStr = escapeRegExp(splitExampleStr.trim()).replace(/\d+/g, '\\d+');
+                }
+                headingRegex = new RegExp('(' + finalRegexStr + ')', 'g');
             } catch (e) {
-                Alert.alert('正則表達式錯誤', '您輸入的章節分割規則格式有誤。');
+                Alert.alert('規則錯誤', '您輸入的章節分割規則格式有誤。');
                 setIsImporting(false);
                 return;
             }
@@ -519,14 +530,44 @@ export default function HomeScreen({ navigation }) {
                                 value={importTitle}
                                 onChangeText={setImportTitle}
                             />
-                            <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>章節分割規則 (Regular Expression)：</Text>
-                            <TextInput
-                                style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
-                                placeholder="正則表達式"
-                                placeholderTextColor={colors.textSecondary}
-                                value={splitRegexStr}
-                                onChangeText={setSplitRegexStr}
-                            />
+                            <View style={{ flexDirection: 'row', marginBottom: 10 }}>
+                                <TouchableOpacity 
+                                    style={{ flex: 1, padding: 8, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'regex' ? colors.primary : 'transparent' }}
+                                    onPress={() => setSplitMode('regex')}
+                                >
+                                    <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={{ flex: 1, padding: 8, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'example' ? colors.primary : 'transparent' }}
+                                    onPress={() => setSplitMode('example')}
+                                >
+                                    <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {splitMode === 'example' ? (
+                                <>
+                                    <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>請輸入章節的編號範例 (例如: 1. 或 第1章)：</Text>
+                                    <TextInput
+                                        style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
+                                        placeholder="例如: 1."
+                                        placeholderTextColor={colors.textSecondary}
+                                        value={splitExampleStr}
+                                        onChangeText={setSplitExampleStr}
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>章節分割規則 (Regular Expression)：</Text>
+                                    <TextInput
+                                        style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
+                                        placeholder="正則表達式"
+                                        placeholderTextColor={colors.textSecondary}
+                                        value={splitRegexStr}
+                                        onChangeText={setSplitRegexStr}
+                                    />
+                                </>
+                            )}
                             <TextInput
                                 style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, flex: 1, textAlignVertical: 'top', padding: 15, borderRadius: 8, marginBottom: 15 }]}
                                 placeholder={"請貼上整本小說的純文字內容...\n(系統將自動依據『第X章』來切割章節)"}

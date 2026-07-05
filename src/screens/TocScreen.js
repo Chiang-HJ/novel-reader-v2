@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
-import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData } from '../utils/storage';
+import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
 import { Feather } from '@expo/vector-icons';
 
 export default function TocScreen({ route, navigation }) {
@@ -19,7 +19,9 @@ export default function TocScreen({ route, navigation }) {
     const [isProcessing, setIsProcessing] = useState(false);
     
     const [isSplitModalVisible, setIsSplitModalVisible] = useState(false);
+    const [splitTarget, setSplitTarget] = useState('chapter'); // 'chapter' or 'novel'
     const [splitRegexStr, setSplitRegexStr] = useState('第.*[章節]');
+    const [splitExampleStr, setSplitExampleStr] = useState('1.');
     const [splitMode, setSplitMode] = useState('regex');
     const [splitLength, setSplitLength] = useState('5000');
 
@@ -37,6 +39,18 @@ export default function TocScreen({ route, navigation }) {
     const handleLongPress = (index) => {
         setSelectedChapterIndex(index);
         setIsOptionsModalVisible(true);
+    };
+
+    const openChapterSplitModal = () => {
+        setSplitTarget('chapter');
+        setIsOptionsModalVisible(false);
+        setIsSplitModalVisible(true);
+    };
+
+    const openNovelSplitModal = () => {
+        setSplitTarget('novel');
+        setSelectedChapterIndex(null);
+        setIsSplitModalVisible(true);
     };
 
     const handleDeleteChapter = () => {
@@ -100,133 +114,153 @@ export default function TocScreen({ route, navigation }) {
         }
     };
 
-    const executeSplit = async () => {
+    const buildChaptersFromText = (rawText, baseTitle, requireMatch = true) => {
+        const oldText = rawText || '';
+        const newChaptersData = [];
+
+        if (splitMode === 'regex' || splitMode === 'example') {
+            let regexStr = splitRegexStr;
+            if (splitMode === 'example') {
+                if (!splitExampleStr.trim()) {
+                    throw new Error('請輸入章節編號範例。');
+                }
+                const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                regexStr = escapeRegExp(splitExampleStr.trim()).replace(/\d+/g, '\\d+');
+            } else if (!splitRegexStr.trim()) {
+                throw new Error('請輸入分割規則。');
+            }
+
+            let regex;
+            try {
+                regex = new RegExp('(' + regexStr + ')', 'g');
+            } catch(e) {
+                throw new Error('規則錯誤：您輸入的條件不合法。');
+            }
+
+            const parts = oldText.split(regex);
+            if (parts.length <= 1) {
+                if (requireMatch) {
+                    throw new Error('找不到符合此規則的章節標題。');
+                }
+                return [{ title: baseTitle, text: oldText.trim() }];
+            }
+
+            const preface = parts[0].trim();
+            if (preface.length > 0) {
+                newChaptersData.push({ title: `${baseTitle} (前言)`, text: preface });
+            }
+
+            for (let i = 1; i < parts.length; i += 2) {
+                const title = parts[i].trim();
+                const text = (parts[i + 1] || '').trim();
+                if (text.length === 0) continue;
+                newChaptersData.push({ title, text });
+            }
+        } else {
+            const targetLen = parseInt(splitLength, 10);
+            if (isNaN(targetLen) || targetLen < 100) {
+                throw new Error('請輸入正確的字數 (最少 100 字)。');
+            }
+
+            const paragraphs = oldText.split('\n');
+            let currentChunk = '';
+            let partIndex = 1;
+
+            const pushChunk = (text) => {
+                const cleaned = text.trim();
+                if (!cleaned) return;
+                newChaptersData.push({ title: `${baseTitle} (Part ${partIndex})`, text: cleaned });
+                partIndex++;
+            };
+
+            for (let i = 0; i < paragraphs.length; i++) {
+                const p = paragraphs[i].trim();
+                if (!p) continue;
+
+                if (p.length > targetLen * 1.5) {
+                    let remaining = p;
+                    while (remaining.length > 0) {
+                        if (remaining.length <= targetLen) {
+                            if (currentChunk.length + remaining.length > targetLen && currentChunk.length > 0) {
+                                pushChunk(currentChunk);
+                                currentChunk = remaining + '\n';
+                            } else {
+                                currentChunk += remaining + '\n';
+                            }
+                            break;
+                        }
+
+                        let breakIndex = targetLen;
+                        const searchWindow = remaining.substring(Math.max(0, targetLen - 100), targetLen + 100);
+                        const lastPunc = Math.max(
+                            searchWindow.lastIndexOf('。'),
+                            searchWindow.lastIndexOf('！'),
+                            searchWindow.lastIndexOf('？'),
+                            searchWindow.lastIndexOf('”'),
+                            searchWindow.lastIndexOf('」')
+                        );
+                        if (lastPunc !== -1) {
+                            breakIndex = Math.max(0, targetLen - 100) + lastPunc + 1;
+                        }
+
+                        if (currentChunk.length > 0) {
+                            pushChunk(currentChunk);
+                            currentChunk = '';
+                        }
+                        pushChunk(remaining.substring(0, breakIndex));
+                        remaining = remaining.substring(breakIndex);
+                    }
+                } else if (currentChunk.length + p.length > targetLen && currentChunk.length > 0) {
+                    pushChunk(currentChunk);
+                    currentChunk = p + '\n';
+                } else {
+                    currentChunk += p + '\n';
+                }
+            }
+
+            if (currentChunk.trim().length > 0) {
+                pushChunk(currentChunk);
+            }
+        }
+
+        if (newChaptersData.length === 0) {
+            throw new Error('分割後沒有產生任何章節。');
+        }
+
+        return newChaptersData;
+    };
+
+    const performSplit = async () => {
         setIsProcessing(true);
         try {
+            if (splitTarget === 'novel') {
+                const fullText = await getAllChapterText(novel.id);
+                if (!fullText.trim()) {
+                    throw new Error('無法讀取整本小說內容。');
+                }
+
+                const newChaptersData = buildChaptersFromText(fullText, novel.title || '重新分割', true);
+                await replaceNovelChapters(novel.id, newChaptersData);
+                await refreshNovel();
+
+                setIsSplitModalVisible(false);
+                Alert.alert('成功', `已將整本小說重新分割為 ${newChaptersData.length} 章！`);
+                return;
+            }
+
             const index = selectedChapterIndex;
             const targetChapter = novel.chapters[index];
             const oldTextData = await getChapterText(novel.id, index);
-            
             if (!oldTextData) {
-                Alert.alert('錯誤', '無法讀取章節內容，請先下載此章節。');
-                setIsProcessing(false);
-                return;
+                throw new Error('無法讀取章節內容，請先下載此章節。');
             }
 
             const oldText = typeof oldTextData === 'string' ? oldTextData : (oldTextData.text || '');
-            const newChaptersData = [];
-
-            if (splitMode === 'regex') {
-                if (!splitRegexStr.trim()) {
-                    setIsProcessing(false);
-                    return;
-                }
-                let regex;
-                try {
-                    regex = new RegExp('(' + splitRegexStr + ')', 'g');
-                } catch(e) {
-                    Alert.alert('規則錯誤', '您輸入的正規表達式不合法。');
-                    setIsProcessing(false);
-                    return;
-                }
-
-                const parts = oldText.split(regex);
-                
-                if (parts.length <= 1) {
-                    Alert.alert('找不到標籤', '這篇文章中找不到符合此規則的標籤。');
-                    setIsProcessing(false);
-                    return;
-                }
-
-                let currentText = parts[0].trim();
-                if (currentText.length > 0) {
-                    newChaptersData.push({ title: targetChapter.title + ' (前言)', text: currentText });
-                }
-
-                for (let i = 1; i < parts.length; i += 2) {
-                    const title = parts[i].trim();
-                    const text = (parts[i+1] || '').trim();
-                    newChaptersData.push({ title, text });
-                }
-            } else {
-                const targetLen = parseInt(splitLength, 10);
-                if (isNaN(targetLen) || targetLen < 100) {
-                    Alert.alert('字數錯誤', '請輸入正確的字數 (最少 100 字)。');
-                    setIsProcessing(false);
-                    return;
-                }
-                
-                const paragraphs = oldText.split('\n');
-                let currentChunk = '';
-                let partIndex = 1;
-                
-                for (let i = 0; i < paragraphs.length; i++) {
-                    const p = paragraphs[i].trim();
-                    if (!p) continue;
-                    
-                    if (p.length > targetLen * 1.5) {
-                        // This paragraph is abnormally long (e.g. lost newlines). We must force split it.
-                        let remaining = p;
-                        while (remaining.length > 0) {
-                            if (remaining.length <= targetLen) {
-                                if (currentChunk.length + remaining.length > targetLen && currentChunk.length > 0) {
-                                    newChaptersData.push({ title: `${targetChapter.title} (Part ${partIndex})`, text: currentChunk.trim() });
-                                    currentChunk = remaining + '\n';
-                                    partIndex++;
-                                } else {
-                                    currentChunk += remaining + '\n';
-                                }
-                                break;
-                            } else {
-                                // Find a punctuation to break at
-                                let breakIndex = targetLen;
-                                const searchWindow = remaining.substring(Math.max(0, targetLen - 100), targetLen + 100);
-                                const lastPunc = Math.max(
-                                    searchWindow.lastIndexOf('。'),
-                                    searchWindow.lastIndexOf('！'),
-                                    searchWindow.lastIndexOf('？'),
-                                    searchWindow.lastIndexOf('”'),
-                                    searchWindow.lastIndexOf('」')
-                                );
-                                if (lastPunc !== -1) {
-                                    breakIndex = Math.max(0, targetLen - 100) + lastPunc + 1;
-                                }
-                                
-                                const chunk = remaining.substring(0, breakIndex);
-                                if (currentChunk.length > 0) {
-                                    newChaptersData.push({ title: `${targetChapter.title} (Part ${partIndex})`, text: currentChunk.trim() });
-                                    partIndex++;
-                                    currentChunk = '';
-                                }
-                                newChaptersData.push({ title: `${targetChapter.title} (Part ${partIndex})`, text: chunk.trim() });
-                                partIndex++;
-                                remaining = remaining.substring(breakIndex);
-                            }
-                        }
-                    } else {
-                        // Normal paragraph handling
-                        if (currentChunk.length + p.length > targetLen && currentChunk.length > 0) {
-                            newChaptersData.push({ title: `${targetChapter.title} (Part ${partIndex})`, text: currentChunk.trim() });
-                            currentChunk = p + '\n';
-                            partIndex++;
-                        } else {
-                            currentChunk += p + '\n';
-                        }
-                    }
-                }
-                if (currentChunk.trim().length > 0) {
-                    newChaptersData.push({ title: `${targetChapter.title} (Part ${partIndex})`, text: currentChunk.trim() });
-                }
-            }
-
-            if (newChaptersData.length === 0) {
-                setIsProcessing(false);
-                return;
-            }
+            const newChaptersData = buildChaptersFromText(oldText, targetChapter.title, true);
 
             await splitChapterData(novel.id, index, newChaptersData);
             await refreshNovel();
-            
+
             setIsSplitModalVisible(false);
             Alert.alert('成功', `已將章節成功分割為 ${newChaptersData.length} 章！`);
         } catch (e) {
@@ -236,11 +270,39 @@ export default function TocScreen({ route, navigation }) {
         }
     };
 
+    const executeSplit = async () => {
+        if (splitTarget === 'novel') {
+            Alert.alert(
+                '重新分割整本小說',
+                `系統會先把目前 ${novel.chapters.length} 章合併，再用這裡的規則重新切章。原本的章節切法會被取代。`,
+                [
+                    { text: '取消', style: 'cancel' },
+                    { text: '開始重分割', style: 'destructive', onPress: performSplit }
+                ]
+            );
+            return;
+        }
+
+        performSplit();
+    };
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FlatList 
                 data={novel.chapters}
                 keyExtractor={(item, index) => index.toString()}
+                ListHeaderComponent={
+                    <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
+                        <TouchableOpacity
+                            style={[styles.toolbarBtn, { backgroundColor: colors.primary }]}
+                            onPress={openNovelSplitModal}
+                            disabled={isProcessing}
+                        >
+                            <Feather name="scissors" size={18} color="#fff" style={{ marginRight: 8 }} />
+                            <Text style={styles.toolbarBtnText}>整本重分割</Text>
+                        </TouchableOpacity>
+                    </View>
+                }
                 renderItem={({ item, index }) => {
                     const isCurrent = novel.progressIndex === index;
                     return (
@@ -290,7 +352,7 @@ export default function TocScreen({ route, navigation }) {
                             <Text style={{ color: colors.text, fontSize: 16 }}>在此章節「下方」新增一章</Text>
                         </TouchableOpacity>
                         
-                        <TouchableOpacity style={[styles.optionBtn, { borderBottomColor: colors.border, borderBottomWidth: 1 }]} onPress={() => { setIsOptionsModalVisible(false); setIsSplitModalVisible(true); }}>
+                        <TouchableOpacity style={[styles.optionBtn, { borderBottomColor: colors.border, borderBottomWidth: 1 }]} onPress={openChapterSplitModal}>
                             <Feather name="scissors" size={20} color={colors.text} style={styles.optionIcon} />
                             <Text style={{ color: colors.text, fontSize: 16 }}>分割此章節</Text>
                         </TouchableOpacity>
@@ -308,7 +370,9 @@ export default function TocScreen({ route, navigation }) {
                 <View style={styles.modalOverlay}>
                     <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text }]}>自動分割章節</Text>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>
+                                {splitTarget === 'novel' ? '整本重分割' : '自動分割章節'}
+                            </Text>
                             <TouchableOpacity onPress={() => setIsSplitModalVisible(false)} style={{padding: 5}}>
                                 <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
@@ -322,6 +386,12 @@ export default function TocScreen({ route, navigation }) {
                                 <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
+                                style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'example' ? colors.primary : 'transparent' }}
+                                onPress={() => setSplitMode('example')}
+                            >
+                                <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
                                 style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'length' ? colors.primary : 'transparent' }}
                                 onPress={() => setSplitMode('length')}
                             >
@@ -329,7 +399,19 @@ export default function TocScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        {splitMode === 'regex' ? (
+                        {splitMode === 'example' ? (
+                            <>
+                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入章節的編號範例</Text>
+                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如輸入: 1. 或 第1章</Text>
+                                <TextInput 
+                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
+                                    value={splitExampleStr}
+                                    onChangeText={setSplitExampleStr}
+                                    placeholder="輸入範例，例如: 1."
+                                    placeholderTextColor={colors.textSecondary}
+                                />
+                            </>
+                        ) : splitMode === 'regex' ? (
                             <>
                                 <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入用來分割章節的關鍵字或規則 (Regex)：</Text>
                                 <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如: 第.*[章節] 會切分出「第一章」、「第十二節」等。</Text>
@@ -357,14 +439,16 @@ export default function TocScreen({ route, navigation }) {
                         )}
                         
                         <TouchableOpacity 
-                            style={[styles.saveBtn, { opacity: isProcessing ? 0.7 : 1 }]} 
+                            style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.7 : 1 }]} 
                             onPress={executeSplit}
                             disabled={isProcessing}
                         >
                             {isProcessing ? (
                                 <ActivityIndicator color="#fff" size="small" />
                             ) : (
-                                <Text style={styles.saveBtnText}>開始分割</Text>
+                                <Text style={styles.saveBtnText}>
+                                    {splitTarget === 'novel' ? '開始重分割' : '開始分割'}
+                                </Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -422,6 +506,9 @@ export default function TocScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
+    toolbar: { padding: 16, borderBottomWidth: StyleSheet.hairlineWidth },
+    toolbarBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 44, borderRadius: 10 },
+    toolbarBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
     item: { padding: 16, borderBottomWidth: 1 },
     title: { fontSize: 16 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
@@ -430,5 +517,8 @@ const styles = StyleSheet.create({
     optionBtn: { flexDirection: 'row', alignItems: 'center', padding: 16 },
     optionIcon: { marginRight: 16 },
     editContent: { width: '90%', height: '80%', borderRadius: 16, padding: 20 },
-    modalTitle: { fontSize: 18, fontWeight: 'bold' }
+    modalTitle: { fontSize: 18, fontWeight: 'bold' },
+    input: { borderWidth: 1, borderRadius: 8, marginBottom: 15 },
+    saveBtn: { height: 50, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+    saveBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });

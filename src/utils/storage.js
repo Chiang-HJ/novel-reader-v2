@@ -210,18 +210,67 @@ export const getChapterText = async (novelId, fileId) => {
     }
 };
 
-export const deleteChapterData = async (novelId, fileId) => {
-    let fileName = typeof fileId === 'number' ? fileId.toString() : fileId;
-    if (!fileName.endsWith('.json')) fileName = fileName + '.json';
-    const filePath = `${getNovelDir(novelId)}${fileName}`;
-    try {
-        const info = await FileSystem.getInfoAsync(filePath);
-        if (info.exists) {
-            await FileSystem.deleteAsync(filePath, { idempotent: true });
+export const deleteChapterData = async (novelId, index) => {
+    return lockStorage(async () => {
+        const fullNovel = await getNovelMetadata(novelId);
+        if (!fullNovel) throw new Error('Novel not found');
+        if (index < 0 || index >= fullNovel.chapters.length) throw new Error('Invalid chapter index');
+
+        const filePath = `${getNovelDir(novelId)}${index}.json`;
+        try {
+            const info = await FileSystem.getInfoAsync(filePath);
+            if (info.exists) {
+                await FileSystem.deleteAsync(filePath, { idempotent: true });
+            }
+        } catch (e) {
+            console.error('Error deleting chapter file', e);
         }
-    } catch (e) {
-        console.error('Error deleting chapter file', e);
-    }
+
+        // Shift existing chapter files up to fill the gap
+        for (let i = index + 1; i < fullNovel.chapters.length; i++) {
+            const oldPath = `${getNovelDir(novelId)}${i}.json`;
+            const newPath = `${getNovelDir(novelId)}${i - 1}.json`;
+            try {
+                const info = await FileSystem.getInfoAsync(oldPath);
+                if (info.exists) {
+                    await FileSystem.moveAsync({ from: oldPath, to: newPath });
+                }
+            } catch (e) {
+                console.error('Error shifting chapter file', e);
+            }
+        }
+
+        // Update metadata
+        fullNovel.chapters.splice(index, 1);
+        fullNovel.chapterCount = fullNovel.chapters.length;
+        if (fullNovel.downloadedChapters > 0) {
+            fullNovel.downloadedChapters = Math.max(0, fullNovel.downloadedChapters - 1);
+        }
+        
+        // Adjust progressIndex if needed
+        if (fullNovel.progressIndex >= fullNovel.chapters.length) {
+            fullNovel.progressIndex = Math.max(0, fullNovel.chapters.length - 1);
+            fullNovel.progressSentence = 0;
+        }
+
+        // Update full metadata
+        await AsyncStorage.setItem(getNovelKey(novelId), JSON.stringify(fullNovel));
+
+        // Update list summary
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        const listIndex = currentList.findIndex(n => n.id === novelId);
+        if (listIndex !== -1) {
+            currentList[listIndex] = { 
+                ...currentList[listIndex], 
+                chapterCount: fullNovel.chapterCount, 
+                downloadedChapters: fullNovel.downloadedChapters, 
+                progressIndex: fullNovel.progressIndex 
+            };
+            delete currentList[listIndex].chapters;
+            await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        }
+    });
 };
 
 export const addChapterData = async (novelId, insertIndex, title, text) => {
@@ -268,6 +317,94 @@ export const addChapterData = async (novelId, insertIndex, title, text) => {
             currentList[idx].chapterCount = fullNovel.chapterCount;
             await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
         }
+    });
+};
+
+export const replaceNovelChapters = async (novelId, newChaptersData) => {
+    return lockStorage(async () => {
+        const fullNovel = await getNovelMetadata(novelId);
+        if (!fullNovel) throw new Error('Novel not found');
+
+        const folderPath = getNovelDir(novelId);
+        const folderInfo = await FileSystem.getInfoAsync(folderPath);
+        if (!folderInfo.exists) {
+            await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+        }
+        
+        // 1. Delete all existing chapter files
+        for (let i = 0; i < fullNovel.chapters.length; i++) {
+            const oldPath = `${folderPath}${i}.json`;
+            try {
+                const info = await FileSystem.getInfoAsync(oldPath);
+                if (info.exists) {
+                    await FileSystem.deleteAsync(oldPath, { idempotent: true });
+                }
+            } catch (e) {}
+        }
+        
+        // 2. Write new chapter files
+        fullNovel.chapters = [];
+        for (let i = 0; i < newChaptersData.length; i++) {
+            const chapterPath = `${folderPath}${i}.json`;
+            const chapterData = {
+                id: novelId,
+                index: i,
+                title: newChaptersData[i].title,
+                text: newChaptersData[i].text
+            };
+            await FileSystem.writeAsStringAsync(chapterPath, JSON.stringify(chapterData), { encoding: 'utf8' });
+            
+            fullNovel.chapters.push({
+                title: newChaptersData[i].title,
+                url: newChaptersData[i].url !== undefined ? newChaptersData[i].url : i
+            });
+        }
+        
+        // 3. Update metadata
+        fullNovel.chapterCount = fullNovel.chapters.length;
+        fullNovel.downloadedChapters = fullNovel.chapterCount;
+        fullNovel.progressIndex = 0;
+        fullNovel.progressSentence = 0;
+        
+        await AsyncStorage.setItem(getNovelKey(novelId), JSON.stringify(fullNovel));
+        
+        // Update list summary
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        const listIndex = currentList.findIndex(n => n.id === novelId);
+        if (listIndex !== -1) {
+            currentList[listIndex] = { 
+                ...currentList[listIndex], 
+                chapterCount: fullNovel.chapterCount, 
+                downloadedChapters: fullNovel.downloadedChapters, 
+                progressIndex: fullNovel.progressIndex,
+                progressSentence: fullNovel.progressSentence
+            };
+            delete currentList[listIndex].chapters;
+            await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        }
+    });
+};
+
+export const getAllChapterText = async (novelId) => {
+    return lockStorage(async () => {
+        const fullNovel = await getNovelMetadata(novelId);
+        if (!fullNovel) throw new Error('Novel not found');
+        
+        let fullText = '';
+        for (let i = 0; i < fullNovel.chapters.length; i++) {
+            const filePath = `${getNovelDir(novelId)}${i}.json`;
+            try {
+                const info = await FileSystem.getInfoAsync(filePath);
+                if (info.exists) {
+                    const content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+                    const parsed = JSON.parse(content);
+                    // Add chapter title back into the text to ensure it can be re-split if it matches the regex
+                    fullText += `\n\n${parsed.title}\n\n${parsed.text}`;
+                }
+            } catch (e) {}
+        }
+        return fullText;
     });
 };
 

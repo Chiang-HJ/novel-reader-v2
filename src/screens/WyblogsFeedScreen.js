@@ -1,18 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
-import { getArticles, refreshFeed, fetchArticleContent } from '../utils/blogFeedService';
+import { getWyblogsArticles, refreshWyblogsFeed, fetchWyblogsArticleContent } from '../utils/wyblogsFeedService';
 import { saveNovelToBookshelf, saveChapterText, getBookshelf } from '../utils/storage';
 import { convertS2T } from '../utils/opencc';
 import { splitTextIntoChapters } from '../utils/parserUtils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DOWNLOADED_IDS_KEY = '@blog_downloaded_ids';
-
-export default function BlogFeedScreen({ navigation }) {
+export default function WyblogsFeedScreen({ navigation }) {
     const { colors, isDark } = useTheme();
 
     const [articles, setArticles] = useState([]);
@@ -26,9 +22,12 @@ export default function BlogFeedScreen({ navigation }) {
     const [fetchProgress, setFetchProgress] = useState(0);
     const [fetchText, setFetchText] = useState('');
 
-    // Tag filter
-    const [allTags, setAllTags] = useState([]);
-    const [selectedTag, setSelectedTag] = useState(null);
+    // Category filter
+    const [allCategories, setAllCategories] = useState([]);
+    const [selectedCategory, setSelectedCategory] = useState(null);
+
+    // Search
+    const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         loadFeed();
@@ -43,33 +42,27 @@ export default function BlogFeedScreen({ navigation }) {
     const loadDownloadedIds = async () => {
         try {
             const list = await getBookshelf();
-            const yulujiIds = list
-                .filter(n => n.id.startsWith('blog_yuluji_'))
-                .map(n => n.id.replace('blog_yuluji_', ''));
-            setDownloadedIds(new Set(yulujiIds));
+            const wyblogsIds = list
+                .filter(n => n.id.startsWith('blog_wyblogs_'))
+                .map(n => n.id.replace('blog_wyblogs_', ''));
+            setDownloadedIds(new Set(wyblogsIds));
         } catch (e) {}
-    };
-
-    const saveDownloadedId = async (id) => {
-        const newSet = new Set(downloadedIds);
-        newSet.add(id);
-        setDownloadedIds(newSet);
     };
 
     const loadFeed = async () => {
         try {
             setIsLoading(true);
             setFetchProgress(0);
-            setFetchText('準備獲取文章...');
-            const result = await getArticles((loaded, total) => {
+            setFetchText('準備獲取小說目錄...');
+            const result = await getWyblogsArticles((loaded, total) => {
                 setFetchProgress(loaded / total);
-                setFetchText(`正在獲取 ${loaded} / ${total}...`);
+                setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
             });
             setArticles(result.articles);
             setLastUpdated(result.lastUpdated);
-            extractTags(result.articles);
+            extractCategories(result.articles);
         } catch (e) {
-            Alert.alert('載入失敗', '無法載入文章列表：' + e.message);
+            Alert.alert('載入失敗', '無法載入小說目錄：' + e.message);
         } finally {
             setIsLoading(false);
         }
@@ -79,27 +72,27 @@ export default function BlogFeedScreen({ navigation }) {
         try {
             setIsRefreshing(true);
             setFetchProgress(0);
-            setFetchText('準備獲取文章...');
-            const freshArticles = await refreshFeed((loaded, total) => {
+            setFetchText('準備更新小說目錄...');
+            const freshArticles = await refreshWyblogsFeed((loaded, total) => {
                 setFetchProgress(loaded / total);
-                setFetchText(`正在獲取 ${loaded} / ${total}...`);
+                setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
             });
             setArticles(freshArticles);
             setLastUpdated(Date.now());
-            extractTags(freshArticles);
-            Alert.alert('更新完成', `已載入 ${freshArticles.length} 篇文章`);
+            extractCategories(freshArticles);
+            Alert.alert('更新完成', `已載入 ${freshArticles.length} 篇小說`);
         } catch (e) {
-            Alert.alert('更新失敗', '無法連線至語錄集：' + e.message);
+            Alert.alert('更新失敗', '無法連線至 wyblogs：' + e.message);
         } finally {
             setIsRefreshing(false);
         }
     };
 
-    const extractTags = (articleList) => {
-        const tagSet = new Set();
-        articleList.forEach(a => a.tags.forEach(t => tagSet.add(t)));
-        const sorted = [...tagSet].sort();
-        setAllTags(sorted);
+    const extractCategories = (articleList) => {
+        const catSet = new Set();
+        articleList.forEach(a => a.categories.forEach(c => catSet.add(c)));
+        const sorted = [...catSet].sort();
+        setAllCategories(sorted);
     };
 
     const handleDownload = async (article) => {
@@ -107,11 +100,10 @@ export default function BlogFeedScreen({ navigation }) {
         setDownloadingId(article.id);
 
         try {
-            // Fetch and parse the article content
-            let text = await fetchArticleContent(article.url);
+            let text = await fetchWyblogsArticleContent(article.url);
             text = convertS2T(text);
 
-            const novelId = 'blog_yuluji_' + article.id;
+            const novelId = 'blog_wyblogs_' + article.id;
             const chapterTitle = convertS2T(article.title);
 
             let newChaptersData = [];
@@ -128,7 +120,7 @@ export default function BlogFeedScreen({ navigation }) {
             const novelInfo = {
                 id: novelId,
                 title: chapterTitle,
-                author: '語錄集',
+                author: 'wyblogs',
                 cover: '',
                 url: article.url,
                 chapters: newChaptersData.map(c => ({ title: c.title, url: article.url })),
@@ -139,9 +131,12 @@ export default function BlogFeedScreen({ navigation }) {
             };
 
             await saveNovelToBookshelf(novelInfo);
-            await saveDownloadedId(article.id);
 
-            Alert.alert('下載完成', `《${convertS2T(article.title)}》已加入書架！`);
+            const newSet = new Set(downloadedIds);
+            newSet.add(article.id);
+            setDownloadedIds(newSet);
+
+            Alert.alert('下載完成', `《${chapterTitle}》已加入金庫！`);
         } catch (e) {
             Alert.alert('下載失敗', e.message);
         } finally {
@@ -151,12 +146,12 @@ export default function BlogFeedScreen({ navigation }) {
 
     const handleArticlePress = (article) => {
         if (downloadedIds.has(article.id)) {
-            const novelId = 'blog_yuluji_' + article.id;
+            const novelId = 'blog_wyblogs_' + article.id;
             navigation.navigate('Reader', { novelId, title: article.title });
         } else {
             Alert.alert(
-                article.title,
-                article.summary ? article.summary.substring(0, 200) + '...' : '要下載這篇文章嗎？',
+                convertS2T(article.title),
+                '要下載這篇小說嗎？',
                 [
                     { text: '取消', style: 'cancel' },
                     { text: '下載', onPress: () => handleDownload(article) }
@@ -165,19 +160,14 @@ export default function BlogFeedScreen({ navigation }) {
         }
     };
 
-    const filteredArticles = selectedTag
-        ? articles.filter(a => a.tags.includes(selectedTag))
-        : articles;
-
-    const formatDate = (isoStr) => {
-        if (!isoStr) return '';
-        try {
-            const d = new Date(isoStr);
-            return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
-        } catch {
-            return '';
+    const filteredArticles = articles.filter(a => {
+        if (selectedCategory && !a.categories.includes(selectedCategory)) return false;
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            return a.title.toLowerCase().includes(q);
         }
-    };
+        return true;
+    });
 
     const formatLastUpdated = (ts) => {
         if (!ts) return '';
@@ -198,21 +188,18 @@ export default function BlogFeedScreen({ navigation }) {
                 <View style={styles.articleContent}>
                     <View style={{ flex: 1 }}>
                         <Text style={[styles.articleTitle, { color: colors.text }]} numberOfLines={2}>
-                            {item.title}
+                            {convertS2T(item.title)}
                         </Text>
                         <View style={styles.tagsRow}>
-                            {item.tags.slice(0, 3).map((tag, idx) => (
+                            {item.categories.slice(0, 3).map((cat, idx) => (
                                 <View key={idx} style={[styles.tagBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
-                                    <Text style={[styles.tagText, { color: colors.primary }]}>{tag}</Text>
+                                    <Text style={[styles.tagText, { color: colors.primary }]}>{cat}</Text>
                                 </View>
                             ))}
-                            {item.tags.length > 3 && (
-                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{item.tags.length - 3}</Text>
+                            {item.categories.length > 3 && (
+                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{item.categories.length - 3}</Text>
                             )}
                         </View>
-                        <Text style={[styles.dateText, { color: colors.textSecondary }]}>
-                            {formatDate(item.publishedAt)}
-                        </Text>
                     </View>
                     <View style={styles.actionArea}>
                         {isDownloading ? (
@@ -240,9 +227,9 @@ export default function BlogFeedScreen({ navigation }) {
             {/* Header Info Bar */}
             <View style={[styles.infoBar, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
-                    <Text style={[styles.infoTitle, { color: colors.text }]}>語錄集</Text>
+                    <Text style={[styles.infoTitle, { color: colors.text }]}>Wyblogs 小說</Text>
                     <Text style={[styles.infoSubtitle, { color: colors.textSecondary }]}>
-                        {articles.length} 篇文章 {lastUpdated ? `· 更新於 ${formatLastUpdated(lastUpdated)}` : ''}
+                        {articles.length} 篇小說 {lastUpdated ? `· 更新於 ${formatLastUpdated(lastUpdated)}` : ''}
                     </Text>
                 </View>
                 <TouchableOpacity
@@ -268,31 +255,50 @@ export default function BlogFeedScreen({ navigation }) {
                 </View>
             )}
 
-            {/* Tag Filter Bar */}
-            {allTags.length > 0 && (
+            {/* Search Bar */}
+            <View style={[styles.searchContainer, { borderBottomColor: colors.border }]}>
+                <View style={[styles.searchBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
+                    <Feather name="search" size={16} color={colors.textSecondary} />
+                    <TextInput
+                        style={[styles.searchInput, { color: colors.text }]}
+                        placeholder="搜尋小說名稱..."
+                        placeholderTextColor={colors.textSecondary}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                    {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Feather name="x" size={16} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+
+            {/* Category Filter Bar */}
+            {allCategories.length > 0 && (
                 <View style={[styles.tagFilterContainer, { borderBottomColor: colors.border }]}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagFilterContent}>
                         <TouchableOpacity
                             style={[
                                 styles.filterChip,
                                 { borderColor: colors.border },
-                                !selectedTag && { backgroundColor: colors.primary, borderColor: colors.primary }
+                                !selectedCategory && { backgroundColor: colors.primary, borderColor: colors.primary }
                             ]}
-                            onPress={() => setSelectedTag(null)}
+                            onPress={() => setSelectedCategory(null)}
                         >
-                            <Text style={[styles.filterChipText, { color: !selectedTag ? '#fff' : colors.text }]}>全部</Text>
+                            <Text style={[styles.filterChipText, { color: !selectedCategory ? '#fff' : colors.text }]}>全部</Text>
                         </TouchableOpacity>
-                        {allTags.map(tag => (
+                        {allCategories.map(cat => (
                             <TouchableOpacity
-                                key={tag}
+                                key={cat}
                                 style={[
                                     styles.filterChip,
                                     { borderColor: colors.border },
-                                    selectedTag === tag && { backgroundColor: colors.primary, borderColor: colors.primary }
+                                    selectedCategory === cat && { backgroundColor: colors.primary, borderColor: colors.primary }
                                 ]}
-                                onPress={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                                onPress={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
                             >
-                                <Text style={[styles.filterChipText, { color: selectedTag === tag ? '#fff' : colors.text }]}>{tag}</Text>
+                                <Text style={[styles.filterChipText, { color: selectedCategory === cat ? '#fff' : colors.text }]}>{cat}</Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
@@ -303,7 +309,7 @@ export default function BlogFeedScreen({ navigation }) {
             {isLoading ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{fetchText || '載入文章列表中...'}</Text>
+                    <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{fetchText || '載入小說目錄中...'}</Text>
                     {fetchProgress > 0 && (
                         <View style={styles.progressBarBg}>
                             <View style={[styles.progressBarFill, { width: `${fetchProgress * 100}%`, backgroundColor: colors.primary }]} />
@@ -320,7 +326,7 @@ export default function BlogFeedScreen({ navigation }) {
                         <View style={styles.emptyContainer}>
                             <Feather name="inbox" size={48} color={colors.textSecondary} style={{ marginBottom: 16 }} />
                             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                                {selectedTag ? `「${selectedTag}」標籤下沒有文章` : '沒有找到文章'}
+                                {searchQuery ? `找不到「${searchQuery}」相關的小說` : selectedCategory ? `「${selectedCategory}」分類下沒有小說` : '沒有找到小說'}
                             </Text>
                         </View>
                     }
@@ -354,6 +360,24 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    searchContainer: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    searchBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        gap: 8,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 14,
+        padding: 0,
     },
     tagFilterContainer: {
         borderBottomWidth: StyleSheet.hairlineWidth,
@@ -406,10 +430,6 @@ const styles = StyleSheet.create({
     tagText: {
         fontSize: 11,
         fontWeight: '600',
-    },
-    dateText: {
-        fontSize: 11,
-        marginTop: 2,
     },
     actionArea: {
         marginLeft: 12,
