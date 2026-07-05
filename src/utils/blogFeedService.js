@@ -1,0 +1,215 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const BLOG_FEED_URL = 'https://yuluji.blogspot.com/feeds/posts/summary?alt=json';
+const BLOG_CACHE_KEY = '@blog_feed_cache';
+const MAX_RESULTS = 150;
+
+/**
+ * Fetch all articles from the Blogger JSON Feed API with automatic pagination.
+ * Returns an array of article objects: { id, title, tags, publishedAt, url }
+ */
+export async function fetchAllArticles(onProgress) {
+    let allArticles = [];
+    let startIndex = 1;
+    let totalResults = Infinity;
+
+    while (startIndex <= totalResults) {
+        const url = `${BLOG_FEED_URL}&max-results=${MAX_RESULTS}&start-index=${startIndex}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+
+        // Get total count on first request
+        if (totalResults === Infinity) {
+            totalResults = parseInt(data.feed?.openSearch$totalResults?.$t || '0', 10);
+        }
+
+        const entries = data.feed?.entry || [];
+        if (entries.length === 0) break;
+
+        for (const entry of entries) {
+            const title = entry.title?.$t || '(無標題)';
+            const tags = (entry.category || []).map(c => c.term);
+            const publishedAt = entry.published?.$t || '';
+            const linkObj = (entry.link || []).find(l => l.rel === 'alternate');
+            const url = linkObj?.href || '';
+            const summary = entry.summary?.$t || '';
+
+            // Extract a stable ID from Blogger's post ID
+            const rawId = entry.id?.$t || '';
+            const postId = rawId.split('.post-')[1] || rawId;
+
+            allArticles.push({
+                id: postId,
+                title,
+                tags,
+                publishedAt,
+                url,
+                summary,
+            });
+        }
+
+        startIndex += entries.length;
+
+        if (onProgress && totalResults !== Infinity) {
+            onProgress(Math.min(startIndex - 1, totalResults), totalResults);
+        }
+    }
+
+    return allArticles;
+}
+
+/**
+ * Get the cached feed data from AsyncStorage.
+ * Returns { lastUpdated: number, articles: [] } or null
+ */
+export async function getCachedFeed() {
+    try {
+        const cached = await AsyncStorage.getItem(BLOG_CACHE_KEY);
+        if (cached) return JSON.parse(cached);
+    } catch (e) {
+        console.warn('Failed to read blog feed cache', e);
+    }
+    return null;
+}
+
+/**
+ * Save article list to cache with current timestamp.
+ */
+export async function saveFeedToCache(articles) {
+    try {
+        const cacheData = {
+            lastUpdated: Date.now(),
+            articles,
+        };
+        await AsyncStorage.setItem(BLOG_CACHE_KEY, JSON.stringify(cacheData));
+    } catch (e) {
+        console.warn('Failed to save blog feed cache', e);
+    }
+}
+
+/**
+ * Check if the cache is stale (older than 24 hours).
+ */
+export function isCacheStale(lastUpdated) {
+    if (!lastUpdated) return true;
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    return (Date.now() - lastUpdated) > ONE_DAY_MS;
+}
+
+/**
+ * Refresh the feed: fetch from network and update cache.
+ * Returns the fresh articles array.
+ */
+export async function refreshFeed(onProgress) {
+    const articles = await fetchAllArticles(onProgress);
+    await saveFeedToCache(articles);
+    return articles;
+}
+
+/**
+ * Get articles, using cache if fresh enough, otherwise fetching from network.
+ * Returns { articles: [], lastUpdated: number, fromCache: boolean }
+ */
+export async function getArticles(onProgress) {
+    const cached = await getCachedFeed();
+
+    if (cached && !isCacheStale(cached.lastUpdated)) {
+        return { articles: cached.articles, lastUpdated: cached.lastUpdated, fromCache: true };
+    }
+
+    try {
+        const articles = await refreshFeed(onProgress);
+        return { articles, lastUpdated: Date.now(), fromCache: false };
+    } catch (e) {
+        // If network fails but we have stale cache, use it
+        if (cached) {
+            return { articles: cached.articles, lastUpdated: cached.lastUpdated, fromCache: true };
+        }
+        throw e;
+    }
+}
+
+/**
+ * Fetch the full HTML content of a single blog post by its URL,
+ * then strip HTML tags and return clean text.
+ */
+export async function fetchArticleContent(articleUrl) {
+    const response = await fetch(articleUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const html = await response.text();
+
+    // Extract the post body from Blogger HTML
+    let content = '';
+
+    const startMatch = html.match(/<div[^>]*class=['"][^'"]*(?:post-body|entry-content)[^'"]*['"][^>]*>/i);
+    if (startMatch) {
+        const startIndex = startMatch.index + startMatch[0].length;
+        let openDivs = 1;
+        let endIndex = startIndex;
+        
+        const divRegex = /<\/?div[^>]*>/gi;
+        divRegex.lastIndex = startIndex;
+        
+        let match;
+        while ((match = divRegex.exec(html)) !== null) {
+            if (match[0].toLowerCase().startsWith('</div')) {
+                openDivs--;
+            } else {
+                openDivs++;
+            }
+            
+            if (openDivs === 0) {
+                endIndex = match.index;
+                break;
+            }
+        }
+        
+        if (openDivs === 0) {
+            content = html.substring(startIndex, endIndex);
+        } else {
+            // Fallback if divs are unbalanced for some reason
+            content = html.substring(startIndex);
+        }
+    }
+
+    if (!content) {
+        throw new Error('無法解析文章內容，網頁結構可能已改變');
+    }
+
+    // Strip HTML to plain text
+    let text = content;
+
+    // Remove anti-scraping jammers (e.g., class="jammer" or display: none)
+    text = text.replace(/<[^>]*class=['"]jammer['"][^>]*>[\s\S]*?<\/[a-zA-Z0-9]+>/gi, '');
+    text = text.replace(/<[^>]*style=['"][^'"]*display:\s*none[^'"]*['"][^>]*>[\s\S]*?<\/[a-zA-Z0-9]+>/gi, '');
+    // Also remove elements with font-size: 0px or opacity: 0
+    text = text.replace(/<[^>]*style=['"][^'"]*(font-size:\s*0px|opacity:\s*0)[^'"]*['"][^>]*>[\s\S]*?<\/[a-zA-Z0-9]+>/gi, '');
+
+    // Remove scripts and styles
+    text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+    // Convert <br> and block elements to newlines
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    text = text.replace(/<\/p>/gi, '\n\n');
+    text = text.replace(/<\/div>/gi, '\n');
+    text = text.replace(/<\/h[1-6]>/gi, '\n\n');
+    text = text.replace(/<\/li>/gi, '\n');
+    // Remove remaining tags
+    text = text.replace(/<[^>]+>/g, '');
+    // Decode HTML entities
+    text = text.replace(/&nbsp;/g, ' ');
+    text = text.replace(/&amp;/g, '&');
+    text = text.replace(/&lt;/g, '<');
+    text = text.replace(/&gt;/g, '>');
+    text = text.replace(/&quot;/g, '"');
+    text = text.replace(/&#39;/g, "'");
+    text = text.replace(/&#(\d+);/g, (m, code) => String.fromCharCode(code));
+    // Clean up whitespace
+    text = text.replace(/\n{3,}/g, '\n\n');
+    text = text.trim();
+
+    return text;
+}

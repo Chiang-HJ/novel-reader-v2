@@ -39,8 +39,8 @@ export const saveNovelToBookshelf = async (novelInfo) => {
             progressIndex: existing ? existing.progressIndex : 0,
             progressSentence: existing ? existing.progressSentence : 0,
             downloadedChapters: novelInfo.downloadedChapters !== undefined ? novelInfo.downloadedChapters : (existing ? existing.downloadedChapters : 0),
-            folderId: existing ? existing.folderId : null,
-            isHidden: existing ? existing.isHidden : false
+            folderId: existing ? existing.folderId : (novelInfo.folderId || null),
+            isHidden: existing ? existing.isHidden : (novelInfo.isHidden || false)
         };
         
         currentList.unshift(summary);

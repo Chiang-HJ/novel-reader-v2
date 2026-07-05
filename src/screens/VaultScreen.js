@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, ScrollView, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
-import { getBookshelf, deleteNovel, moveNovelToFolder } from '../utils/storage';
+import { getBookshelf, deleteNovel, updateNovelMetadata } from '../utils/storage';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -425,6 +425,12 @@ export default function VaultScreen({ navigation }) {
                 <FlatList 
                     data={bookshelf}
                     keyExtractor={item => item.id}
+                    ListHeaderComponent={
+                        <TouchableOpacity style={[styles.importBtn, { backgroundColor: colors.surface, borderColor: colors.primary, marginTop: 12, marginHorizontal: 16 }]} onPress={() => navigation.navigate('BlogFeed')}>
+                            <Feather name="book-open" size={24} color={colors.primary} style={{ marginRight: 8 }} />
+                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
+                        </TouchableOpacity>
+                    }
                     renderItem={({ item }) => (
                         <NovelListItem 
                             item={item}
@@ -432,20 +438,36 @@ export default function VaultScreen({ navigation }) {
                             colors={colors}
                             isDark={isDark}
                             customActions={
-                                <TouchableOpacity 
-                                    style={{ padding: 8, justifyContent: 'center' }}
-                                    onPress={() => {
-                                        Alert.alert('移出金庫', '確定要解除隱藏嗎？', [
-                                            { text: '取消', style: 'cancel' },
-                                            { text: '確定', onPress: async () => {
-                                                await moveNovelToFolder(item.id, null);
-                                                loadBookshelf();
-                                            }}
-                                        ]);
-                                    }}
-                                >
-                                    <Feather name="eye" size={20} color={colors.primary} />
-                                </TouchableOpacity>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <TouchableOpacity 
+                                        style={{ padding: 12, justifyContent: 'center' }}
+                                        onPress={() => {
+                                            Alert.alert('移出金庫', '確定要解除隱藏嗎？', [
+                                                { text: '取消', style: 'cancel' },
+                                                { text: '確定', onPress: async () => {
+                                                    await updateNovelMetadata(item.id, { folderId: null, isHidden: false });
+                                                    loadBookshelf();
+                                                }}
+                                            ]);
+                                        }}
+                                    >
+                                        <Feather name="eye" size={20} color={colors.primary} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ padding: 12, justifyContent: 'center' }}
+                                        onPress={() => {
+                                            Alert.alert('刪除書籍', '確定要永久刪除這本書嗎？', [
+                                                { text: '取消', style: 'cancel' },
+                                                { text: '刪除', style: 'destructive', onPress: async () => {
+                                                    await deleteNovel(item.id);
+                                                    loadBookshelf();
+                                                }}
+                                            ]);
+                                        }}
+                                    >
+                                        <Feather name="trash-2" size={20} color={colors.danger || '#ff4444'} />
+                                    </TouchableOpacity>
+                                </View>
                             }
                         />
                     )}

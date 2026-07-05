@@ -59,7 +59,7 @@ export default function ReaderScreen({ route, navigation }) {
     
     const [isAudioOnlyMode, setIsAudioOnlyMode] = useState(false);
     
-    const [isContinuousMode, setIsContinuousMode] = useState(false);
+    const [isContinuousMode, setIsContinuousMode] = useState(true);
 
     // Advanced Typography State
     const [fontSize, setFontSize] = useState(20);
@@ -76,7 +76,7 @@ export default function ReaderScreen({ route, navigation }) {
     };
     const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0); // in seconds
     const sleepTimerIntervalRef = useRef(null);
-    const isContinuousModeRef = useRef(false);
+    const isContinuousModeRef = useRef(true);
     const isSpeechPausedRef = useRef(false);
     
     const scrollViewRef = useRef(null);

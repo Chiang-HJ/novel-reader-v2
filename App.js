@@ -8,6 +8,7 @@ import FolderScreen from './src/screens/FolderScreen';
 import VaultScreen from './src/screens/VaultScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import TocScreen from './src/screens/TocScreen';
+import BlogFeedScreen from './src/screens/BlogFeedScreen';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { DownloadProvider } from './src/context/DownloadContext';
 import DownloadWebViewHost from './src/components/DownloadWebViewHost';
@@ -38,6 +39,7 @@ function RootNavigator() {
         <Stack.Screen name="Vault" component={VaultScreen} options={{ title: '私密金庫' }} />
         <Stack.Screen name="Reader" component={ReaderScreen} options={{ title: '閱讀中' }} />
         <Stack.Screen name="Toc" component={TocScreen} options={{ title: '目錄' }} />
+        <Stack.Screen name="BlogFeed" component={BlogFeedScreen} options={{ title: '語錄集' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
