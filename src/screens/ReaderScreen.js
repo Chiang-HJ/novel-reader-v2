@@ -1328,6 +1328,30 @@ export default function ReaderScreen({ route, navigation }) {
                                 </TouchableOpacity>
                             </View>
 
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 10 }]}>語音自動連播</Text>
+                            <View style={styles.optionsRow}>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, !isContinuousMode && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setIsContinuousMode(false); 
+                                        isContinuousModeRef.current = false; 
+                                        AsyncStorage.setItem('novel_reader_continuous_mode', 'false');
+                                    }}
+                                >
+                                    <Text style={{ color: !isContinuousMode ? 'white' : colors.text }}>播完本章停止</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, isContinuousMode && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setIsContinuousMode(true); 
+                                        isContinuousModeRef.current = true; 
+                                        AsyncStorage.setItem('novel_reader_continuous_mode', 'true');
+                                    }}
+                                >
+                                    <Text style={{ color: isContinuousMode ? 'white' : colors.text }}>自動接續下一章</Text>
+                                </TouchableOpacity>
+                            </View>
+
                             {isPagingMode && !isAudioOnlyMode && (
                                 <>
                                     <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>翻頁觸控區塊 (直接切各50%)</Text>
