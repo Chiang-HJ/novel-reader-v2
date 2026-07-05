@@ -27,7 +27,6 @@
     "expo-status-bar": "~3.0.9",
     "expo-video-thumbnails": "~10.0.8",
     "fast-xml-parser": "^5.9.3",
-    "jsdom": "^29.1.1",
     "jszip": "^3.10.1",
     "lucide-react-native": "^1.23.0",
     "react": "^19.1.0",

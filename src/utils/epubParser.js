@@ -1,9 +1,9 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import JSZip from 'jszip';
-import { XMLParser } from 'fast-xml-parser';
-
 export async function parseEpub(uri) {
     try {
+        const JSZip = require('jszip');
+        const { XMLParser } = require('fast-xml-parser');
+        
         // Read file as base64
         const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
         

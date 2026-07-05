@@ -49,32 +49,6 @@ jobs:
             CODE_SIGNING_IDENTITY="" \
             SYMROOT=$PWD/build
 
-      - name: Ensure JS Bundle Exists in App
-        run: |
-          APP_PATH=$(find ios/build/Release-iphoneos -name "*.app" -type d | head -n 1)
-          echo "App path: $APP_PATH"
-          
-          # Check if main.jsbundle exists inside the .app
-          if [ ! -f "$APP_PATH/main.jsbundle" ]; then
-            echo "⚠️ main.jsbundle not found in .app — generating manually..."
-            
-            # Generate the bundle using react-native's bundler
-            npx react-native bundle \
-              --platform ios \
-              --dev false \
-              --entry-file node_modules/expo/AppEntry.js \
-              --bundle-output "$APP_PATH/main.jsbundle" \
-              --assets-dest "$APP_PATH"
-            
-            echo "✅ JS Bundle manually injected into .app"
-          else
-            echo "✅ main.jsbundle already exists in .app"
-          fi
-          
-          # Verify
-          ls -la "$APP_PATH/main.jsbundle"
-          echo "Bundle size: $(wc -c < "$APP_PATH/main.jsbundle") bytes"
-
       - name: Package into IPA
         run: |
           mkdir -p Payload
