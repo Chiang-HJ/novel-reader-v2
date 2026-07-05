@@ -103,7 +103,14 @@ export default function VaultScreen({ navigation }) {
             for (let i = 0; i < assets.length; i++) {
                 const asset = assets[i];
                 try {
-                    const fileName = asset.uri.split('/').pop() || 'media.jpg';
+                    let fileName = asset.fileName || asset.uri.split('/').pop() || 'media.jpg';
+                    const isVideo = asset.type === 'video' || asset.mediaType === 'video' || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov');
+                    
+                    // iOS AVPlayer requires a valid extension to play local files
+                    if (isVideo && !fileName.includes('.')) {
+                        fileName += '.mp4';
+                    }
+
                     const uniqueId = Date.now().toString() + '_' + i + '_' + Math.random().toString(36).substring(7);
                     const newUri = vaultDir + uniqueId + '_' + fileName;
                     
@@ -113,7 +120,7 @@ export default function VaultScreen({ navigation }) {
                     });
                     
                     let thumbnailUri = null;
-                    if (asset.type === 'video' || newUri.endsWith('.mp4') || newUri.endsWith('.mov')) {
+                    if (isVideo) {
                         try {
                             const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
                             const tFileName = 'thumb_' + uniqueId + '.jpg';
@@ -129,7 +136,7 @@ export default function VaultScreen({ navigation }) {
                         id: uniqueId,
                         uri: newUri,
                         thumbnailUri,
-                        type: asset.type || (newUri.endsWith('.mp4') || newUri.endsWith('.mov') ? 'video' : 'image'),
+                        type: isVideo ? 'video' : 'image',
                         createdAt: Date.now(),
                         tags: []
                     });

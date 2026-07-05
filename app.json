@@ -40,7 +40,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow app to access photos for Vault"
+          "photosPermission": "Allow app to access photos for Vault",
+          "cameraPermission": "Allow app to access camera for Vault",
+          "microphonePermission": "Allow app to access microphone for video processing"
         }
       ]
     ]
