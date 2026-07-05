@@ -245,14 +245,25 @@ export default function ReaderScreen({ route, navigation }) {
     const loadVoices = async () => {
         try {
             const allVoices = await Speech.getAvailableVoicesAsync();
-            const twVoices = allVoices.filter(v => v.language === 'zh-TW');
-            if (twVoices.length > 0) {
-                setVoices(twVoices);
-                setSelectedVoice(twVoices[0].identifier);
+            
+            // The user only wants Li-mu (Regular, NOT Enhanced)
+            const limuVoices = allVoices.filter(v => v.name.toLowerCase().includes('li-mu') || v.name.includes('李牧'));
+            
+            if (limuVoices.length > 0) {
+                // Prefer Default over Enhanced
+                const regularLimu = limuVoices.find(v => v.quality === 'Default' || v.quality === Speech.VoiceQuality?.Default) || limuVoices[0];
+                setVoices([regularLimu]);
+                setSelectedVoice(regularLimu.identifier);
             } else {
-                const zhVoices = allVoices.filter(v => v.language && v.language.startsWith('zh'));
-                setVoices(zhVoices);
-                if (zhVoices.length > 0) setSelectedVoice(zhVoices[0].identifier);
+                // Fallback to empty if Li-mu is strictly the only one wanted, 
+                // but just in case we provide at least one TW voice as an emergency fallback
+                const twVoices = allVoices.filter(v => v.language === 'zh-TW');
+                if (twVoices.length > 0) {
+                    setVoices([twVoices[0]]);
+                    setSelectedVoice(twVoices[0].identifier);
+                } else {
+                    setVoices([]);
+                }
             }
         } catch(e) {
             console.warn('Failed to load voices', e);
