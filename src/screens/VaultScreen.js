@@ -613,14 +613,27 @@ export default function VaultScreen({ navigation }) {
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('WyblogsFeed')}>
                                 <Feather name="book" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                <Text style={{ color: colors.primary, fontWeight: 'bold' }}>Wyblogs</Text>
+                                <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>Wyblogs</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('JMComicFeed')}>
+                                <Feather name="image" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>禁漫天堂</Text>
                             </TouchableOpacity>
                         </View>
                     }
                     renderItem={({ item }) => (
                         <NovelListItem 
                             item={item}
-                            onPress={() => navigation.navigate('Reader', { novelId: item.id, title: item.title })}
+                            onPress={() => {
+                                if (item.type === 'comic') {
+                                    navigation.navigate('ComicReader', { novelId: item.id, title: item.title });
+                                } else {
+                                    navigation.navigate('Reader', { novelId: item.id, title: item.title });
+                                }
+                            }}
+                            onLongPress={() => {
+                                setSelectedNovel(item);
+                            }}
                             colors={colors}
                             isDark={isDark}
                             customActions={

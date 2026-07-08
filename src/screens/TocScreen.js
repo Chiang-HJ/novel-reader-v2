@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useLayoutEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
+import { splitTextIntoChapters } from '../utils/parserUtils';
 import { Feather } from '@expo/vector-icons';
 
 export default function TocScreen({ route, navigation }) {
@@ -35,6 +36,22 @@ export default function TocScreen({ route, navigation }) {
             refreshNovel();
         }, [novel.id])
     );
+
+    useLayoutEffect(() => {
+        navigation.setOptions({
+            headerRight: () => (
+                <TouchableOpacity style={styles.modalOption} onPress={() => {
+                    setIsOptionsModalVisible(false);
+                    setSplitTarget('chapter');
+                    setIsSplitModalVisible(true);
+                }}
+                    style={{ paddingRight: 15 }}
+                >
+                    <Feather name="scissors" size={20} color={colors.primary} />
+                </TouchableOpacity>
+            ),
+        });
+    }, [navigation, colors]);
 
     const handleLongPress = (index) => {
         setSelectedChapterIndex(index);
@@ -114,176 +131,131 @@ export default function TocScreen({ route, navigation }) {
         }
     };
 
-    const buildChaptersFromText = (rawText, baseTitle, requireMatch = true) => {
-        const oldText = rawText || '';
-        const newChaptersData = [];
-
-        if (splitMode === 'regex' || splitMode === 'example') {
-            let regexStr = splitRegexStr;
-            if (splitMode === 'example') {
-                if (!splitExampleStr.trim()) {
-                    throw new Error('請輸入章節編號範例。');
-                }
-                const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                regexStr = escapeRegExp(splitExampleStr.trim()).replace(/\d+/g, '\\d+');
-            } else if (!splitRegexStr.trim()) {
-                throw new Error('請輸入分割規則。');
-            }
-
-            let regex;
-            try {
-                regex = new RegExp('(' + regexStr + ')', 'g');
-            } catch(e) {
-                throw new Error('規則錯誤：您輸入的條件不合法。');
-            }
-
-            const parts = oldText.split(regex);
-            if (parts.length <= 1) {
-                if (requireMatch) {
-                    throw new Error('找不到符合此規則的章節標題。');
-                }
-                return [{ title: baseTitle, text: oldText.trim() }];
-            }
-
-            const preface = parts[0].trim();
-            if (preface.length > 0) {
-                newChaptersData.push({ title: `${baseTitle} (前言)`, text: preface });
-            }
-
-            for (let i = 1; i < parts.length; i += 2) {
-                const title = parts[i].trim();
-                const text = (parts[i + 1] || '').trim();
-                if (text.length === 0) continue;
-                newChaptersData.push({ title, text });
-            }
-        } else {
-            const targetLen = parseInt(splitLength, 10);
-            if (isNaN(targetLen) || targetLen < 100) {
-                throw new Error('請輸入正確的字數 (最少 100 字)。');
-            }
-
-            const paragraphs = oldText.split('\n');
-            let currentChunk = '';
-            let partIndex = 1;
-
-            const pushChunk = (text) => {
-                const cleaned = text.trim();
-                if (!cleaned) return;
-                newChaptersData.push({ title: `${baseTitle} (Part ${partIndex})`, text: cleaned });
-                partIndex++;
-            };
-
-            for (let i = 0; i < paragraphs.length; i++) {
-                const p = paragraphs[i].trim();
-                if (!p) continue;
-
-                if (p.length > targetLen * 1.5) {
-                    let remaining = p;
-                    while (remaining.length > 0) {
-                        if (remaining.length <= targetLen) {
-                            if (currentChunk.length + remaining.length > targetLen && currentChunk.length > 0) {
-                                pushChunk(currentChunk);
-                                currentChunk = remaining + '\n';
-                            } else {
-                                currentChunk += remaining + '\n';
-                            }
-                            break;
-                        }
-
-                        let breakIndex = targetLen;
-                        const searchWindow = remaining.substring(Math.max(0, targetLen - 100), targetLen + 100);
-                        const lastPunc = Math.max(
-                            searchWindow.lastIndexOf('。'),
-                            searchWindow.lastIndexOf('！'),
-                            searchWindow.lastIndexOf('？'),
-                            searchWindow.lastIndexOf('”'),
-                            searchWindow.lastIndexOf('」')
-                        );
-                        if (lastPunc !== -1) {
-                            breakIndex = Math.max(0, targetLen - 100) + lastPunc + 1;
-                        }
-
-                        if (currentChunk.length > 0) {
-                            pushChunk(currentChunk);
-                            currentChunk = '';
-                        }
-                        pushChunk(remaining.substring(0, breakIndex));
-                        remaining = remaining.substring(breakIndex);
-                    }
-                } else if (currentChunk.length + p.length > targetLen && currentChunk.length > 0) {
-                    pushChunk(currentChunk);
-                    currentChunk = p + '\n';
-                } else {
-                    currentChunk += p + '\n';
-                }
-            }
-
-            if (currentChunk.trim().length > 0) {
-                pushChunk(currentChunk);
-            }
-        }
-
-        if (newChaptersData.length === 0) {
-            throw new Error('分割後沒有產生任何章節。');
-        }
-
-        return newChaptersData;
-    };
-
-    const performSplit = async () => {
+    const executeSplit = async () => {
         setIsProcessing(true);
         try {
+            let oldText = '';
+            let targetChapterTitle = '';
+
             if (splitTarget === 'novel') {
-                const fullText = await getAllChapterText(novel.id);
-                if (!fullText.trim()) {
-                    throw new Error('無法讀取整本小說內容。');
+                oldText = await getAllChapterText(novel.id);
+                targetChapterTitle = novel.title;
+            } else {
+                const index = selectedChapterIndex;
+                targetChapterTitle = novel.chapters[index].title;
+                const oldTextData = await getChapterText(novel.id, index);
+                
+                if (!oldTextData) {
+                    Alert.alert('錯誤', '無法讀取章節內容，請先下載此章節。');
+                    setIsProcessing(false);
+                    return;
                 }
+                oldText = typeof oldTextData === 'string' ? oldTextData : (oldTextData.text || '');
+            }
 
-                const newChaptersData = buildChaptersFromText(fullText, novel.title || '重新分割', true);
-                await replaceNovelChapters(novel.id, newChaptersData);
-                await refreshNovel();
+            let newChaptersData = [];
 
-                setIsSplitModalVisible(false);
-                Alert.alert('成功', `已將整本小說重新分割為 ${newChaptersData.length} 章！`);
+            if (splitMode === 'regex' || splitMode === 'example') {
+                try {
+                    newChaptersData = splitTextIntoChapters(
+                        oldText, 
+                        splitMode, 
+                        splitMode === 'example' ? splitExampleStr : splitRegexStr, 
+                        targetChapterTitle
+                    );
+                } catch (e) {
+                    Alert.alert('規則錯誤', e.message);
+                    setIsProcessing(false);
+                    return;
+                }
+            } else {
+                const targetLen = parseInt(splitLength, 10);
+                if (isNaN(targetLen) || targetLen < 100) {
+                    Alert.alert('字數錯誤', '請輸入正確的字數 (最少 100 字)。');
+                    setIsProcessing(false);
+                    return;
+                }
+                
+                const paragraphs = oldText.split('\n');
+                let currentChunk = '';
+                let partIndex = 1;
+                
+                for (let i = 0; i < paragraphs.length; i++) {
+                    const p = paragraphs[i].trim();
+                    if (!p) continue;
+                    
+                    if (p.length > targetLen * 1.5) {
+                        let remaining = p;
+                        while (remaining.length > 0) {
+                            if (remaining.length <= targetLen) {
+                                if (currentChunk.length + remaining.length > targetLen && currentChunk.length > 0) {
+                                    newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: currentChunk.trim() });
+                                    currentChunk = remaining + '\n';
+                                    partIndex++;
+                                } else {
+                                    currentChunk += remaining + '\n';
+                                }
+                                break;
+                            } else {
+                                let breakIndex = targetLen;
+                                const searchWindow = remaining.substring(Math.max(0, targetLen - 100), targetLen + 100);
+                                const lastPunc = Math.max(
+                                    searchWindow.lastIndexOf('。'),
+                                    searchWindow.lastIndexOf('！'),
+                                    searchWindow.lastIndexOf('？'),
+                                    searchWindow.lastIndexOf('”'),
+                                    searchWindow.lastIndexOf('」')
+                                );
+                                if (lastPunc !== -1) {
+                                    breakIndex = Math.max(0, targetLen - 100) + lastPunc + 1;
+                                }
+                                
+                                const chunk = remaining.substring(0, breakIndex);
+                                if (currentChunk.length > 0) {
+                                    newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: currentChunk.trim() });
+                                    partIndex++;
+                                    currentChunk = '';
+                                }
+                                newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: chunk.trim() });
+                                partIndex++;
+                                remaining = remaining.substring(breakIndex);
+                            }
+                        }
+                    } else {
+                        if (currentChunk.length + p.length > targetLen && currentChunk.length > 0) {
+                            newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: currentChunk.trim() });
+                            currentChunk = p + '\n';
+                            partIndex++;
+                        } else {
+                            currentChunk += p + '\n';
+                        }
+                    }
+                }
+                if (currentChunk.trim().length > 0) {
+                    newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: currentChunk.trim() });
+                }
+            }
+
+            if (newChaptersData.length === 0) {
+                setIsProcessing(false);
                 return;
             }
 
-            const index = selectedChapterIndex;
-            const targetChapter = novel.chapters[index];
-            const oldTextData = await getChapterText(novel.id, index);
-            if (!oldTextData) {
-                throw new Error('無法讀取章節內容，請先下載此章節。');
+            if (splitTarget === 'novel') {
+                await replaceNovelChapters(novel.id, newChaptersData);
+            } else {
+                await splitChapterData(novel.id, selectedChapterIndex, newChaptersData);
             }
-
-            const oldText = typeof oldTextData === 'string' ? oldTextData : (oldTextData.text || '');
-            const newChaptersData = buildChaptersFromText(oldText, targetChapter.title, true);
-
-            await splitChapterData(novel.id, index, newChaptersData);
+            
             await refreshNovel();
-
+            
             setIsSplitModalVisible(false);
-            Alert.alert('成功', `已將章節成功分割為 ${newChaptersData.length} 章！`);
+            Alert.alert('成功', `已將${splitTarget === 'novel' ? '整本小說' : '章節'}成功分割為 ${newChaptersData.length} 章！`);
         } catch (e) {
             Alert.alert('錯誤', e.message);
         } finally {
             setIsProcessing(false);
         }
-    };
-
-    const executeSplit = async () => {
-        if (splitTarget === 'novel') {
-            Alert.alert(
-                '重新分割整本小說',
-                `系統會先把目前 ${novel.chapters.length} 章合併，再用這裡的規則重新切章。原本的章節切法會被取代。`,
-                [
-                    { text: '取消', style: 'cancel' },
-                    { text: '開始重分割', style: 'destructive', onPress: performSplit }
-                ]
-            );
-            return;
-        }
-
-        performSplit();
     };
 
     return (

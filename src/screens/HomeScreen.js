@@ -405,7 +405,13 @@ export default function HomeScreen({ navigation }) {
                 renderItem={({ item }) => (
                     <NovelListItem 
                         item={item}
-                        onPress={() => navigation.navigate('Reader', { novelId: item.id, title: item.title })}
+                        onPress={() => {
+                            if (item.type === 'comic') {
+                                navigation.navigate('ComicReader', { novelId: item.id, title: item.title });
+                            } else {
+                                navigation.navigate('Reader', { novelId: item.id, title: item.title });
+                            }
+                        }}
                         onLongPress={() => openOptionsModal(item)}
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}

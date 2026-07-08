@@ -10,9 +10,13 @@ import ReaderScreen from './src/screens/ReaderScreen';
 import TocScreen from './src/screens/TocScreen';
 import BlogFeedScreen from './src/screens/BlogFeedScreen';
 import WyblogsFeedScreen from './src/screens/WyblogsFeedScreen';
+import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
+import ComicReaderScreen from './src/screens/ComicReaderScreen';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { DownloadProvider } from './src/context/DownloadContext';
+import { ComicDownloadProvider } from './src/context/ComicDownloadContext';
 import DownloadWebViewHost from './src/components/DownloadWebViewHost';
+import ComicDownloadWebViewHost from './src/components/ComicDownloadWebViewHost';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Stack = createNativeStackNavigator();
@@ -42,6 +46,8 @@ function RootNavigator() {
         <Stack.Screen name="Toc" component={TocScreen} options={{ title: '目錄' }} />
         <Stack.Screen name="BlogFeed" component={BlogFeedScreen} options={{ title: '語錄集' }} />
         <Stack.Screen name="WyblogsFeed" component={WyblogsFeedScreen} options={{ title: 'Wyblogs 小說' }} />
+        <Stack.Screen name="JMComicFeed" component={JMComicFeedScreen} options={{ title: '禁漫天堂 (18comic)' }} />
+        <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -54,6 +60,7 @@ function AppContent() {
       <RootNavigator />
       {/* WebView for download engine — rendered as sibling to navigator, NOT inside Provider */}
       <DownloadWebViewHost />
+      <ComicDownloadWebViewHost />
     </View>
   );
 }
@@ -64,7 +71,9 @@ export default function App() {
       <ErrorBoundary>
         <ThemeProvider>
           <DownloadProvider>
-            <AppContent />
+            <ComicDownloadProvider>
+              <AppContent />
+            </ComicDownloadProvider>
           </DownloadProvider>
         </ThemeProvider>
       </ErrorBoundary>

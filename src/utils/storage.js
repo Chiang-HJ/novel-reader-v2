@@ -35,6 +35,7 @@ export const saveNovelToBookshelf = async (novelInfo) => {
             url: novelInfo.url,
             title: novelInfo.title,
             cover: novelInfo.cover,
+            type: novelInfo.type || (existing ? existing.type : 'novel'),
             chapterCount: novelInfo.chapters ? novelInfo.chapters.length : (novelInfo.chapterCount || 0),
             progressIndex: existing ? existing.progressIndex : 0,
             progressSentence: existing ? existing.progressSentence : 0,
@@ -185,6 +186,65 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
         return fileId;
     } catch (e) {
         console.error('Error saving chapter text', e);
+        throw e;
+    }
+};
+
+export const saveComicImage = async (novelId, chapterId, imageIndex, imageData) => {
+    const imagesDir = `${getNovelDir(novelId)}images/`;
+    try {
+        const info = await FileSystem.getInfoAsync(imagesDir);
+        if (!info.exists) {
+            await FileSystem.makeDirectoryAsync(imagesDir, { intermediates: true });
+        }
+        
+        let fileName = `${chapterId}_${imageIndex}.jpg`;
+        
+        if (imageData.startsWith('http://') || imageData.startsWith('https://')) {
+            try {
+                const urlWithoutParams = imageData.split('?')[0];
+                const urlParts = urlWithoutParams.split('/');
+                const originalName = urlParts[urlParts.length - 1];
+                if (originalName && originalName.includes('.')) {
+                    fileName = `${chapterId}_${originalName}`;
+                }
+            } catch(e) {}
+            
+            // It's a URL - download the file directly
+            const filePath = `${imagesDir}${fileName}`;
+            const result = await FileSystem.downloadAsync(imageData, filePath);
+            return result.uri;
+        } else {
+            const filePath = `${imagesDir}${fileName}`;
+            // It's base64 data (possibly with data:image prefix)
+            const cleanBase64 = imageData.replace(/^data:image\/\w+;base64,/, '');
+            await FileSystem.writeAsStringAsync(filePath, cleanBase64, { encoding: FileSystem.EncodingType.Base64 });
+            return filePath;
+        }
+    } catch (e) {
+        console.error('Error saving comic image', e);
+        throw e;
+    }
+};
+
+export const saveComicChapterData = async (novelId, chapterIndex, title, pages) => {
+    const folderPath = getNovelDir(novelId);
+    try {
+        const info = await FileSystem.getInfoAsync(folderPath);
+        if (!info.exists) {
+            await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+        }
+        
+        const fileId = typeof chapterIndex === 'number' ? chapterIndex.toString() : chapterIndex;
+        const filePath = `${folderPath}${fileId}.json`;
+        
+        // pages is an array of local file URIs
+        const data = { title, pages, id: fileId };
+        await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+        
+        return fileId;
+    } catch (e) {
+        console.error('Error saving comic chapter data', e);
         throw e;
     }
 };

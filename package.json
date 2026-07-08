@@ -31,6 +31,7 @@
     "fast-xml-parser": "^5.9.3",
     "jszip": "^3.10.1",
     "lucide-react-native": "^1.23.0",
+    "md5": "^2.3.0",
     "react": "^19.1.0",
     "react-native": "^0.81.5",
     "react-native-safe-area-context": "~5.6.0",
