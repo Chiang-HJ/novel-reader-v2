@@ -1,30 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Image, Dimensions, ActivityIndicator } from 'react-native';
-import md5 from 'md5';
+import { getScramblePieces } from '../utils/comicUtils';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-const getScramblePieces = (photo_id, filename) => {
-    // 18comic defaults scramble_id to 220980.
-    const scramble_id = 220980;
-    
-    if (photo_id < scramble_id) {
-        return 0; // Not scrambled
-    }
-    if (photo_id < 268850) {
-        return 10;
-    }
-    
-    const x = (photo_id < 421926) ? 10 : 8;
-    const filenameNoExt = filename.split('.')[0];
-    const s = `${photo_id}${filenameNoExt}`;
-    const hash = md5(s);
-    const lastChar = hash.charAt(hash.length - 1);
-    let num = lastChar.charCodeAt(0);
-    num %= x;
-    num = num * 2 + 2;
-    return num;
-};
 
 const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIGHT, screenWidth = SCREEN_WIDTH }) => {
     const [dimensions, setDimensions] = useState(null);

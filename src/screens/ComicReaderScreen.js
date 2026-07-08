@@ -8,6 +8,32 @@ import ScrambledImage from '../components/ScrambledImage';
 
 const { width, height } = Dimensions.get('window');
 
+const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
+    const [aspectRatio, setAspectRatio] = useState(0.7);
+
+    useEffect(() => {
+        let isMounted = true;
+        Image.getSize(uri, (w, h) => {
+            if (isMounted && w > 0 && h > 0) {
+                setAspectRatio(w / h);
+            }
+        }, () => {});
+        return () => { isMounted = false; };
+    }, [uri]);
+
+    return (
+        <Image 
+            source={{ uri }} 
+            style={{ 
+                width: screenWidth, 
+                height: isHorizontal ? screenHeight : undefined, 
+                aspectRatio: isHorizontal ? undefined : aspectRatio 
+            }} 
+            resizeMode={isHorizontal ? "contain" : "cover"} 
+        />
+    );
+};
+
 export default function ComicReaderScreen({ route, navigation }) {
     const { novelId, title } = route.params;
     const { colors, isDark } = useTheme();
@@ -65,13 +91,22 @@ export default function ComicReaderScreen({ route, navigation }) {
         const imageContent = (
             <TouchableWithoutFeedback onPress={toggleHeader}>
                 <View>
-                    <ScrambledImage 
-                        uri={item} 
-                        novelId={novelId} 
-                        isHorizontal={isHorizontal} 
-                        screenHeight={height} 
-                        screenWidth={width} 
-                    />
+                    {novel?.isDescrambled ? (
+                        <AutoHeightImage 
+                            uri={item} 
+                            screenWidth={width} 
+                            isHorizontal={isHorizontal} 
+                            screenHeight={height} 
+                        />
+                    ) : (
+                        <ScrambledImage 
+                            uri={item} 
+                            novelId={novelId} 
+                            isHorizontal={isHorizontal} 
+                            screenHeight={height} 
+                            screenWidth={width} 
+                        />
+                    )}
                 </View>
             </TouchableWithoutFeedback>
         );

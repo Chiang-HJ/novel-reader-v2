@@ -2,6 +2,10 @@ import React, { createContext, useContext, useState, useRef, useEffect } from 'r
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveNovelToBookshelf, saveComicChapterData, saveComicImage } from '../utils/storage';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getScramblePieces } from '../utils/comicUtils';
+
+import DescrambleWebView from '../components/DescrambleWebView';
 
 const ComicDownloadContext = createContext();
 
@@ -18,6 +22,7 @@ export const ComicDownloadProvider = ({ children }) => {
     const [scrapeMode, setScrapeMode] = useState(null); 
 
     const webViewRef = useRef(null);
+    const descrambleWebViewRef = useRef(null);
     const activeTaskRef = useRef(null);
     const cancelFlagRef = useRef(new Set());
     const chapterHtmlResolveRef = useRef(null);
@@ -69,6 +74,7 @@ export const ComicDownloadProvider = ({ children }) => {
                 type: 'comic',
                 folderId: 'vault',
                 isHidden: true,
+                isDescrambled: true,
                 chapters: [],
                 downloadedChapters: 0,
                 chapterCount: 0
@@ -110,9 +116,39 @@ export const ComicDownloadProvider = ({ children }) => {
                 // Save images
                 const localPages = [];
                 for (let j = 0; j < chapterResult.images.length; j++) {
-                    const base64 = chapterResult.images[j];
-                    setProgressText('正在儲存圖片 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
-                    const localPath = await saveComicImage(novelId, chapter.id, j, base64);
+                    const base64OrUrl = chapterResult.images[j];
+                    setProgressText('正在下載圖片 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
+                    const localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl);
+                    
+                    // Offline Descrambling
+                    try {
+                        if (descrambleWebViewRef.current) {
+                            setProgressText('正在解密重組 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
+                            const parts = localPath.split('/');
+                            let filename = parts[parts.length - 1];
+                            let photo_id = parseInt(chapter.id, 10);
+                            
+                            const nameParts = filename.split('_');
+                            if (nameParts.length >= 2) {
+                                photo_id = parseInt(nameParts[0], 10);
+                                filename = nameParts.slice(1).join('_');
+                            }
+                            
+                            const num = getScramblePieces(photo_id, filename);
+                            if (num > 1) {
+                                let mimeType = 'image/jpeg';
+                                if (localPath.toLowerCase().endsWith('.webp')) mimeType = 'image/webp';
+                                else if (localPath.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+                                
+                                const scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: 'base64' });
+                                const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
+                                await FileSystem.writeAsStringAsync(localPath, descrambledBase64, { encoding: 'base64' });
+                            }
+                        }
+                    } catch(e) {
+                        console.warn('Descramble failed for', localPath, e);
+                    }
+                    
                     localPages.push(localPath);
                 }
                 
@@ -245,6 +281,7 @@ export const ComicDownloadProvider = ({ children }) => {
             onWebViewMessage
         }}>
             {children}
+            <DescrambleWebView ref={descrambleWebViewRef} />
         </ComicDownloadContext.Provider>
     );
 };
