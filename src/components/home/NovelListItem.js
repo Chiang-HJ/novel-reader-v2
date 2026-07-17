@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-const NovelListItem = React.memo(({ item, onPress, onLongPress, onMove, onDelete, customActions, colors, isDark }) => {
+const NovelListItem = React.memo(({ item, onPress, onLongPress, onMove, onDelete, onAuthorPress, customActions, colors, isDark }) => {
     const progressPercent = item.chapterCount > 0 ? ((item.downloadedChapters || 0) / item.chapterCount) * 100 : 0;
     const readingPercent = item.chapterCount > 0 ? (((item.progressIndex || 0) + 1) / item.chapterCount) * 100 : 0;
 
@@ -37,9 +37,20 @@ const NovelListItem = React.memo(({ item, onPress, onLongPress, onMove, onDelete
                     <Text style={[styles.bookTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
                 </View>
                 
-                <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>
-                    {item.author || '未知作者'}  ·  {item.chapterCount} 章
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {item.author ? (
+                        <TouchableOpacity onPress={() => onAuthorPress && onAuthorPress(item.author)}>
+                            <Text style={[styles.bookSubtitle, { color: colors.primary, textDecorationLine: 'underline' }]}>
+                                {item.author}
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>未知作者</Text>
+                    )}
+                    <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>
+                        {'  ·  ' + item.chapterCount + ' 章'}
+                    </Text>
+                </View>
                 
                 <View style={{ flex: 1 }} />
                 

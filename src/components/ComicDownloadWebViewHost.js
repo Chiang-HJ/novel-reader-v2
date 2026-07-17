@@ -38,7 +38,33 @@ export default function ComicDownloadWebViewHost() {
                         if (document.querySelector('.episode') || document.querySelector('.btn-toolbar') || document.querySelector('.list-col') || document.querySelector('a[href*="/photo/"]')) {
                             _checkDone = true;
                             clearInterval(_checkInterval);
-                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'albumData', html: document.body.innerHTML }));
+                            var extractedAuthor = '';
+                            try {
+                                var authorEls = document.querySelectorAll('a[href*="search_query"], a[href*="main_tag"]');
+                                var potentialAuthors = [];
+                                for(var i=0; i<authorEls.length; i++) {
+                                    var el = authorEls[i];
+                                    if(el.getAttribute('itemprop') === 'author') {
+                                        extractedAuthor = el.innerText.trim();
+                                        break;
+                                    }
+                                    var parent = el.parentElement;
+                                    if(parent && (parent.innerText.includes('作者') || parent.getAttribute('data-original-title') === '作者')) {
+                                        extractedAuthor = el.innerText.trim();
+                                        break;
+                                    }
+                                    potentialAuthors.push(el.innerText.trim());
+                                }
+                                if(!extractedAuthor) {
+                                    var authorTag = document.querySelector('[data-original-title="作者"] a');
+                                    if(authorTag) extractedAuthor = authorTag.innerText.trim();
+                                }
+                                if(!extractedAuthor && potentialAuthors.length > 0) {
+                                    // If we STILL couldn't find it, just join ALL potential authors and send it so the user can see what's going on
+                                    extractedAuthor = "TAGS: " + potentialAuthors.slice(0, 5).join(', ');
+                                }
+                            } catch(e) {}
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'albumData', html: document.body.innerHTML, author: extractedAuthor }));
                         } else if (retryCount > 20) {
                             _checkDone = true;
                             clearInterval(_checkInterval);

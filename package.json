@@ -9,10 +9,13 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@jmcomic/jmcomic": "^2.7.1-fix.1",
+    "@openspacelabs/react-native-zoomable-view": "^2.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/slider": "5.0.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.10.1",
+    "@types/lodash": "^4.17.24",
     "@types/react": "~19.1.10",
     "chinese-s2t": "^1.0.0",
     "expo": "~54.0.0",
@@ -30,6 +33,7 @@
     "expo-video-thumbnails": "~10.0.8",
     "fast-xml-parser": "^5.9.3",
     "jszip": "^3.10.1",
+    "lodash": "^4.18.1",
     "lucide-react-native": "^1.23.0",
     "md5": "^2.3.0",
     "react": "^19.1.0",

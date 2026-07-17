@@ -415,6 +415,14 @@ export default function HomeScreen({ navigation }) {
                         onLongPress={() => openOptionsModal(item)}
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}
+                        onAuthorPress={(author) => {
+                            if (item.type === 'comic') {
+                                navigation.navigate('JMComicFeed', { initialQuery: author });
+                            } else {
+                                // For text novels, we might just search locally or do something else
+                                setSearchInput(author);
+                            }
+                        }}
                         colors={colors}
                         isDark={isDark}
                     />

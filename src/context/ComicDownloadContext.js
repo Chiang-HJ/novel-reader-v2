@@ -81,8 +81,26 @@ export const ComicDownloadProvider = ({ children }) => {
             };
             
             // We use the WebView to parse the album page for chapters
-            const html = await fetchHtmlViaWebView(task.url, 'album');
+            const albumData = await fetchHtmlViaWebView(task.url, 'album');
             if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
+            
+            const html = albumData.html || '';
+            const author = albumData.author || '';
+            
+            // Debug alert for author extraction
+            Alert.alert('DEBUG', 'Extracted Author: "' + author + '"');
+            
+            if (author) {
+                novelData.author = author;
+            } else {
+                // Fallback to regex if JS extraction failed
+                const authorMatch = html.match(/data-original-title="作者"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) 
+                    || html.match(/itemprop="author"[^>]*>([^<]+)<\/a>/i)
+                    || html.match(/作者[：:]\s*<a[^>]*>([^<]+)<\/a>/i);
+                if (authorMatch && authorMatch[1]) {
+                    novelData.author = authorMatch[1].trim();
+                }
+            }
             
             // Basic regex parsing for chapters (eps)
             const chapters = parseAlbumChapters(html, task.url);
@@ -255,7 +273,7 @@ export const ComicDownloadProvider = ({ children }) => {
                 const { resolve, reject } = chapterHtmlResolveRef.current;
                 if (data.type === 'albumData') {
                     if (data.error) reject(new Error(data.error));
-                    else resolve(data.html || '');
+                    else resolve(data);
                     chapterHtmlResolveRef.current = null;
                 } else if (data.type === 'photoData') {
                     if (data.error) reject(new Error(data.error));

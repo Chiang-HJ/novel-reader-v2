@@ -14,14 +14,17 @@ const FALLBACK_DOMAINS = [
     'https://18comic.org'
 ];
 
-export default function JMComicFeedScreen({ navigation }) {
+export default function JMComicFeedScreen({ navigation, route }) {
     const { colors, isDark } = useTheme();
     const { startDownload, activeTask, progressText } = useComicDownload();
     const webviewRef = useRef(null);
     const domainIndexRef = useRef(0);
+    
+    const initialQuery = route?.params?.initialQuery || 'Yaoi';
+    
     const [currentDomain, setCurrentDomain] = useState(FALLBACK_DOMAINS[0]);
-    const [url, setUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=Yaoi');
-    const [baseUrl, setBaseUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=Yaoi');
+    const [url, setUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=' + encodeURIComponent(initialQuery));
+    const [baseUrl, setBaseUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=' + encodeURIComponent(initialQuery));
     const [currentPage, setCurrentPage] = useState(1);
     const [isFetchingMore, setIsFetchingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -29,7 +32,7 @@ export default function JMComicFeedScreen({ navigation }) {
     const [comics, setComics] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showBrowser, setShowBrowser] = useState(false);
-    const [inputUrl, setInputUrl] = useState('');
+    const [inputUrl, setInputUrl] = useState(route?.params?.initialQuery ? route.params.initialQuery : '');
     const [switchInfo, setSwitchInfo] = useState('');
 
     // Injected JS that scrapes the search results page
@@ -209,7 +212,7 @@ export default function JMComicFeedScreen({ navigation }) {
                 <View style={{ flexDirection: 'row', width: '100%' }}>
                     <TextInput 
                         style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-                        placeholder="貼上 18comic 漫畫或分流連結..."
+                        placeholder="搜尋漫畫、作者，或貼上連結..."
                         placeholderTextColor={colors.text + '80'}
                         value={inputUrl}
                         onChangeText={setInputUrl}

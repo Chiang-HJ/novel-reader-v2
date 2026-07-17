@@ -20,6 +20,8 @@ export default function VaultScreen({ navigation }) {
     const [activeTab, setActiveTab] = useState('novels'); // 'novels' or 'media'
     const [bookshelf, setBookshelf] = useState([]);
     const [mediaList, setMediaList] = useState([]);
+    const [novelFilter, setNovelFilter] = useState('all'); // 'all', 'novel', 'comic'
+    const [novelSearch, setNovelSearch] = useState('');
     
     // Media tools state
     const [selectedMedia, setSelectedMedia] = useState(null);
@@ -529,6 +531,19 @@ export default function VaultScreen({ navigation }) {
         );
     };
 
+    const getFilteredBookshelf = () => {
+        let list = [...bookshelf];
+        if (novelFilter === 'novel') {
+            list = list.filter(item => item.type !== 'comic');
+        } else if (novelFilter === 'comic') {
+            list = list.filter(item => item.type === 'comic');
+        }
+        if (novelSearch.trim() !== '') {
+            list = list.filter(item => item.title && item.title.toLowerCase().includes(novelSearch.toLowerCase()));
+        }
+        return list;
+    };
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <View style={styles.tabContainer}>
@@ -603,22 +618,55 @@ export default function VaultScreen({ navigation }) {
                 </View>
             ) : activeTab === 'novels' ? (
                 <FlatList 
-                    data={bookshelf}
+                    data={getFilteredBookshelf()}
                     keyExtractor={item => item.id}
                     ListHeaderComponent={
-                        <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginTop: 12, gap: 12, marginBottom: 16 }}>
-                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('BlogFeed')}>
-                                <Feather name="book-open" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('WyblogsFeed')}>
-                                <Feather name="book" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>Wyblogs</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('JMComicFeed')}>
-                                <Feather name="image" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>禁漫天堂</Text>
-                            </TouchableOpacity>
+                        <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 16 }}>
+                            {/* Original Import Buttons */}
+                            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('BlogFeed')}>
+                                    <Feather name="book-open" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                    <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('WyblogsFeed')}>
+                                    <Feather name="book" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                    <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>Wyblogs</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('JMComicFeed')}>
+                                    <Feather name="image" size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                                    <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>禁漫天堂</Text>
+                                </TouchableOpacity>
+                            </View>
+                            
+                            {/* Search and Filter UI */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, alignItems: 'center', paddingHorizontal: 12, height: 40, borderWidth: 1, borderColor: colors.border }}>
+                                    <Feather name="search" size={16} color={colors.textSecondary} />
+                                    <TextInput 
+                                        style={{ flex: 1, marginLeft: 8, color: colors.text }}
+                                        placeholder="搜尋標題..."
+                                        placeholderTextColor={colors.textSecondary}
+                                        value={novelSearch}
+                                        onChangeText={setNovelSearch}
+                                    />
+                                    {novelSearch !== '' && (
+                                        <TouchableOpacity onPress={() => setNovelSearch('')}>
+                                            <Feather name="x-circle" size={16} color={colors.textSecondary} />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                
+                                <TouchableOpacity onPress={() => {
+                                    Alert.alert('分類', '選擇要顯示的類型', [
+                                        { text: '全部', onPress: () => setNovelFilter('all') },
+                                        { text: '僅小說', onPress: () => setNovelFilter('novel') },
+                                        { text: '僅漫畫', onPress: () => setNovelFilter('comic') },
+                                        { text: '取消', style: 'cancel' }
+                                    ]);
+                                }} style={{ padding: 8, backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: novelFilter !== 'all' ? colors.primary : colors.border }}>
+                                    <Feather name="filter" size={20} color={novelFilter !== 'all' ? colors.primary : colors.text} />
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     }
                     renderItem={({ item }) => (
@@ -631,8 +679,11 @@ export default function VaultScreen({ navigation }) {
                                     navigation.navigate('Reader', { novelId: item.id, title: item.title });
                                 }
                             }}
-                            onLongPress={() => {
-                                setSelectedNovel(item);
+                            onLongPress={() => {}}
+                            onAuthorPress={(author) => {
+                                if (item.type === 'comic') {
+                                    navigation.navigate('JMComicFeed', { initialQuery: author });
+                                }
                             }}
                             colors={colors}
                             isDark={isDark}

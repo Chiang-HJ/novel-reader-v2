@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { getNovelById, getChapterText } from '../utils/storage';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import ScrambledImage from '../components/ScrambledImage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
     const [aspectRatio, setAspectRatio] = useState(0.7);
@@ -46,14 +51,37 @@ export default function ComicReaderScreen({ route, navigation }) {
     // UI state
     const [isHorizontal, setIsHorizontal] = useState(false);
     const [showHeader, setShowHeader] = useState(true);
+    const [algorithmMode, setAlgorithmMode] = useState(0);
+
+    // Zoom state
+    const [zoomRatio, setZoomRatio] = useState(2.0);
+    const flatListRef = useRef(null);
+    const lastTap = useRef(0);
+    
+    // Native zoom tracking
+    const scrollY = useRef(0);
+    const scrollX = useRef(0);
+    const currentZoom = useRef(1);
+    const horizontalScrollRefs = useRef({});
+    const horizontalZoomScale = useRef({});
+
+    const toggleHeader = () => setShowHeader(!showHeader);
+    const toggleHeaderRef = useRef(toggleHeader);
+    useEffect(() => {
+        toggleHeaderRef.current = toggleHeader;
+    }, [showHeader]);
 
     useEffect(() => {
         const loadInitialData = async () => {
+            try {
+                const ratio = await AsyncStorage.getItem('@comic_zoom_ratio');
+                if (ratio) setZoomRatio(parseFloat(ratio));
+            } catch (e) {}
+
             const data = await getNovelById(novelId);
             setNovel(data);
             
             if (data && data.chapterCount > 0) {
-                // Determine starting chapter (can implement progress later)
                 loadChapter(0, data);
             } else {
                 setIsLoading(false);
@@ -68,29 +96,107 @@ export default function ComicReaderScreen({ route, navigation }) {
         const data = novelData || novel;
         
         try {
-            // saveComicChapterData saves with index (0, 1, 2...) as the fileId
             const chapterData = await getChapterText(novelId, index.toString());
-            console.log('Chapter data for index', index, ':', chapterData ? 'found, pages=' + (chapterData.pages ? chapterData.pages.length : 0) : 'null');
             if (chapterData && chapterData.pages && chapterData.pages.length > 0) {
                 setPages(chapterData.pages);
             } else {
-                console.warn('No pages found for chapter', index);
                 setPages([]);
             }
         } catch (e) {
-            console.warn('Failed to load chapter pages', e);
             setPages([]);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const toggleHeader = () => setShowHeader(!showHeader);
+    const handleImageTap = (e, index) => {
+        const now = Date.now();
+        if (now - lastTap.current < 500) { // Increased double tap threshold to 500ms
+            // Double tap
+            const tapX = e.nativeEvent.pageX;
+            const tapY = e.nativeEvent.pageY;
+            const Z_target = zoomRatio;
+
+            if (isHorizontal) {
+                const responder = horizontalScrollRefs.current[index]?.getScrollResponder?.() || horizontalScrollRefs.current[index];
+                if (responder && responder.scrollResponderZoomTo) {
+                    const Z_c = horizontalZoomScale.current[index] || 1;
+                    if (Z_c > 1.1) {
+                        responder.scrollResponderZoomTo({ x: 0, y: 0, width, height, animated: true });
+                    } else {
+                        const targetWidth = width / Z_target;
+                        const targetHeight = height / Z_target;
+                        responder.scrollResponderZoomTo({ x: tapX - targetWidth/2, y: tapY - targetHeight/2, width: targetWidth, height: targetHeight, animated: true });
+                    }
+                }
+            } else {
+                if (flatListRef.current) {
+                    const responder = flatListRef.current.getScrollResponder();
+                    if (responder && responder.scrollResponderZoomTo) {
+                        const Z_c = currentZoom.current || 1;
+                        if (Z_c > 1.1) {
+                            // Zoom out to 1x around the focal point
+                            const unzoomedTapX = (scrollX.current + tapX) / Z_c;
+                            const unzoomedTapY = (scrollY.current + tapY) / Z_c;
+                            const x = unzoomedTapX - tapX;
+                            let y = unzoomedTapY - tapY;
+                            if (y < 0) y = 0; // Prevent scrolling out of bounds
+                            responder.scrollResponderZoomTo({ x, y, width, height, animated: true });
+                        } else {
+                            // Zoom in to Z_target around the focal point
+                            const unzoomedTapX = scrollX.current + tapX; // Z_c is 1
+                            const unzoomedTapY = scrollY.current + tapY;
+                            const targetWidth = width / Z_target;
+                            const targetHeight = height / Z_target;
+                            const x = unzoomedTapX - tapX / Z_target;
+                            let y = unzoomedTapY - tapY / Z_target;
+                            if (y < 0) y = 0;
+                            responder.scrollResponderZoomTo({ x, y, width: targetWidth, height: targetHeight, animated: true });
+                        }
+                    }
+                }
+            }
+            lastTap.current = 0;
+        } else {
+            lastTap.current = now;
+            // Only trigger header toggle if another tap doesn't happen within 300ms (to prevent header flicker on double tap)
+            setTimeout(() => {
+                if (lastTap.current === now) {
+                    toggleHeaderRef.current();
+                }
+            }, 300);
+        }
+    };
     
+    const showZoomSettings = () => {
+        Alert.alert('設定', '請選擇設定項目', [
+            { text: '設定放大倍率', onPress: () => {
+                Alert.alert('設定放大倍率', '請選擇雙擊後的放大倍率', [
+                    { text: '1.5 倍', onPress: () => changeZoomRatio(1.5) },
+                    { text: '2.0 倍', onPress: () => changeZoomRatio(2.0) },
+                    { text: '2.5 倍', onPress: () => changeZoomRatio(2.5) },
+                    { text: '3.0 倍', onPress: () => changeZoomRatio(3.0) },
+                    { text: '取消', style: 'cancel' }
+                ]);
+            }},
+            { text: '切換解析算法 (除錯用)', onPress: () => {
+                const nextMode = (algorithmMode + 1) % 4;
+                setAlgorithmMode(nextMode);
+                Alert.alert('已切換', `切換到算法 ${nextMode}\n請觀察破圖位置是否修復`);
+            }},
+            { text: '取消', style: 'cancel' }
+        ]);
+    };
+
+    const changeZoomRatio = async (ratio) => {
+        setZoomRatio(ratio);
+        await AsyncStorage.setItem('@comic_zoom_ratio', ratio.toString());
+    };
+
     const renderPage = ({ item, index }) => {
         const imageContent = (
-            <TouchableWithoutFeedback onPress={toggleHeader}>
-                <View>
+            <TouchableWithoutFeedback onPress={(e) => handleImageTap(e, index)}>
+                <View style={{ width, justifyContent: 'center', alignItems: 'center' }}>
                     {novel?.isDescrambled ? (
                         <AutoHeightImage 
                             uri={item} 
@@ -104,7 +210,8 @@ export default function ComicReaderScreen({ route, navigation }) {
                             novelId={novelId} 
                             isHorizontal={isHorizontal} 
                             screenHeight={height} 
-                            screenWidth={width} 
+                            screenWidth={width}
+                            algorithmMode={algorithmMode}
                         />
                     )}
                 </View>
@@ -114,25 +221,28 @@ export default function ComicReaderScreen({ route, navigation }) {
         if (isHorizontal) {
             return (
                 <ScrollView
-                    maximumZoomScale={3}
+                    ref={ref => { if (ref) horizontalScrollRefs.current[index] = ref; }}
+                    onScroll={(e) => {
+                        if (e.nativeEvent.zoomScale !== undefined) {
+                            horizontalZoomScale.current[index] = e.nativeEvent.zoomScale;
+                        }
+                    }}
+                    scrollEventThrottle={16}
+                    maximumZoomScale={zoomRatio}
                     minimumZoomScale={1}
                     bouncesZoom={true}
                     showsVerticalScrollIndicator={false}
                     showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
                     style={{ width, height }}
+                    contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}
                 >
                     {imageContent}
                 </ScrollView>
             );
         }
 
-        // Vertical mode: no nested ScrollView to avoid gesture conflicts
-        return (
-            <View style={{ width, alignItems: 'center' }}>
-                {imageContent}
-            </View>
-        );
+        // Vertical mode
+        return imageContent;
     };
 
     if (!novel) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
@@ -146,9 +256,15 @@ export default function ComicReaderScreen({ route, navigation }) {
                         <Feather name="arrow-left" size={24} color="#fff" />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{novel.title}</Text>
-                    <TouchableOpacity onPress={() => setIsHorizontal(!isHorizontal)} style={styles.iconBtn}>
-                        <Feather name={isHorizontal ? "list" : "book-open"} size={20} color="#fff" />
-                    </TouchableOpacity>
+                    
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <TouchableOpacity onPress={showZoomSettings} style={[styles.iconBtn, { marginRight: 15 }]}>
+                            <Feather name="settings" size={20} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsHorizontal(!isHorizontal)} style={styles.iconBtn}>
+                            <Feather name={isHorizontal ? "list" : "book-open"} size={20} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
                 </BlurView>
             )}
 
@@ -167,19 +283,47 @@ export default function ComicReaderScreen({ route, navigation }) {
                         <Text style={{ color: '#fff', fontWeight: 'bold' }}>返回</Text>
                     </TouchableOpacity>
                 </View>
-            ) : (
+            ) : isHorizontal ? (
                 <FlatList
+                    ref={flatListRef}
                     data={pages}
                     keyExtractor={(item, index) => index.toString()}
-                    horizontal={isHorizontal}
-                    pagingEnabled={isHorizontal}
+                    horizontal={true}
+                    pagingEnabled={true}
                     showsHorizontalScrollIndicator={false}
                     showsVerticalScrollIndicator={false}
                     renderItem={renderPage}
-                    getItemLayout={(data, index) => (
-                        { length: isHorizontal ? width : height, offset: (isHorizontal ? width : height) * index, index }
-                    )}
+                    getItemLayout={(data, index) => ({ length: width, offset: width * index, index })}
+                    removeClippedSubviews={true}
+                    initialNumToRender={2}
+                    maxToRenderPerBatch={1}
+                    windowSize={3}
+                    style={{ flex: 1, width: width }}
                 />
+            ) : (
+                <ScrollView
+                    ref={flatListRef}
+                    onScroll={(e) => {
+                        scrollY.current = e.nativeEvent.contentOffset.y;
+                        scrollX.current = e.nativeEvent.contentOffset.x;
+                        if (e.nativeEvent.zoomScale !== undefined) {
+                            currentZoom.current = e.nativeEvent.zoomScale;
+                        }
+                    }}
+                    scrollEventThrottle={16}
+                    showsHorizontalScrollIndicator={false}
+                    showsVerticalScrollIndicator={false}
+                    style={{ flex: 1, width: width }}
+                    maximumZoomScale={zoomRatio}
+                    minimumZoomScale={1}
+                    bouncesZoom={true}
+                >
+                    {pages.map((item, index) => (
+                        <View key={index.toString()}>
+                            {renderPage({ item, index })}
+                        </View>
+                    ))}
+                </ScrollView>
             )}
 
             {/* Footer */}
@@ -221,7 +365,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         color: '#fff',
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 'bold',
         flex: 1,
         textAlign: 'center',
