@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, toggleNovelVisibility } from '../utils/storage';
+import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, toggleNovelVisibility, getReadingStats } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
+import { createBackup, restoreBackup } from '../utils/BackupService';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -26,11 +27,16 @@ export default function HomeScreen({ navigation }) {
     const [bookshelf, setBookshelf] = useState([]);
     const [folders, setFolders] = useState([]);
     const [storageUsage, setStorageUsage] = useState('計算中...');
+    const [readingStats, setReadingStats] = useState({ totalSeconds: 0 });
+    const [isBackingUp, setIsBackingUp] = useState(false);
     
     const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
-    const [isThemeModalVisible, setIsThemeModalVisible] = useState(false);
+    const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
     const [selectedNovel, setSelectedNovel] = useState(null);
     const [newFolderName, setNewFolderName] = useState('');
+
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState(new Set());
 
     const [isImportModalVisible, setIsImportModalVisible] = useState(false);
     const [importTitle, setImportTitle] = useState('');
@@ -60,6 +66,7 @@ export default function HomeScreen({ navigation }) {
         setBookshelf(list.filter(n => !n.folderId && !n.isHidden)); // Exclude hidden books and folders from main view
         setFolders(await getFolders());
         setStorageUsage(await getStorageUsage());
+        setReadingStats(await getReadingStats());
     };
 
     const unlockVault = async () => {
@@ -97,19 +104,31 @@ export default function HomeScreen({ navigation }) {
         setNewFolderName('');
         if (selectedNovel) {
             await moveNovelToFolder(selectedNovel.id, newFolder.id);
-            setIsMoveModalVisible(false);
             setSelectedNovel(null);
+        } else if (isSelectionMode && selectedIds.size > 0) {
+            for (const id of selectedIds) {
+                await moveNovelToFolder(id, newFolder.id);
+            }
+            setSelectedIds(new Set());
+            setIsSelectionMode(false);
         }
+        setIsMoveModalVisible(false);
         loadBookshelf();
     };
 
     const handleMoveToFolder = async (folderId) => {
         if (selectedNovel) {
             await moveNovelToFolder(selectedNovel.id, folderId);
-            setIsMoveModalVisible(false);
             setSelectedNovel(null);
-            loadBookshelf();
+        } else if (isSelectionMode && selectedIds.size > 0) {
+            for (const id of selectedIds) {
+                await moveNovelToFolder(id, folderId);
+            }
+            setSelectedIds(new Set());
+            setIsSelectionMode(false);
         }
+        setIsMoveModalVisible(false);
+        loadBookshelf();
     };
 
     const confirmDelete = (novel) => {
@@ -124,6 +143,32 @@ export default function HomeScreen({ navigation }) {
                 }}
             ]
         );
+    };
+
+    const confirmBatchDelete = () => {
+        if (selectedIds.size === 0) return;
+        Alert.alert(
+            '批次刪除',
+            `確定要刪除選取的 ${selectedIds.size} 本書籍嗎？`,
+            [
+                { text: '取消', style: 'cancel' },
+                { text: '刪除', style: 'destructive', onPress: async () => {
+                    for (const id of selectedIds) {
+                        await deleteNovel(id);
+                    }
+                    setIsSelectionMode(false);
+                    setSelectedIds(new Set());
+                    loadBookshelf();
+                }}
+            ]
+        );
+    };
+
+    const toggleSelection = (id) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedIds(newSet);
     };
 
     const handleSearchOrDownload = () => {
@@ -390,9 +435,9 @@ export default function HomeScreen({ navigation }) {
                         <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
                     </TouchableOpacity>
                     <View style={styles.headerActions}>
-                        <TouchableOpacity onPress={() => setIsThemeModalVisible(true)} style={[styles.themeBtn, { backgroundColor: colors.surface }]}>
-                            <Feather name="aperture" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>{themeName}</Text>
+                        <TouchableOpacity onPress={() => setIsSettingsModalVisible(true)} style={[styles.themeBtn, { backgroundColor: colors.surface }]}>
+                            <Feather name="settings" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>設定</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -401,30 +446,43 @@ export default function HomeScreen({ navigation }) {
             <FlatList 
                 data={filteredBookshelf}
                 keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
-                contentContainerStyle={{ paddingBottom: 40, paddingTop: 130 }}
+                contentContainerStyle={{ paddingBottom: isSelectionMode ? 100 : 40, paddingTop: 130 }}
                 renderItem={({ item }) => (
                     <NovelListItem 
                         item={item}
                         onPress={() => {
-                            if (item.type === 'comic') {
-                                navigation.navigate('ComicReader', { novelId: item.id, title: item.title });
+                            if (isSelectionMode) {
+                                toggleSelection(item.id);
                             } else {
-                                navigation.navigate('Reader', { novelId: item.id, title: item.title });
+                                if (item.type === 'comic') {
+                                    navigation.navigate('ComicReader', { novelId: item.id, title: item.title });
+                                } else {
+                                    navigation.navigate('Reader', { novelId: item.id, title: item.title });
+                                }
                             }
                         }}
-                        onLongPress={() => openOptionsModal(item)}
+                        onLongPress={() => {
+                            if (!isSelectionMode) {
+                                setIsSelectionMode(true);
+                                toggleSelection(item.id);
+                            }
+                        }}
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}
                         onAuthorPress={(author) => {
                             if (item.type === 'comic') {
                                 navigation.navigate('JMComicFeed', { initialQuery: author });
                             } else {
-                                // For text novels, we might just search locally or do something else
                                 setSearchInput(author);
                             }
                         }}
                         colors={colors}
                         isDark={isDark}
+                        customActions={isSelectionMode ? (
+                            <View style={{ justifyContent: 'center', alignItems: 'center', flex: 1 }}>
+                                <Feather name={selectedIds.has(item.id) ? "check-square" : "square"} size={24} color={selectedIds.has(item.id) ? colors.primary : colors.textSecondary} />
+                            </View>
+                        ) : null}
                     />
                 )}
                 ListHeaderComponent={
@@ -450,9 +508,17 @@ export default function HomeScreen({ navigation }) {
                         
                         <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                             <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書櫃</Text>
+                                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書架</Text>
                             </View>
-                            <Text style={[styles.storageText, { color: colors.textSecondary, marginBottom: 0 }]}>使用空間: {storageUsage}</Text>
+                            
+                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 16}}>
+                                <Text style={[styles.storageText, { color: colors.textSecondary, marginBottom: 0 }]}>使用空間: {storageUsage}</Text>
+                                <TouchableOpacity onPress={() => setIsSelectionMode(!isSelectionMode)}>
+                                    <Text style={{ color: isSelectionMode ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>
+                                        {isSelectionMode ? '取消選取' : '批次管理'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         {folders.map(folder => (
@@ -465,14 +531,43 @@ export default function HomeScreen({ navigation }) {
                         ))}
                     </View>
                 }
-                ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>書櫃目前沒有尚未分類的小說。</Text>}
+                ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>書櫃目前沒有尚未分類的小數。</Text>}
             />
             
+            {/* Batch Action Bottom Bar */}
+            {isSelectionMode && (
+                <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={{
+                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                    padding: 20, paddingBottom: 40,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: colors.border,
+                    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'
+                }}>
+                    <Text style={{ color: colors.text, fontWeight: 'bold' }}>已選取 {selectedIds.size} 本</Text>
+                    <View style={{ flexDirection: 'row', gap: 16 }}>
+                        <TouchableOpacity 
+                            style={{ padding: 10, backgroundColor: colors.surface, borderRadius: 8 }}
+                            disabled={selectedIds.size === 0}
+                            onPress={() => { setIsMoveModalVisible(true); }}
+                        >
+                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>移動至</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={{ padding: 10, backgroundColor: '#FF3B30', borderRadius: 8 }}
+                            disabled={selectedIds.size === 0}
+                            onPress={confirmBatchDelete}
+                        >
+                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>批次刪除</Text>
+                        </TouchableOpacity>
+                    </View>
+                </BlurView>
+            )}
+
             {/* Move Modal */}
             <Modal visible={isMoveModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
-                        <Text style={[styles.modalTitle, { color: colors.text }]}>移動《{selectedNovel?.title}》</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text }]}>移動《{selectedNovel?.title || (selectedIds.size > 0 ? selectedIds.size + ' 本選取書籍' : '')}》</Text>
                         
                         <View style={{ flexDirection: 'row', marginBottom: 16 }}>
                             <TextInput 
@@ -505,23 +600,59 @@ export default function HomeScreen({ navigation }) {
                 </BlurView>
             </Modal>
 
-            {/* Theme Modal */}
-            <Modal visible={isThemeModalVisible} transparent={true} animationType="fade">
+            {/* Settings Modal */}
+            <Modal visible={isSettingsModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
-                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>切換主題風格</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>外觀主題</Text>
                         {availableThemes.map(t => (
                             <TouchableOpacity 
                                 key={t.id}
                                 style={[styles.modalFolderItem, { borderBottomColor: colors.border, backgroundColor: themeId === t.id ? colors.background : 'transparent', borderRadius: 12, paddingHorizontal: 12 }]}
-                                onPress={() => { changeTheme(t.id); setIsThemeModalVisible(false); }}
+                                onPress={() => { changeTheme(t.id); }}
                             >
                                 <Feather name={themeId === t.id ? "check-circle" : "circle"} size={20} color={themeId === t.id ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
                                 <Text style={{ color: colors.text, fontSize: 16 }}>{t.name}</Text>
                             </TouchableOpacity>
                         ))}
-                        <View style={{ marginTop: 16 }}>
-                            <Button title="關閉" onPress={() => setIsThemeModalVisible(false)} color={colors.textSecondary} />
+                        
+                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>閱讀統計</Text>
+                        <View style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}>
+                            <Feather name="clock" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                            <Text style={{ color: colors.text, fontSize: 16 }}>總閱讀時間: {Math.floor(readingStats.totalSeconds / 3600)}小時 {Math.floor((readingStats.totalSeconds % 3600) / 60)}分鐘</Text>
+                        </View>
+                        
+                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>資料與備份</Text>
+                        <TouchableOpacity 
+                            style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}
+                            onPress={async () => {
+                                setIsBackingUp(true);
+                                await createBackup();
+                                setIsBackingUp(false);
+                                setIsSettingsModalVisible(false);
+                            }}
+                            disabled={isBackingUp}
+                        >
+                            <Feather name="upload-cloud" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                            <Text style={{ color: colors.text, fontSize: 16 }}>{isBackingUp ? '備份中...' : '備份書架與設定'}</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}
+                            onPress={async () => {
+                                const success = await restoreBackup();
+                                if (success) {
+                                    setIsSettingsModalVisible(false);
+                                    loadBookshelf();
+                                }
+                            }}
+                        >
+                            <Feather name="download-cloud" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                            <Text style={{ color: colors.text, fontSize: 16 }}>從備份檔還原</Text>
+                        </TouchableOpacity>
+                        
+                        <View style={{ marginTop: 24 }}>
+                            <Button title="關閉" onPress={() => setIsSettingsModalVisible(false)} color={colors.textSecondary} />
                         </View>
                     </View>
                 </BlurView>

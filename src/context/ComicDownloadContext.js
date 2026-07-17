@@ -157,10 +157,20 @@ export const ComicDownloadProvider = ({ children }) => {
                                 let mimeType = 'image/jpeg';
                                 if (localPath.toLowerCase().endsWith('.webp')) mimeType = 'image/webp';
                                 else if (localPath.toLowerCase().endsWith('.png')) mimeType = 'image/png';
-                                
-                                const scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: 'base64' });
+                                let scrambledBase64;
+                                try {
+                                    const { File } = require('expo-file-system');
+                                    scrambledBase64 = await new File(localPath).base64();
+                                } catch (e) {
+                                    scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: 'base64' });
+                                }
                                 const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
-                                await FileSystem.writeAsStringAsync(localPath, descrambledBase64, { encoding: 'base64' });
+                                try {
+                                    const { File } = require('expo-file-system');
+                                    new File(localPath).write(descrambledBase64, { encoding: 'base64' });
+                                } catch (e) {
+                                    await FileSystem.writeAsStringAsync(localPath, descrambledBase64, { encoding: 'base64' });
+                                }
                             }
                         }
                     } catch(e) {

@@ -41,14 +41,32 @@ export const saveNovelToBookshelf = async (novelInfo) => {
             progressSentence: existing ? existing.progressSentence : 0,
             downloadedChapters: novelInfo.downloadedChapters !== undefined ? novelInfo.downloadedChapters : (existing ? existing.downloadedChapters : 0),
             folderId: existing ? existing.folderId : (novelInfo.folderId || null),
-            isHidden: existing ? existing.isHidden : (novelInfo.isHidden || false)
+            isHidden: existing ? existing.isHidden : (novelInfo.isHidden || false),
+            author: novelInfo.author || (existing ? existing.author : null)
         };
         
         currentList.unshift(summary);
         await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
 
         // Save heavy full metadata (with chapters) to separate key
-        const fullNovel = { ...novelInfo, ...summary };
+        const existingFullStr = await AsyncStorage.getItem(getNovelKey(novelInfo.id));
+        const existingFull = existingFullStr ? JSON.parse(existingFullStr) : null;
+        
+        const fullNovel = { ...existingFull, ...novelInfo, ...summary };
+        
+        // Preserve existing chapters if novelInfo doesn't have them
+        if (existingFull && existingFull.chapters && existingFull.chapters.length > 0) {
+            if (!novelInfo.chapters || novelInfo.chapters.length === 0) {
+                fullNovel.chapters = existingFull.chapters;
+            } else if (fullNovel.type === 'comic') {
+                // For comics, don't overwrite chapters blindly. Preserve existing chapters up to existing length.
+                fullNovel.chapters = novelInfo.chapters.map((ch, i) => {
+                    const existingCh = existingFull.chapters[i];
+                    return existingCh ? { ...ch, ...existingCh } : ch;
+                });
+            }
+        }
+        
         await AsyncStorage.setItem(getNovelKey(novelInfo.id), JSON.stringify(fullNovel));
     });
 };
@@ -160,7 +178,7 @@ export const getStorageUsage = async () => {
         if (totalBytes < 1024 * 1024 * 1024) return `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
         return `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     } catch (e) {
-        return 'ç„¡æ³•è¨ˆç®—';
+        return '?¡æ?è¨ˆç?';
     }
 };
 
@@ -260,7 +278,13 @@ export const getChapterText = async (novelId, fileId) => {
     try {
         const info = await FileSystem.getInfoAsync(filePath);
         if (info.exists) {
-            const content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+            let content;
+            try {
+                const { File } = require('expo-file-system');
+                content = await new File(filePath).text();
+            } catch (e) {
+                content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+            }
             return JSON.parse(content);
         }
         return null;
@@ -457,7 +481,13 @@ export const getAllChapterText = async (novelId) => {
             try {
                 const info = await FileSystem.getInfoAsync(filePath);
                 if (info.exists) {
-                    const content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+                    let content;
+                    try {
+                        const { File } = require('expo-file-system');
+                        content = await new File(filePath).text();
+                    } catch (e) {
+                        content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
+                    }
                     const parsed = JSON.parse(content);
                     // Add chapter title back into the text to ensure it can be re-split if it matches the regex
                     fullText += `\n\n${parsed.title}\n\n${parsed.text}`;
@@ -522,3 +552,20 @@ export const splitChapterData = async (novelId, index, newChaptersData) => {
         }
     });
 };
+
+export const addReadingTime = async (seconds) => {
+    try {
+        const statsStr = await AsyncStorage.getItem('@reading_stats');
+        let stats = statsStr ? JSON.parse(statsStr) : { totalSeconds: 0 };
+        stats.totalSeconds += seconds;
+        await AsyncStorage.setItem('@reading_stats', JSON.stringify(stats));
+    } catch(e) {}
+};
+
+export const getReadingStats = async () => {
+    try {
+        const statsStr = await AsyncStorage.getItem('@reading_stats');
+        return statsStr ? JSON.parse(statsStr) : { totalSeconds: 0 };
+    } catch(e) { return { totalSeconds: 0 }; }
+};
+

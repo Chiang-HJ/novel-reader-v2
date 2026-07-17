@@ -3,7 +3,8 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator
 import { useTheme } from '../context/ThemeContext';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
-import { getChapterText, getNovelById, updateReadingProgress, getNovelDir, saveChapterText } from '../utils/storage';
+import { getChapterText, getNovelById, updateReadingProgress, getNovelDir, saveChapterText, addReadingTime } from '../utils/storage';
+import { getDictionaries } from '../utils/dictionaryStorage';
 import { WebView } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Feather } from '@expo/vector-icons';
@@ -16,6 +17,7 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import TrackPlayer, { Capability, State, Event, useTrackPlayerEvents } from 'react-native-track-player';
 
 
 
@@ -78,6 +80,19 @@ export default function ReaderScreen({ route, navigation }) {
     const sleepTimerIntervalRef = useRef(null);
     const isContinuousModeRef = useRef(true);
     const isSpeechPausedRef = useRef(false);
+    const trackPlayerSetupRef = useRef(false);
+    
+    useTrackPlayerEvents([Event.RemotePlay, Event.RemotePause, Event.RemoteNext, Event.RemotePrevious], async (event) => {
+        if (event.type === Event.RemotePlay) {
+            if (!isPlayingRef.current) togglePlay();
+        } else if (event.type === Event.RemotePause) {
+            if (isPlayingRef.current) togglePlay();
+        } else if (event.type === Event.RemoteNext) {
+            nextChapter();
+        } else if (event.type === Event.RemotePrevious) {
+            prevChapter();
+        }
+    });
     
     const scrollViewRef = useRef(null);
     const pagingWebViewRef = useRef(null);
@@ -86,6 +101,75 @@ export default function ReaderScreen({ route, navigation }) {
     const isTogglingRef = useRef(false);
     const silentSoundRef = useRef(null);
     const novelRef = useRef(null);
+    const originalChapterTextRef = useRef('');
+    
+    const textFiltersRef = useRef([]);
+    const pronunciationDictRef = useRef([]);
+
+    const applyTextFilters = (originalText, filters) => {
+        let processedText = originalText;
+        filters.forEach(filter => {
+            if (filter.target) {
+                if (filter.isRegex) {
+                    try {
+                        const regex = new RegExp(filter.target, 'g');
+                        processedText = processedText.replace(regex, filter.replacement || '');
+                    } catch (e) {
+                        processedText = processedText.split(filter.target).join(filter.replacement || '');
+                    }
+                } else {
+                    try {
+                        const cleanTarget = filter.target.replace(/[\s\u200B-\u200D\uFEFF]+/g, '');
+                        if (cleanTarget) {
+                            const flexibleTarget = cleanTarget.split('').map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\u200B-\\u200D\\uFEFF]*');
+                            const regex = new RegExp(flexibleTarget, 'g');
+                            processedText = processedText.replace(regex, filter.replacement || '');
+                        }
+                    } catch (e) {
+                        processedText = processedText.split(filter.target).join(filter.replacement || '');
+                    }
+                }
+            }
+        });
+        return processedText;
+    };
+
+    useFocusEffect(
+        useCallback(() => {
+            const loadDicts = async () => {
+                const dicts = await getDictionaries();
+                const textFiltersChanged = JSON.stringify(textFiltersRef.current) !== JSON.stringify(dicts.textFilters);
+                textFiltersRef.current = dicts.textFilters;
+                pronunciationDictRef.current = dicts.pronunciationDict;
+
+                if (textFiltersChanged && originalChapterTextRef.current) {
+                    setChapterData(prev => {
+                        if (!prev || !prev.text) return prev;
+                        const newText = applyTextFilters(originalChapterTextRef.current, dicts.textFilters);
+                        return { ...prev, text: newText };
+                    });
+                }
+            };
+            loadDicts();
+        }, [])
+    );
+
+    // Reading time tracking
+    useEffect(() => {
+        let interval;
+        const startTracking = () => {
+            interval = setInterval(() => {
+                if (AppState.currentState === 'active' && (!isPlayingRef.current || isSpeechPausedRef.current === false)) {
+                    // Log 10 seconds of reading
+                    addReadingTime(10);
+                }
+            }, 10000);
+        };
+        startTracking();
+        return () => clearInterval(interval);
+    }, []);
+    
+    
     const [videoUri, setVideoUri] = useState(null);
     const [isFullScreen, setIsFullScreen] = useState(false);
     const insets = useSafeAreaInsets();
@@ -279,6 +363,23 @@ export default function ReaderScreen({ route, navigation }) {
                 playThroughEarpieceAndroid: false
             });
             
+            if (!trackPlayerSetupRef.current) {
+                try {
+                    await TrackPlayer.setupPlayer();
+                    await TrackPlayer.updateOptions({
+                        capabilities: [
+                            Capability.Play,
+                            Capability.Pause,
+                            Capability.SkipToNext,
+                            Capability.SkipToPrevious,
+                            Capability.Stop,
+                        ],
+                        compactCapabilities: [Capability.Play, Capability.Pause],
+                    });
+                    trackPlayerSetupRef.current = true;
+                } catch(e) {}
+            }
+            
             const uri = 'data:audio/wav;base64,' + silentAudioBase64;
             const { sound } = await Audio.Sound.createAsync(
                 { uri },
@@ -312,6 +413,22 @@ export default function ReaderScreen({ route, navigation }) {
             Alert.alert('錯誤', `加載小說失敗: ${e.message}`);
         }
     };
+    
+    const updateLockScreenMeta = async (n, title) => {
+        if (trackPlayerSetupRef.current) {
+            try {
+                await TrackPlayer.reset();
+                await TrackPlayer.add({
+                    id: 'novel_track',
+                    url: FileSystem.documentDirectory + 'blank.mp4',
+                    title: title || '未知章節',
+                    artist: n ? n.title : '聽小說',
+                    artwork: n && n.cover ? n.cover : undefined
+                });
+                await TrackPlayer.play();
+            } catch(e) {}
+        }
+    };
 
     const loadChapter = async (n, idx, sentenceIdx = 0) => {
         Speech.stop();
@@ -329,7 +446,12 @@ export default function ReaderScreen({ route, navigation }) {
             
             let data = await getChapterText(n.id, idx);
             
-            // Check if data is missing or empty (which means previous fetch failed due to Cloudflare)
+            if (data && data.text) {
+                originalChapterTextRef.current = data.text;
+                data.text = applyTextFilters(data.text, textFiltersRef.current);
+            }
+
+            // Check if data is missing or empty
             if (!data || !data.text || data.text.trim() === '') {
                 const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
                 if (url && String(url).startsWith('http')) {
@@ -339,10 +461,12 @@ export default function ReaderScreen({ route, navigation }) {
                 } else {
                     // Local file missing, cannot scrape
                     applyChapterData({ title: '檔案遺失', text: '此章節的本地檔案已遺失。若是剛才匯入的書籍發生此問題，請刪除後重新匯入。' }, n.id, idx, sentenceIdx);
+                    updateLockScreenMeta(n, '檔案遺失');
                     return;
                 }
             }
             
+            updateLockScreenMeta(n, data.title || n.chapters?.[idx]?.title || `第 ${idx+1} 章`);
             applyChapterData(data, n.id, idx, sentenceIdx);
         } catch (e) {
             setErrorLog(`讀取章節失敗: ${e.message}\n${e.stack}`);
@@ -525,7 +649,30 @@ export default function ReaderScreen({ route, navigation }) {
             `);
         }
 
-        const text = sents[index];
+        let text = sents[index];
+        // Apply pronunciation corrections
+        pronunciationDictRef.current.forEach(dict => {
+            if (dict.target && dict.replacement) {
+                if (dict.isRegex) {
+                    try {
+                        const regex = new RegExp(dict.target, 'g');
+                        text = text.replace(regex, dict.replacement);
+                    } catch (e) {
+                        text = text.split(dict.target).join(dict.replacement);
+                    }
+                } else {
+                    try {
+                        const escapedTarget = dict.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const flexibleTarget = escapedTarget.replace(/[\s\u200B-\u200D\uFEFF]+/g, '[\\s\\u200B-\\u200D\\uFEFF]+');
+                        const regex = new RegExp(flexibleTarget, 'g');
+                        text = text.replace(regex, dict.replacement);
+                    } catch (e) {
+                        text = text.split(dict.target).join(dict.replacement);
+                    }
+                }
+            }
+        });
+
         Speech.speak(text, {
             language: 'zh-TW',
             voice: selectedVoice || undefined,
@@ -533,7 +680,15 @@ export default function ReaderScreen({ route, navigation }) {
             pitch,
             onDone: () => {
                 if (playId === playIdRef.current && isPlayingRef.current) {
-                    playFromIndex(index + 1, sents, playId);
+                    const lastChar = text.trim().slice(-1);
+                    const isLongPause = ['。', '！', '？', '!', '?', '…'].includes(lastChar);
+                    const pauseTime = isLongPause ? 600 : 200;
+                    
+                    setTimeout(() => {
+                        if (playId === playIdRef.current && isPlayingRef.current) {
+                            playFromIndex(index + 1, sents, playId);
+                        }
+                    }, pauseTime);
                 }
             },
             onStopped: () => {},
@@ -1447,6 +1602,19 @@ export default function ReaderScreen({ route, navigation }) {
                                     </TouchableOpacity>
                                 ))
                             )}
+                            
+                            <TouchableOpacity 
+                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderTopWidth: 1, borderTopColor: colors.border, marginTop: 15 }}
+                                onPress={() => {
+                                    setShowSettingsModal(false);
+                                    navigation.navigate('DictionaryManager');
+                                }}
+                            >
+                                <Feather name="book-open" size={20} color={colors.text} />
+                                <Text style={{ color: colors.text, fontSize: 16, marginLeft: 15, flex: 1 }}>設定文字過濾與發音校正</Text>
+                                <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
                             <View style={{height: 40}} />
                         </ScrollView>
                     </View>

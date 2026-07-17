@@ -1,7 +1,7 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from './src/screens/HomeScreen';
 import FolderScreen from './src/screens/FolderScreen';
@@ -12,6 +12,14 @@ import BlogFeedScreen from './src/screens/BlogFeedScreen';
 import WyblogsFeedScreen from './src/screens/WyblogsFeedScreen';
 import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
 import ComicReaderScreen from './src/screens/ComicReaderScreen';
+import DictionaryManagerScreen from './src/screens/DictionaryManagerScreen';
+import TrackPlayer from 'react-native-track-player';
+
+try {
+    TrackPlayer.registerPlaybackService(() => require('./src/services/PlaybackService'));
+} catch (e) {}
+
+
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { DownloadProvider } from './src/context/DownloadContext';
 import { ComicDownloadProvider } from './src/context/ComicDownloadContext';
@@ -20,6 +28,7 @@ import ComicDownloadWebViewHost from './src/components/ComicDownloadWebViewHost'
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Stack = createNativeStackNavigator();
+export const navigationRef = createNavigationContainerRef();
 
 function RootNavigator() {
   const { isDark, colors } = useTheme();
@@ -37,7 +46,7 @@ function RootNavigator() {
   };
 
   return (
-    <NavigationContainer theme={MyTheme}>
+    <NavigationContainer theme={MyTheme} ref={navigationRef}>
       <Stack.Navigator initialRouteName="Home">
         <Stack.Screen name="Home" component={HomeScreen} options={{ title: '我的書架' }} />
         <Stack.Screen name="Folder" component={FolderScreen} options={({ route }) => ({ title: route.params.folderName || '資料夾' })} />
@@ -48,8 +57,44 @@ function RootNavigator() {
         <Stack.Screen name="WyblogsFeed" component={WyblogsFeedScreen} options={{ title: 'Wyblogs 小說' }} />
         <Stack.Screen name="JMComicFeed" component={JMComicFeedScreen} options={{ title: '禁漫天堂 (18comic)' }} />
         <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="DictionaryManager" component={DictionaryManagerScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+function PrivacyScreen() {
+  const [appState, setAppState] = useState(AppState.currentState);
+  const [shouldHide, setShouldHide] = useState(false);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState !== 'active') {
+        if (navigationRef.isReady()) {
+          const currentRoute = navigationRef.getCurrentRoute();
+          if (currentRoute) {
+            if (currentRoute.name === 'Vault' || currentRoute.params?.isVault) {
+              setShouldHide(true);
+            } else {
+              setShouldHide(false);
+            }
+          }
+        }
+      } else {
+        setShouldHide(false);
+      }
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  if (!shouldHide) return null;
+
+  return (
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'black', zIndex: 99999 }} />
   );
 }
 
@@ -58,9 +103,10 @@ function AppContent() {
     // This View is the single root. Both Navigator and WebViewHost live as siblings inside it.
     <View style={{ flex: 1 }}>
       <RootNavigator />
-      {/* WebView for download engine — rendered as sibling to navigator, NOT inside Provider */}
+      {/* WebView for download engine - rendered as sibling to navigator, NOT inside Provider */}
       <DownloadWebViewHost />
       <ComicDownloadWebViewHost />
+      <PrivacyScreen />
     </View>
   );
 }

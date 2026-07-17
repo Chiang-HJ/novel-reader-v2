@@ -45,6 +45,10 @@ export default function VaultScreen({ navigation }) {
     const [showTagModal, setShowTagModal] = useState(false);
     const [newTagInput, setNewTagInput] = useState('');
     const [tempSelectedTags, setTempSelectedTags] = useState(new Set());
+    
+    // Twitter Downloader state
+    const [twitterUrl, setTwitterUrl] = useState('');
+    const [isDownloadingTwitter, setIsDownloadingTwitter] = useState(false);
 
     // Selection logic state
     const flatListRef = React.useRef(null);
@@ -674,9 +678,9 @@ export default function VaultScreen({ navigation }) {
                             item={item}
                             onPress={() => {
                                 if (item.type === 'comic') {
-                                    navigation.navigate('ComicReader', { novelId: item.id, title: item.title });
+                                    navigation.navigate('ComicReader', { novelId: item.id, title: item.title, isVault: true });
                                 } else {
-                                    navigation.navigate('Reader', { novelId: item.id, title: item.title });
+                                    navigation.navigate('Reader', { novelId: item.id, title: item.title, isVault: true });
                                 }
                             }}
                             onLongPress={() => {}}
@@ -725,12 +729,40 @@ export default function VaultScreen({ navigation }) {
                 />
             ) : (
                 <View style={{ flex: 1 }}>
-                    <TouchableOpacity style={[styles.importBtn, { backgroundColor: colors.surface, borderColor: colors.primary }]} onPress={importMedia}>
-                        <Feather name="plus-circle" size={24} color={colors.primary} style={{ marginRight: 8 }} />
-                        <Text style={{ color: colors.primary, fontWeight: 'bold' }}>從相簿匯入並隱藏</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, gap: 12 }}>
+                        <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={importMedia}>
+                            <Feather name="plus-circle" size={24} color={colors.primary} style={{ marginRight: 8 }} />
+                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>從相簿匯入</Text>
+                        </TouchableOpacity>
+                    </View>
                     
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
+                    {/* Twitter Video Downloader */}
+                    <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
+                            <TextInput 
+                                style={{ flex: 1, padding: 12, color: colors.text }}
+                                placeholder="貼上 Twitter (X) 影片連結..."
+                                placeholderTextColor={colors.textSecondary}
+                                value={twitterUrl}
+                                onChangeText={setTwitterUrl}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
+                            <TouchableOpacity 
+                                style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center' }}
+                                onPress={downloadTwitterVideo}
+                                disabled={isDownloadingTwitter || !twitterUrl}
+                            >
+                                {isDownloadingTwitter ? (
+                                    <ActivityIndicator color="#fff" size="small" />
+                                ) : (
+                                    <Feather name="download" size={20} color="#fff" />
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                    
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', paddingHorizontal: 16 }}>
                         {isSelectionMode ? (
                             <>
                                 <TouchableOpacity onPress={() => { setIsSelectionMode(false); setSelectedItems(new Set()); }} style={{ padding: 8 }}>

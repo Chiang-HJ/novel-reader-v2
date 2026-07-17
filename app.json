@@ -45,7 +45,18 @@
           "microphonePermission": "Allow app to access microphone for video processing"
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "newArchEnabled": false
+          },
+          "android": {
+            "newArchEnabled": false
+          }
+        }
+      ]
     ]
   }
 }
