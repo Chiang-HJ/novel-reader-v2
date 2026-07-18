@@ -30,6 +30,28 @@ jobs:
         run: |
           echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
 
+      - name: Patch Pods project fmt target to use c++17
+        run: |
+          cd ios
+          # Use ruby to directly patch the Pods xcconfig for the fmt target after pod install
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+          project_path = Dir.glob('*.xcworkspace').first
+          pods_project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
+          fmt_target = pods_project.targets.find { |t| t.name == 'fmt' }
+          if fmt_target
+            fmt_target.build_configurations.each do |config|
+              config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+              puts "Set CLANG_CXX_LANGUAGE_STANDARD=c++17 for fmt #{config.name}"
+            end
+            pods_project.save
+            puts "Saved Pods.xcodeproj"
+          else
+            puts "ERROR: fmt target not found!"
+            exit 1
+          end
+          RUBY
+
       - name: Build Unsigned App with xcodebuild
         run: |
           cd ios
