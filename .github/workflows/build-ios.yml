@@ -27,6 +27,9 @@ jobs:
         run: |
           echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
 
+      - name: Fix fmt consteval error
+        run: node fix_fmt.js
+
       - name: Install CocoaPods
         run: |
           cd ios
