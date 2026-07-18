@@ -11,7 +11,7 @@ const withFmtFix = (config) => {
         let contents = fs.readFileSync(file, 'utf8');
 
         const fixCode = `
-  # Fix for fmt consteval error
+  # FIX: Force fmt to c++17 AFTER react_native_post_install
   installer.pods_project.targets.each do |target|
     if target.name == 'fmt'
       target.build_configurations.each do |config|
@@ -21,12 +21,10 @@ const withFmtFix = (config) => {
   end
 `;
 
-        if (!contents.includes("target.name == 'fmt'")) {
-          // Find the post_install block and append the fixCode
-          contents = contents.replace(
-            /post_install do \|installer\|/g,
-            `post_install do |installer|\n${fixCode}`
-          );
+        const targetRegex = /react_native_post_install\([^)]*\)/;
+        if (targetRegex.test(contents) && !contents.includes("FIX: Force fmt to c++17 AFTER react_native_post_install")) {
+          // Inject AFTER react_native_post_install
+          contents = contents.replace(targetRegex, (match) => match + "\n" + fixCode);
           fs.writeFileSync(file, contents);
         }
       }
