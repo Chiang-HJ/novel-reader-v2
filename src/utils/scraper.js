@@ -32,7 +32,7 @@ export const fetchNovelInfo = async (url) => {
         const html = await response.text();
         return parseNovelInfo(html, url);
     } catch (e) {
-        console.error('fetchNovelInfo Error:', e);
+
         throw new Error('無法取得小說資訊，請確認網址正確');
     }
 };
@@ -53,7 +53,7 @@ export const fetchChapterText = async (chapterUrl) => {
         let html = await response.text();
         return parseChapterText(html, chapterUrl);
     } catch (e) {
-        console.error('fetchChapterText Error:', e);
+
         return '本章節下載失敗。';
     }
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, toggleNovelVisibility, getReadingStats } from '../utils/storage';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform } from 'react-native';
+import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import { createBackup, restoreBackup } from '../utils/BackupService';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -62,11 +62,15 @@ export default function HomeScreen({ navigation }) {
     }, [bookshelfUpdated]);
 
     const loadBookshelf = async () => {
-        const list = await getBookshelf();
-        setBookshelf(list.filter(n => !n.folderId && !n.isHidden)); // Exclude hidden books and folders from main view
-        setFolders(await getFolders());
-        setStorageUsage(await getStorageUsage());
-        setReadingStats(await getReadingStats());
+        try {
+            const list = await getBookshelf();
+            setBookshelf(list.filter(n => !n.folderId && !n.isHidden)); // Exclude hidden books and folders from main view
+            setFolders(await getFolders());
+            setStorageUsage(await getStorageUsage());
+            setReadingStats(await getReadingStats());
+        } catch (error) {
+            console.error('Failed to load bookshelf:', error);
+        }
     };
 
     const unlockVault = async () => {
@@ -100,35 +104,43 @@ export default function HomeScreen({ navigation }) {
 
     const handleCreateFolder = async () => {
         if (!newFolderName.trim()) return;
-        const newFolder = await createFolder(newFolderName.trim());
-        setNewFolderName('');
-        if (selectedNovel) {
-            await moveNovelToFolder(selectedNovel.id, newFolder.id);
-            setSelectedNovel(null);
-        } else if (isSelectionMode && selectedIds.size > 0) {
-            for (const id of selectedIds) {
-                await moveNovelToFolder(id, newFolder.id);
+        try {
+            const newFolder = await createFolder(newFolderName.trim());
+            setNewFolderName('');
+            if (selectedNovel) {
+                await moveNovelToFolder(selectedNovel.id, newFolder.id);
+                setSelectedNovel(null);
+            } else if (isSelectionMode && selectedIds.size > 0) {
+                for (const id of selectedIds) {
+                    await moveNovelToFolder(id, newFolder.id);
+                }
+                setSelectedIds(new Set());
+                setIsSelectionMode(false);
             }
-            setSelectedIds(new Set());
-            setIsSelectionMode(false);
+            setIsMoveModalVisible(false);
+            await loadBookshelf();
+        } catch (error) {
+            Alert.alert('錯誤', '建立資料夾失敗');
         }
-        setIsMoveModalVisible(false);
-        loadBookshelf();
     };
 
     const handleMoveToFolder = async (folderId) => {
-        if (selectedNovel) {
-            await moveNovelToFolder(selectedNovel.id, folderId);
-            setSelectedNovel(null);
-        } else if (isSelectionMode && selectedIds.size > 0) {
-            for (const id of selectedIds) {
-                await moveNovelToFolder(id, folderId);
+        try {
+            if (selectedNovel) {
+                await moveNovelToFolder(selectedNovel.id, folderId);
+                setSelectedNovel(null);
+            } else if (isSelectionMode && selectedIds.size > 0) {
+                for (const id of selectedIds) {
+                    await moveNovelToFolder(id, folderId);
+                }
+                setSelectedIds(new Set());
+                setIsSelectionMode(false);
             }
-            setSelectedIds(new Set());
-            setIsSelectionMode(false);
+            setIsMoveModalVisible(false);
+            await loadBookshelf();
+        } catch (error) {
+            Alert.alert('錯誤', '移動失敗');
         }
-        setIsMoveModalVisible(false);
-        loadBookshelf();
     };
 
     const confirmDelete = (novel) => {
@@ -138,8 +150,12 @@ export default function HomeScreen({ navigation }) {
             [
                 { text: '取消', style: 'cancel' },
                 { text: '刪除', style: 'destructive', onPress: async () => {
-                    await deleteNovel(novel.id);
-                    loadBookshelf();
+                    try {
+                        await deleteNovel(novel.id);
+                        await loadBookshelf();
+                    } catch (error) {
+                        Alert.alert('錯誤', '刪除失敗');
+                    }
                 }}
             ]
         );
@@ -153,12 +169,16 @@ export default function HomeScreen({ navigation }) {
             [
                 { text: '取消', style: 'cancel' },
                 { text: '刪除', style: 'destructive', onPress: async () => {
-                    for (const id of selectedIds) {
-                        await deleteNovel(id);
+                    try {
+                        for (const id of selectedIds) {
+                            await deleteNovel(id);
+                        }
+                        setIsSelectionMode(false);
+                        setSelectedIds(new Set());
+                        await loadBookshelf();
+                    } catch (error) {
+                        Alert.alert('錯誤', '刪除失敗');
                     }
-                    setIsSelectionMode(false);
-                    setSelectedIds(new Set());
-                    loadBookshelf();
                 }}
             ]
         );
@@ -187,12 +207,6 @@ export default function HomeScreen({ navigation }) {
         setSearchInput('');
     };
 
-    const openOptionsModal = (novel) => {
-        setSelectedNovel(novel);
-        setEditTitle(novel.title || '');
-        setEditAuthor(novel.author || '');
-        setIsOptionsModalVisible(true);
-    };
 
     const handleEditNovel = async () => {
         if (!selectedNovel) return;
@@ -200,23 +214,19 @@ export default function HomeScreen({ navigation }) {
             Alert.alert('提示', '書名不能為空');
             return;
         }
-        await updateNovelMetadata(selectedNovel.id, {
-            title: editTitle.trim(),
-            author: editAuthor.trim()
-        });
-        setIsOptionsModalVisible(false);
-        setSelectedNovel(null);
-        loadBookshelf();
-    };
-
-    const handleToggleVisibility = async (novel) => {
-        await toggleNovelVisibility(novel.id);
-        if (isOptionsModalVisible) {
+        try {
+            await updateNovelMetadata(selectedNovel.id, {
+                title: editTitle.trim(),
+                author: editAuthor.trim()
+            });
             setIsOptionsModalVisible(false);
             setSelectedNovel(null);
+            await loadBookshelf();
+        } catch (error) {
+            Alert.alert('錯誤', '更新失敗');
         }
-        loadBookshelf();
     };
+
 
         const processLargeTextImport = async (title, rawContent) => {
         setIsImporting(true);
@@ -258,7 +268,7 @@ export default function HomeScreen({ navigation }) {
                 let chapterIndex = 0;
                 
                 if (parts[0].trim().length > 0) {
-                    chapters.push({ title: '前言/簡介', id: chapterIndex });
+                    chapters.push({ title: '前言/簡介', url: 'manual_' + chapterIndex, id: chapterIndex });
                     await saveChapterText(novelId, chapterIndex, '前言/簡介', parts[0].trim());
                     chapterIndex++;
                 }
@@ -269,7 +279,7 @@ export default function HomeScreen({ navigation }) {
                     
                     if (textContent.length === 0) continue;
 
-                    chapters.push({ title: chTitle, id: chapterIndex });
+                    chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
                     await saveChapterText(novelId, chapterIndex, chTitle, textContent);
                     chapterIndex++;
 
@@ -291,7 +301,7 @@ export default function HomeScreen({ navigation }) {
                     if (currentLength > MAX_CHARS) {
                         const chTitle = `第 ${chapterIndex + 1} 部分`;
                         const chunkText = currentChunkLines.join('\n');
-                        chapters.push({ title: chTitle, id: chapterIndex });
+                        chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
                         await saveChapterText(novelId, chapterIndex, chTitle, chunkText);
                         chapterIndex++;
                         currentChunkLines = [];
@@ -301,7 +311,7 @@ export default function HomeScreen({ navigation }) {
                 }
                 if (currentChunkLines.length > 0) {
                     const chTitle = `第 ${chapterIndex + 1} 部分`;
-                    chapters.push({ title: chTitle, id: chapterIndex });
+                    chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
                     await saveChapterText(novelId, chapterIndex, chTitle, currentChunkLines.join('\n'));
                 }
             }
@@ -325,7 +335,7 @@ export default function HomeScreen({ navigation }) {
             
             Alert.alert('成功', '小說匯入完成！');
         } catch (error) {
-            console.error('Import error:', error);
+
             Alert.alert('錯誤', '匯入過程中發生問題');
         } finally {
             setIsImporting(false);
@@ -383,7 +393,7 @@ export default function HomeScreen({ navigation }) {
                     loadBookshelf();
                     Alert.alert('成功', 'EPUB 匯入完成！');
                 } catch (e) {
-                    console.error('EPUB parse error:', e);
+
                     Alert.alert('錯誤', '無法解析 EPUB 檔案: ' + e.message);
                 }
             } else if (file.name.toLowerCase().endsWith('.txt')) {
@@ -406,7 +416,7 @@ export default function HomeScreen({ navigation }) {
                 Alert.alert('不支援的格式', '目前只支援 .txt 與 .epub 檔案');
             }
         } catch (error) {
-            console.error('File import error:', error);
+
             Alert.alert('錯誤', '選取檔案時發生問題');
         } finally {
             setIsImporting(false);
@@ -546,14 +556,14 @@ export default function HomeScreen({ navigation }) {
                     <Text style={{ color: colors.text, fontWeight: 'bold' }}>已選取 {selectedIds.size} 本</Text>
                     <View style={{ flexDirection: 'row', gap: 16 }}>
                         <TouchableOpacity 
-                            style={{ padding: 10, backgroundColor: colors.surface, borderRadius: 8 }}
+                            style={{ padding: 15, backgroundColor: colors.surface, borderRadius: 8 }}
                             disabled={selectedIds.size === 0}
                             onPress={() => { setIsMoveModalVisible(true); }}
                         >
                             <Text style={{ color: colors.primary, fontWeight: 'bold' }}>移動至</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
-                            style={{ padding: 10, backgroundColor: '#FF3B30', borderRadius: 8 }}
+                            style={{ padding: 15, backgroundColor: '#FF3B30', borderRadius: 8 }}
                             disabled={selectedIds.size === 0}
                             onPress={confirmBatchDelete}
                         >
@@ -567,7 +577,7 @@ export default function HomeScreen({ navigation }) {
             <Modal visible={isMoveModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
-                        <Text style={[styles.modalTitle, { color: colors.text }]}>移動《{selectedNovel?.title || (selectedIds.size > 0 ? selectedIds.size + ' 本選取書籍' : '')}》</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>移動《{selectedNovel?.title || (selectedIds.size > 0 ? selectedIds.size + ' 本選取書籍' : '')}》</Text>
                         
                         <View style={{ flexDirection: 'row', marginBottom: 16 }}>
                             <TextInput 
@@ -590,7 +600,7 @@ export default function HomeScreen({ navigation }) {
                                     onPress={() => handleMoveToFolder(item.id)}
                                 >
                                     <Feather name={item.id === 'vault' ? "lock" : "folder"} size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                                    <Text style={{ color: colors.text, fontSize: 16 }}>{item.name}</Text>
+                                    <Text style={{ color: colors.text, fontSize: 16 }} numberOfLines={1}>{item.name}</Text>
                                 </TouchableOpacity>
                             )}
                         />
@@ -659,11 +669,11 @@ export default function HomeScreen({ navigation }) {
             </Modal>
             {/* Import Text Modal */}
             <Modal visible={isImportModalVisible} transparent={true} animationType="slide">
-                <View style={styles.modalOverlay}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '80%', padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>手動匯入小說</Text>
-                            <TouchableOpacity onPress={() => setIsImportModalVisible(false)} style={{padding: 5}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>手動匯入小說</Text>
+                            <TouchableOpacity onPress={() => setIsImportModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
                                 <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
@@ -732,15 +742,15 @@ export default function HomeScreen({ navigation }) {
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
             {/* Options Modal */}
             <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
                 <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)}>
                     <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>編輯書籍資訊</Text>
-                            <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
+                            <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
                                 <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>

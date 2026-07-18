@@ -5,7 +5,7 @@ export const convertS2T = (text) => {
     try {
         return s2t(text);
     } catch (e) {
-        console.error('Chinese Conv Error:', e);
+
         return text;
     }
 };

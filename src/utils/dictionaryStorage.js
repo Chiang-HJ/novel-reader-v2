@@ -30,7 +30,7 @@ export const getDictionaries = async () => {
             pronunciationDict: pdStr ? JSON.parse(pdStr) : DEFAULT_PRONUNCIATION_DICT
         };
     } catch (e) {
-        console.error('Error loading dictionaries', e);
+
         return { textFilters: DEFAULT_TEXT_FILTERS, pronunciationDict: DEFAULT_PRONUNCIATION_DICT };
     }
 };
@@ -39,7 +39,7 @@ export const saveTextFilters = async (filters) => {
     try {
         await AsyncStorage.setItem(TEXT_FILTER_DICT_KEY, JSON.stringify(filters));
     } catch (e) {
-        console.error('Error saving text filters', e);
+
     }
 };
 
@@ -47,6 +47,6 @@ export const savePronunciationDict = async (dict) => {
     try {
         await AsyncStorage.setItem(PRONUNCIATION_DICT_KEY, JSON.stringify(dict));
     } catch (e) {
-        console.error('Error saving pronunciation dict', e);
+
     }
 };

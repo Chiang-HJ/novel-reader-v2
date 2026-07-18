@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useComicDownload } from '../context/ComicDownloadContext';
 import { useTheme } from '../context/ThemeContext';
@@ -171,7 +171,7 @@ export default function ComicDownloadWebViewHost() {
 
     const handleError = (syntheticEvent) => {
         const { nativeEvent } = syntheticEvent;
-        console.warn('WebView Error: ', nativeEvent);
+
         var errMsg = 'Network error: ' + (nativeEvent.description || 'unknown') + ' (code: ' + (nativeEvent.code || '?') + ')';
         onWebViewMessage({
             nativeEvent: {
@@ -182,7 +182,7 @@ export default function ComicDownloadWebViewHost() {
 
     const handleHttpError = (syntheticEvent) => {
         const { nativeEvent } = syntheticEvent;
-        console.warn('WebView HTTP Error: ', nativeEvent);
+
         var errMsg = 'HTTP error: ' + (nativeEvent.statusCode || '?');
         onWebViewMessage({
             nativeEvent: {

@@ -6,8 +6,8 @@ import { zip, unzip } from 'react-native-zip-archive';
 import { Alert } from 'react-native';
 
 export const createBackup = async () => {
+    const backupDir = FileSystem.cacheDirectory + 'backup_temp/';
     try {
-        const backupDir = FileSystem.cacheDirectory + 'backup_temp/';
         const backupInfoDir = await FileSystem.getInfoAsync(backupDir);
         if (backupInfoDir.exists) {
             await FileSystem.deleteAsync(backupDir);
@@ -58,16 +58,17 @@ export const createBackup = async () => {
             Alert.alert('錯誤', '您的裝置不支援分享功能，無法匯出備份。');
         }
 
+    } catch (error) {
+
+        Alert.alert('備份失敗', error.message);
+    } finally {
         // Cleanup
         await FileSystem.deleteAsync(backupDir, { idempotent: true });
-
-    } catch (error) {
-        console.error('Backup Error:', error);
-        Alert.alert('備份失敗', error.message);
     }
 };
 
 export const restoreBackup = async () => {
+    const extractDir = FileSystem.cacheDirectory + 'restore_temp/';
     try {
         const result = await DocumentPicker.getDocumentAsync({
             type: 'application/zip',
@@ -77,7 +78,6 @@ export const restoreBackup = async () => {
         if (result.canceled || !result.assets || result.assets.length === 0) return false;
 
         const zipFileUri = result.assets[0].uri;
-        const extractDir = FileSystem.cacheDirectory + 'restore_temp/';
         
         const extractInfo = await FileSystem.getInfoAsync(extractDir);
         if (extractInfo.exists) {
@@ -114,15 +114,15 @@ export const restoreBackup = async () => {
             }
         }
 
-        // Cleanup
-        await FileSystem.deleteAsync(extractDir, { idempotent: true });
-        
         Alert.alert('還原成功', '您的書架與設定已成功還原！\n請重新啟動 App 以套用所有變更。');
         return true;
 
     } catch (error) {
-        console.error('Restore Error:', error);
+
         Alert.alert('還原失敗', error.message);
         return false;
+    } finally {
+        // Cleanup
+        await FileSystem.deleteAsync(extractDir, { idempotent: true });
     }
 };

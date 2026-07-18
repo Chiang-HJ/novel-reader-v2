@@ -128,7 +128,7 @@ export async function getWyblogsCachedFeed() {
         const cached = await AsyncStorage.getItem(WYBLOGS_CACHE_KEY);
         if (cached) return JSON.parse(cached);
     } catch (e) {
-        console.warn('Failed to read wyblogs feed cache', e);
+
     }
     return null;
 }
@@ -144,7 +144,7 @@ export async function saveWyblogsFeedToCache(articles) {
         };
         await AsyncStorage.setItem(WYBLOGS_CACHE_KEY, JSON.stringify(cacheData));
     } catch (e) {
-        console.warn('Failed to save wyblogs feed cache', e);
+
     }
 }
 

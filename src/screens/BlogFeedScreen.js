@@ -2,15 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+
 import { useTheme } from '../context/ThemeContext';
 import { getArticles, refreshFeed, fetchArticleContent } from '../utils/blogFeedService';
 import { saveNovelToBookshelf, saveChapterText, getBookshelf } from '../utils/storage';
 import { convertS2T } from '../utils/opencc';
 import { splitTextIntoChapters } from '../utils/parserUtils';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DOWNLOADED_IDS_KEY = '@blog_downloaded_ids';
+
+
 
 export default function BlogFeedScreen({ navigation }) {
     const { colors, isDark } = useTheme();

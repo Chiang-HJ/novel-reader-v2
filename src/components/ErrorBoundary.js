@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, SafeAreaView, TouchableOpacity } from 'react-native';
+import { Text, ScrollView, SafeAreaView, TouchableOpacity } from 'react-native';
 
 export default class ErrorBoundary extends React.Component {
     constructor(props) {

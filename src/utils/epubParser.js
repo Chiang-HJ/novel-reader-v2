@@ -107,7 +107,7 @@ export async function parseEpub(uri) {
         };
         
     } catch (error) {
-        console.error("EPUB Parse Error:", error);
+
         throw error;
     }
 }

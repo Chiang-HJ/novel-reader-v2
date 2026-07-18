@@ -13,7 +13,7 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
         Image.getSize(uri, (w, h) => {
             if (isMounted) setDimensions({ w, h });
         }, (err) => {
-            console.error('Image getSize error:', err);
+
             if (isMounted) setError(true);
         });
         return () => { isMounted = false; };

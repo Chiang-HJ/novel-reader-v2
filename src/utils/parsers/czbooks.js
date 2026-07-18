@@ -24,7 +24,7 @@ export const parseSearchHtml = (html) => {
         });
         return results;
     } catch (e) {
-        console.error('CZBooks Parse Search Error:', e);
+
         return [];
     }
 };

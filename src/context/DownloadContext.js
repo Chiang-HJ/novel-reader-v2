@@ -1,12 +1,17 @@
 import React, { createContext, useContext, useState, useRef } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
 import { parseChapterText, parseNovelInfo } from '../utils/scraper';
 import { saveNovelToBookshelf, saveChapterText, getBookshelf } from '../utils/storage';
 
 const DownloadContext = createContext();
 
 export const useDownload = () => useContext(DownloadContext);
+
+const saveQueueToStorage = debounce((q) => {
+    AsyncStorage.setItem('@download_queue', JSON.stringify(q)).catch(() => {});
+}, 500);
 
 // This provider holds ONLY state and logic. No WebView rendering here.
 export const DownloadProvider = ({ children }) => {
@@ -44,7 +49,7 @@ export const DownloadProvider = ({ children }) => {
     }, []);
 
     React.useEffect(() => {
-        AsyncStorage.setItem('@download_queue', JSON.stringify(queue)).catch(() => {});
+        saveQueueToStorage(queue);
         if (queue.length > 0 && !activeTaskRef.current && !downloadingNovelId) {
             processNextTask(queue[0]);
         }
@@ -263,7 +268,7 @@ export const DownloadProvider = ({ children }) => {
                     if (!text) {
                         if (html === '') {
                             // If html is empty string, it's a network error/timeout from iframe, not CAPTCHA
-                            console.log('Network error or timeout on chapter:', chapterUrl);
+
                             setProgressText(`網路錯誤，跳過 (${i + 1}/${novelInfo.chapters.length})`);
                             await new Promise(r => setTimeout(r, 2000));
                             continue;
@@ -280,8 +285,14 @@ export const DownloadProvider = ({ children }) => {
                             setProgressText(`遇到防護網，請協助驗證 (${i + 1}/${novelInfo.chapters.length})`);
                         }, 3000);
 
-                        const manualHtml = await new Promise((resolve) => {
-                            chapterHtmlResolveRef.current = resolve;
+                        const manualHtml = await new Promise((resolve, reject) => {
+                            const timer = setTimeout(() => {
+                                reject(new Error('Manual verification timeout'));
+                            }, 60000);
+                            chapterHtmlResolveRef.current = (html) => {
+                                clearTimeout(timer);
+                                resolve(html);
+                            };
                         });
 
                         clearTimeout(showTimer);
@@ -323,7 +334,7 @@ export const DownloadProvider = ({ children }) => {
                 setQueue(prev => prev.filter(q => q.url !== task?.url));
             }
         } catch (error) {
-            console.error('Download error:', error);
+
             setScrapeUrl(null);
             downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);

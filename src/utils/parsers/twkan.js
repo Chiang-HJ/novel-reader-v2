@@ -34,7 +34,7 @@ export const parseSearchHtml = (html) => {
         });
         return results;
     } catch (e) {
-        console.error('TWKan Parse Search Error:', e);
+
         return [];
     }
 };

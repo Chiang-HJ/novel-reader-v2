@@ -102,7 +102,7 @@ export const ThemeProvider = ({ children }) => {
                 setCurrentThemeId(JSON.parse(legacyDark) ? 'softDark' : 'minimalist');
             }
         } catch (e) {
-            console.warn('Failed to load theme:', e);
+
         }
     };
 
@@ -113,7 +113,7 @@ export const ThemeProvider = ({ children }) => {
                 await AsyncStorage.setItem('@app_theme_id', themeId);
             }
         } catch (e) {
-            console.warn('Failed to save theme:', e);
+
         }
     };
 

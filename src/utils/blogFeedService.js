@@ -105,7 +105,7 @@ export async function getCachedFeed() {
         const cached = await AsyncStorage.getItem(BLOG_CACHE_KEY);
         if (cached) return JSON.parse(cached);
     } catch (e) {
-        console.warn('Failed to read blog feed cache', e);
+
     }
     return null;
 }
@@ -121,7 +121,7 @@ export async function saveFeedToCache(articles) {
         };
         await AsyncStorage.setItem(BLOG_CACHE_KEY, JSON.stringify(cacheData));
     } catch (e) {
-        console.warn('Failed to save blog feed cache', e);
+
     }
 }
 

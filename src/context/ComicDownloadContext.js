@@ -174,7 +174,7 @@ export const ComicDownloadProvider = ({ children }) => {
                             }
                         }
                     } catch(e) {
-                        console.warn('Descramble failed for', localPath, e);
+
                     }
                     
                     localPages.push(localPath);
@@ -200,7 +200,7 @@ export const ComicDownloadProvider = ({ children }) => {
             }, 2000);
             
         } catch (e) {
-            console.warn('Comic download error', e);
+
             if (e.message !== 'Cancelled') {
                 Alert.alert('下載失敗', '漫畫 ' + task.title + ' 下載中斷: ' + e.message);
             }

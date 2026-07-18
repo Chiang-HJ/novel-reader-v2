@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, ScrollView, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { getBookshelf, deleteNovel, updateNovelMetadata } from '../utils/storage';
+import { useFocusEffect } from '@react-navigation/native';
+import { Audio } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -49,6 +51,7 @@ export default function VaultScreen({ navigation }) {
     // Twitter Downloader state
     const [twitterUrl, setTwitterUrl] = useState('');
     const [isDownloadingTwitter, setIsDownloadingTwitter] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Selection logic state
     const flatListRef = React.useRef(null);
@@ -74,6 +77,26 @@ export default function VaultScreen({ navigation }) {
         });
         return unsubscribe;
     }, [navigation]);
+
+    useFocusEffect(
+        useCallback(() => {
+            const configureAudio = async () => {
+                try {
+                    await Audio.setAudioModeAsync({ staysActiveInBackground: false });
+                } catch (e) {}
+            };
+            configureAudio();
+
+            return () => {
+                const restoreAudio = async () => {
+                    try {
+                        await Audio.setAudioModeAsync({ staysActiveInBackground: true });
+                    } catch (e) {}
+                };
+                restoreAudio();
+            };
+        }, [])
+    );
 
     const loadBookshelf = async () => {
         const list = await getBookshelf();
@@ -104,63 +127,68 @@ export default function VaultScreen({ navigation }) {
         });
 
         if (!result.canceled) {
-            const vaultDir = FileSystem.documentDirectory + 'vault_media/';
-            const dirInfo = await FileSystem.getInfoAsync(vaultDir);
-            if (!dirInfo.exists) {
-                await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-            }
-
-            const newMedia = [...mediaList];
-            const assets = result.assets || [result];
-
-            for (let i = 0; i < assets.length; i++) {
-                const asset = assets[i];
-                try {
-                    let fileName = asset.fileName || asset.uri.split('/').pop() || 'media.jpg';
-                    const isVideo = asset.type === 'video' || asset.mediaType === 'video' || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov');
-                    
-                    // iOS AVPlayer requires a valid extension to play local files
-                    if (isVideo && !fileName.includes('.')) {
-                        fileName += '.mp4';
-                    }
-
-                    const uniqueId = Date.now().toString() + '_' + i + '_' + Math.random().toString(36).substring(7);
-                    const newUri = vaultDir + uniqueId + '_' + fileName;
-                    
-                    await FileSystem.copyAsync({
-                        from: asset.uri,
-                        to: newUri
-                    });
-                    
-                    let thumbnailUri = null;
-                    if (isVideo) {
-                        try {
-                            const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
-                            const tFileName = 'thumb_' + uniqueId + '.jpg';
-                            const newTUri = vaultDir + tFileName;
-                            await FileSystem.copyAsync({ from: tUri, to: newTUri });
-                            thumbnailUri = newTUri;
-                        } catch (e) {
-                            console.log('Thumbnail generation failed', e);
-                        }
-                    }
-
-                    newMedia.unshift({
-                        id: uniqueId,
-                        uri: newUri,
-                        thumbnailUri,
-                        type: isVideo ? 'video' : 'image',
-                        createdAt: Date.now(),
-                        tags: []
-                    });
-                } catch (err) {
-                    console.error('Import error:', err);
+            setIsProcessing(true);
+            try {
+                const vaultDir = FileSystem.documentDirectory + 'vault_media/';
+                const dirInfo = await FileSystem.getInfoAsync(vaultDir);
+                if (!dirInfo.exists) {
+                    await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
                 }
-            }
 
-            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
-            setMediaList(newMedia);
-            Alert.alert('匯入完畢', `成功處理 ${assets.length} 個檔案！`);
+                const newMedia = [...mediaList];
+                const assets = result.assets || [result];
+
+                for (let i = 0; i < assets.length; i++) {
+                    const asset = assets[i];
+                    try {
+                        let fileName = asset.fileName || asset.uri.split('/').pop() || 'media.jpg';
+                        const isVideo = asset.type === 'video' || asset.mediaType === 'video' || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov');
+                        
+                        // iOS AVPlayer requires a valid extension to play local files
+                        if (isVideo && !fileName.includes('.')) {
+                            fileName += '.mp4';
+                        }
+
+                        const uniqueId = Date.now().toString() + '_' + i + '_' + Math.random().toString(36).substring(7);
+                        const newUri = vaultDir + uniqueId + '_' + fileName;
+                        
+                        await FileSystem.copyAsync({
+                            from: asset.uri,
+                            to: newUri
+                        });
+                        
+                        let thumbnailUri = null;
+                        if (isVideo) {
+                            try {
+                                const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
+                                const tFileName = 'thumb_' + uniqueId + '.jpg';
+                                const newTUri = vaultDir + tFileName;
+                                await FileSystem.copyAsync({ from: tUri, to: newTUri });
+                                thumbnailUri = newTUri;
+                            } catch (e) {
+
+                            }
+                        }
+
+                        newMedia.unshift({
+                            id: uniqueId,
+                            uri: newUri,
+                            thumbnailUri,
+                            type: isVideo ? 'video' : 'image',
+                            createdAt: Date.now(),
+                            tags: []
+                        });
+                    } catch (err) {
+
+                    }
+                }
+
+                await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
+                setMediaList(newMedia);
+                Alert.alert('匯入完畢', `成功處理 ${assets.length} 個檔案！`);
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 
@@ -239,7 +267,7 @@ export default function VaultScreen({ navigation }) {
             items.sort((a, b) => b.size - a.size);
             setStorageItems(items);
         } catch (e) {
-            console.error('Scan storage failed:', e);
+
         } finally {
             setIsScanningStorage(false);
         }
@@ -282,7 +310,7 @@ export default function VaultScreen({ navigation }) {
         );
     };
 
-    const getDisplayedMedia = () => {
+    const displayedMedia = useMemo(() => {
         let list = [...mediaList];
         
         if (filterBy === 'image') {
@@ -302,7 +330,12 @@ export default function VaultScreen({ navigation }) {
         }
         
         return list;
-    };
+    }, [mediaList, filterBy, filterTag, sortBy]);
+
+    const displayedMediaRef = React.useRef(displayedMedia);
+    useEffect(() => {
+        displayedMediaRef.current = displayedMedia;
+    }, [displayedMedia]);
 
     const toggleSelection = (id) => {
         setSelectedItems(prev => {
@@ -327,7 +360,7 @@ export default function VaultScreen({ navigation }) {
 
         const index = row * 3 + col;
         
-        const displayed = getDisplayedMedia();
+        const displayed = displayedMediaRef.current;
         if (index >= 0 && index < displayed.length) {
             const item = displayed[index];
             if (lastSelectedIndexRef.current !== index) {
@@ -424,21 +457,26 @@ export default function VaultScreen({ navigation }) {
                     text: '刪除', 
                     style: 'destructive',
                     onPress: async () => {
-                        let remaining = [...mediaList];
-                        for (const id of selectedItems) {
-                            const item = remaining.find(m => m.id === id);
-                            if (item) {
-                                try {
-                                    await FileSystem.deleteAsync(item.uri);
-                                    if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri);
-                                } catch(e) {}
-                                remaining = remaining.filter(m => m.id !== id);
+                        setIsProcessing(true);
+                        try {
+                            let remaining = [...mediaList];
+                            for (const id of selectedItems) {
+                                const item = remaining.find(m => m.id === id);
+                                if (item) {
+                                    try {
+                                        await FileSystem.deleteAsync(item.uri);
+                                        if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri);
+                                    } catch(e) {}
+                                    remaining = remaining.filter(m => m.id !== id);
+                                }
                             }
+                            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(remaining));
+                            setMediaList(remaining);
+                            setSelectedItems(new Set());
+                            setIsSelectionMode(false);
+                        } finally {
+                            setIsProcessing(false);
                         }
-                        await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(remaining));
-                        setMediaList(remaining);
-                        setSelectedItems(new Set());
-                        setIsSelectionMode(false);
                     }
                 }
             ]
@@ -548,6 +586,77 @@ export default function VaultScreen({ navigation }) {
         return list;
     };
 
+    const downloadTwitterVideo = async () => {
+        if (!twitterUrl.trim()) return;
+        setIsDownloadingTwitter(true);
+        try {
+            // Convert twitter.com or x.com URL to vxtwitter API format
+            const tweetPath = twitterUrl.trim()
+                .replace(/https?:\/\/(www\.)?(twitter|x)\.com/gi, '');
+
+            const apiUrl = `https://api.vxtwitter.com${tweetPath}`;
+            const response = await fetch(apiUrl);
+            if (!response.ok) throw new Error(`API 錯誤: ${response.status}`);
+            
+            const data = await response.json();
+            
+            // Find the best quality mp4
+            const mediaLinks = data.mediaURLs || [];
+            const mp4Url = mediaLinks.find(url => url.endsWith('.mp4')) ||
+                           (data.media_extended && data.media_extended.find(m => m.type === 'video')?.url);
+
+            if (!mp4Url) {
+                Alert.alert('找不到影片', '此推文沒有可下載的影片，或 API 不支援此連結格式。');
+                return;
+            }
+
+            // Save to vault
+            const vaultDir = FileSystem.documentDirectory + 'vault_media/';
+            const dirInfo = await FileSystem.getInfoAsync(vaultDir);
+            if (!dirInfo.exists) {
+                await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
+            }
+
+            const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
+            const fileName = uniqueId + '_twitter.mp4';
+            const destUri = vaultDir + fileName;
+
+            const downloadResult = await FileSystem.downloadAsync(mp4Url, destUri);
+            if (downloadResult.status !== 200) throw new Error('影片下載失敗');
+
+            // Generate thumbnail
+            let thumbnailUri = null;
+            try {
+                const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
+                const tFileName = 'thumb_' + uniqueId + '.jpg';
+                const newTUri = vaultDir + tFileName;
+                await FileSystem.copyAsync({ from: tUri, to: newTUri });
+                thumbnailUri = newTUri;
+            } catch (e) {}
+
+            const newItem = {
+                id: uniqueId,
+                uri: destUri,
+                thumbnailUri,
+                type: 'video',
+                createdAt: Date.now(),
+                tags: ['twitter'],
+                title: data.text ? data.text.substring(0, 50) : 'Twitter 影片'
+            };
+
+            const newMedia = [newItem, ...mediaList];
+            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
+            setMediaList(newMedia);
+            setTwitterUrl('');
+            setActiveTab('media');
+            Alert.alert('下載成功！', '影片已儲存至金庫。');
+        } catch (e) {
+            Alert.alert('下載失敗', e.message);
+        } finally {
+            setIsDownloadingTwitter(false);
+        }
+    };
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <View style={styles.tabContainer}>
@@ -617,6 +726,11 @@ export default function VaultScreen({ navigation }) {
                                     </View>
                                 </View>
                             )}
+                            ListEmptyComponent={
+                                <View style={{ padding: 32, alignItems: 'center' }}>
+                                    <Text style={{ color: colors.textSecondary }}>目前沒有佔用空間的檔案。</Text>
+                                </View>
+                            }
                         />
                     )}
                 </View>
@@ -737,30 +851,32 @@ export default function VaultScreen({ navigation }) {
                     </View>
                     
                     {/* Twitter Video Downloader */}
-                    <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
-                            <TextInput 
-                                style={{ flex: 1, padding: 12, color: colors.text }}
-                                placeholder="貼上 Twitter (X) 影片連結..."
-                                placeholderTextColor={colors.textSecondary}
-                                value={twitterUrl}
-                                onChangeText={setTwitterUrl}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                            />
-                            <TouchableOpacity 
-                                style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center' }}
-                                onPress={downloadTwitterVideo}
-                                disabled={isDownloadingTwitter || !twitterUrl}
-                            >
-                                {isDownloadingTwitter ? (
-                                    <ActivityIndicator color="#fff" size="small" />
-                                ) : (
-                                    <Feather name="download" size={20} color="#fff" />
-                                )}
-                            </TouchableOpacity>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                        <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
+                                <TextInput 
+                                    style={{ flex: 1, padding: 12, color: colors.text }}
+                                    placeholder="貼上 Twitter (X) 影片連結..."
+                                    placeholderTextColor={colors.textSecondary}
+                                    value={twitterUrl}
+                                    onChangeText={setTwitterUrl}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                />
+                                <TouchableOpacity 
+                                    style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center' }}
+                                    onPress={downloadTwitterVideo}
+                                    disabled={isDownloadingTwitter || !twitterUrl}
+                                >
+                                    {isDownloadingTwitter ? (
+                                        <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                        <Feather name="download" size={20} color="#fff" />
+                                    )}
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                    </View>
+                    </KeyboardAvoidingView>
                     
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', paddingHorizontal: 16 }}>
                         {isSelectionMode ? (
@@ -819,10 +935,18 @@ export default function VaultScreen({ navigation }) {
                             ref={flatListRef}
                             onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
                             scrollEventThrottle={16}
-                            data={getDisplayedMedia()}
-                        keyExtractor={item => item.id}
-                        numColumns={3}
-                        renderItem={({ item }) => (
+                            data={displayedMedia}
+                            keyExtractor={item => item.id}
+                            numColumns={3}
+                            removeClippedSubviews={true}
+                            initialNumToRender={12}
+                            maxToRenderPerBatch={6}
+                            windowSize={5}
+                            getItemLayout={(data, index) => {
+                                const itemWidth = (screenWidth - 32) / 3;
+                                return { length: itemWidth, offset: itemWidth * Math.floor(index / 3), index };
+                            }}
+                            renderItem={({ item }) => (
                             <TouchableOpacity 
                                 style={[styles.mediaItem, isSelectionMode && selectedItems.has(item.id) && { opacity: 0.7 }]} 
                                 onPress={() => {
@@ -970,6 +1094,12 @@ export default function VaultScreen({ navigation }) {
                     </BlurView>
                 </KeyboardAvoidingView>
             </Modal>
+            
+            {isProcessing && (
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }]}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            )}
         </View>
     );
 }

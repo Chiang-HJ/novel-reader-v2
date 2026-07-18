@@ -132,7 +132,7 @@ const DescrambleWebView = forwardRef((props, ref) => {
                 }
             }
         } catch(e) {
-            console.warn('DescrambleWebView message parsing error', e);
+
         }
     };
 

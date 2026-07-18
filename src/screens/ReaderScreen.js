@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
+import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
-import { getChapterText, getNovelById, updateReadingProgress, getNovelDir, saveChapterText, addReadingTime } from '../utils/storage';
+import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
 import { WebView } from 'react-native-webview';
-import * as FileSystem from 'expo-file-system/legacy';
+
 import { Feather } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
-import { AppState, StatusBar as RNStatusBar } from 'react-native';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,7 +17,7 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TrackPlayer, { Capability, State, Event, useTrackPlayerEvents } from 'react-native-track-player';
+import TrackPlayer, { Capability, Event, RepeatMode, useTrackPlayerEvents } from 'react-native-track-player';
 
 
 
@@ -82,7 +82,7 @@ export default function ReaderScreen({ route, navigation }) {
     const isSpeechPausedRef = useRef(false);
     const trackPlayerSetupRef = useRef(false);
     
-    useTrackPlayerEvents([Event.RemotePlay, Event.RemotePause, Event.RemoteNext, Event.RemotePrevious], async (event) => {
+    useTrackPlayerEvents([Event.RemotePlay, Event.RemotePause, Event.RemoteNext, Event.RemotePrevious, Event.RemoteDuck], async (event) => {
         if (event.type === Event.RemotePlay) {
             if (!isPlayingRef.current) togglePlay();
         } else if (event.type === Event.RemotePause) {
@@ -91,6 +91,8 @@ export default function ReaderScreen({ route, navigation }) {
             nextChapter();
         } else if (event.type === Event.RemotePrevious) {
             prevChapter();
+        } else if (event.type === Event.RemoteDuck) {
+            if (event.paused && isPlayingRef.current) togglePlay();
         }
     });
     
@@ -170,7 +172,7 @@ export default function ReaderScreen({ route, navigation }) {
     }, []);
     
     
-    const [videoUri, setVideoUri] = useState(null);
+
     const [isFullScreen, setIsFullScreen] = useState(false);
     const insets = useSafeAreaInsets();
     const safeTopRef = useRef(0);
@@ -208,6 +210,13 @@ export default function ReaderScreen({ route, navigation }) {
                 silentSoundRef.current.playAsync().catch(() => {});
             } else {
                 silentSoundRef.current.pauseAsync().catch(() => {});
+            }
+        }
+        if (trackPlayerSetupRef.current) {
+            if (state) {
+                TrackPlayer.play().catch(() => {});
+            } else {
+                TrackPlayer.pause().catch(() => {});
             }
         }
     };
@@ -268,7 +277,7 @@ export default function ReaderScreen({ route, navigation }) {
                 const savedLetterSpacing = await AsyncStorage.getItem('novel_reader_letterSpacing');
                 if (savedLetterSpacing) setLetterSpacing(parseFloat(savedLetterSpacing));
             } catch (e) {
-                console.warn('Failed to load settings', e);
+
             }
         };
 
@@ -350,7 +359,7 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             }
         } catch(e) {
-            console.warn('Failed to load voices', e);
+
         }
     };
 
@@ -374,27 +383,27 @@ export default function ReaderScreen({ route, navigation }) {
                             Capability.SkipToPrevious,
                             Capability.Stop,
                         ],
-                        compactCapabilities: [Capability.Play, Capability.Pause],
+                        // Show Previous | Play/Pause | Next on lock screen compact view
+                        compactCapabilities: [
+                            Capability.SkipToPrevious,
+                            Capability.Play,
+                            Capability.Pause,
+                            Capability.SkipToNext,
+                        ],
                     });
                     trackPlayerSetupRef.current = true;
                 } catch(e) {}
             }
             
+            // Use a silent audio loop to keep the audio session active in the background
             const uri = 'data:audio/wav;base64,' + silentAudioBase64;
             const { sound } = await Audio.Sound.createAsync(
                 { uri },
-                { isLooping: true, volume: 0.1 }
+                { isLooping: true, volume: 0.01 }
             );
             silentSoundRef.current = sound;
-            
-            const videoFilePath = FileSystem.documentDirectory + 'blank.mp4';
-            const fileInfo = await FileSystem.getInfoAsync(videoFilePath);
-            if (!fileInfo.exists) {
-                await FileSystem.downloadAsync('https://www.w3schools.com/html/mov_bbb.mp4', videoFilePath);
-            }
-            setVideoUri(videoFilePath);
         } catch (e) {
-            console.warn('Audio setup error:', e);
+
         }
     };
 
@@ -420,11 +429,12 @@ export default function ReaderScreen({ route, navigation }) {
                 await TrackPlayer.reset();
                 await TrackPlayer.add({
                     id: 'novel_track',
-                    url: FileSystem.documentDirectory + 'blank.mp4',
+                    url: 'https://cdn.jsdelivr.net/gh/anars/blank-audio/250-milliseconds-of-silence.mp3',
                     title: title || '未知章節',
                     artist: n ? n.title : '聽小說',
                     artwork: n && n.cover ? n.cover : undefined
                 });
+                await TrackPlayer.setRepeatMode(RepeatMode.Track);
                 await TrackPlayer.play();
             } catch(e) {}
         }
@@ -704,7 +714,7 @@ export default function ReaderScreen({ route, navigation }) {
         setRate(newRate);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            
+            Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
@@ -715,7 +725,7 @@ export default function ReaderScreen({ route, navigation }) {
         setPitch(newPitch);
         if (isPlayingRef.current) {
             playIdRef.current += 1;
-            
+            Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
             setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
@@ -1179,10 +1189,42 @@ export default function ReaderScreen({ route, navigation }) {
                     />
                 </View>
             ) : (
-                <ScrollView 
+                <FlatList
                     style={[styles.textContainer, isFullScreen && { paddingTop: Math.max(0, safeTopRef.current - 20) }]}
                     ref={scrollViewRef}
-                    scrollEventThrottle={100}
+                    data={sentences}
+                    keyExtractor={(item, index) => index.toString()}
+                    initialNumToRender={20}
+                    maxToRenderPerBatch={10}
+                    ListHeaderComponent={() => (
+                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                            <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
+                        </TouchableOpacity>
+                    )}
+                    renderItem={({ item: sent, index: i }) => (
+                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                            <Text 
+                                style={[
+                                    styles.text,
+                                    { color: colors.text },
+                                    currentSentenceIndex === i && { backgroundColor: colors.highlight, borderRadius: 4, overflow: 'hidden' }
+                                ]}
+                                onPress={() => {
+                                    playIdRef.current += 1;
+                                    Speech.stop();
+                                    setCurrentSentenceIndex(i);
+                                    if (isPlayingRef.current) playFromIndex(i, sentences, playIdRef.current);
+                                }}
+                            >
+                                {sent}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                    ListFooterComponent={() => (
+                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                            <View style={{height: 120}} />
+                        </TouchableOpacity>
+                    )}
                     onScrollEndDrag={(e) => {
                         const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
                         if (contentOffset.y < -120) {
@@ -1204,30 +1246,7 @@ export default function ReaderScreen({ route, navigation }) {
                             }
                         }
                     }}
-                >
-                    <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
-                        <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
-                        {sentences.map((sent, i) => (
-                            <Text 
-                                key={i} 
-                                style={[
-                                    styles.text,
-                                    { color: colors.text },
-                                    currentSentenceIndex === i && { backgroundColor: colors.highlight, borderRadius: 4, overflow: 'hidden' }
-                                ]}
-                                onPress={() => {
-                                    playIdRef.current += 1;
-                                    Speech.stop();
-                                    setCurrentSentenceIndex(i);
-                                    if (isPlayingRef.current) playFromIndex(i, sentences, playIdRef.current);
-                                }}
-                            >
-                                {sent}
-                            </Text>
-                        ))}
-                        <View style={{height: 120}} />
-                    </TouchableOpacity>
-                </ScrollView>
+                />
             )}
 
             <StatusBar style={isDark ? "light" : "dark"} hidden={isFullScreen} />

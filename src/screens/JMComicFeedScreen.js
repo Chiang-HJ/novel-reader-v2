@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Modal, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -107,7 +107,7 @@ export default function JMComicFeedScreen({ navigation, route }) {
             const nextDomain = FALLBACK_DOMAINS[nextIndex];
             setCurrentDomain(nextDomain);
             setSwitchInfo('(' + nextIndex + '/' + (FALLBACK_DOMAINS.length - 1) + ') ' + reason);
-            console.log('Switching to domain:', nextDomain, 'reason:', reason);
+
             
             const nextBaseUrl = nextDomain + '/search/photos?search_query=Yaoi';
             setBaseUrl(nextBaseUrl);
@@ -154,16 +154,16 @@ export default function JMComicFeedScreen({ navigation, route }) {
             } else if (data.type === 'NETWORK_ERROR') {
                 tryNextDomain(data.message || 'Network error');
             } else if (data.type === 'JS_ERROR') {
-                console.warn('JS scraping error:', data.message);
+
             }
         } catch(e) {
-            console.warn('handleMessage parse error:', e);
+
         }
     };
 
     const handleWebViewError = (syntheticEvent) => {
         const { nativeEvent } = syntheticEvent;
-        console.warn('Feed WebView network error:', nativeEvent);
+
         handleMessage({
             nativeEvent: {
                 data: JSON.stringify({
@@ -176,7 +176,7 @@ export default function JMComicFeedScreen({ navigation, route }) {
 
     const handleHttpError = (syntheticEvent) => {
         const { nativeEvent } = syntheticEvent;
-        console.warn('Feed WebView HTTP error:', nativeEvent.statusCode);
+
         handleMessage({
             nativeEvent: {
                 data: JSON.stringify({

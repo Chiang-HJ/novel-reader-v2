@@ -221,7 +221,13 @@ export default function ComicReaderScreen({ route, navigation }) {
         if (isHorizontal) {
             return (
                 <ScrollView
-                    ref={ref => { if (ref) horizontalScrollRefs.current[index] = ref; }}
+                    ref={ref => { 
+                        if (ref) {
+                            horizontalScrollRefs.current[index] = ref;
+                        } else {
+                            delete horizontalScrollRefs.current[index];
+                        }
+                    }}
                     onScroll={(e) => {
                         if (e.nativeEvent.zoomScale !== undefined) {
                             horizontalZoomScale.current[index] = e.nativeEvent.zoomScale;
@@ -301,8 +307,10 @@ export default function ComicReaderScreen({ route, navigation }) {
                     style={{ flex: 1, width: width }}
                 />
             ) : (
-                <ScrollView
+                <FlatList
                     ref={flatListRef}
+                    data={pages}
+                    keyExtractor={(item, index) => index.toString()}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -317,13 +325,11 @@ export default function ComicReaderScreen({ route, navigation }) {
                     maximumZoomScale={zoomRatio}
                     minimumZoomScale={1}
                     bouncesZoom={true}
-                >
-                    {pages.map((item, index) => (
-                        <View key={index.toString()}>
-                            {renderPage({ item, index })}
-                        </View>
-                    ))}
-                </ScrollView>
+                    renderItem={renderPage}
+                    removeClippedSubviews={true}
+                    initialNumToRender={2}
+                    windowSize={3}
+                />
             )}
 
             {/* Footer */}

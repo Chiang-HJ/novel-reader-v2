@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+ï»¿import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const NOVELS_KEY = '@novels_list';
@@ -76,7 +76,7 @@ export const getBookshelf = async () => {
         const listStr = await AsyncStorage.getItem(NOVELS_KEY);
         return listStr ? JSON.parse(listStr) : [];
     } catch (e) {
-        console.error('getBookshelf error', e);
+
         return [];
     }
 };
@@ -90,7 +90,7 @@ export const getNovelMetadata = async (novelId) => {
         const list = await getBookshelf();
         return list.find(n => n.id === novelId);
     } catch (e) {
-        console.error('getNovelMetadata error', e);
+
         return null;
     }
 };
@@ -152,7 +152,7 @@ export const deleteNovel = async (novelId) => {
                 await FileSystem.deleteAsync(folderPath, { idempotent: true });
             }
         } catch (e) {
-            console.error('Failed to delete novel files', e);
+
         }
     });
 };
@@ -178,7 +178,7 @@ export const getStorageUsage = async () => {
         if (totalBytes < 1024 * 1024 * 1024) return `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
         return `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     } catch (e) {
-        return '?¡æ?è¨ˆç?';
+        return '?ï¿½ï¿½?è¨ˆï¿½?';
     }
 };
 
@@ -203,7 +203,7 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
         
         return fileId;
     } catch (e) {
-        console.error('Error saving chapter text', e);
+
         throw e;
     }
 };
@@ -240,7 +240,7 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData) 
             return filePath;
         }
     } catch (e) {
-        console.error('Error saving comic image', e);
+
         throw e;
     }
 };
@@ -262,7 +262,7 @@ export const saveComicChapterData = async (novelId, chapterIndex, title, pages) 
         
         return fileId;
     } catch (e) {
-        console.error('Error saving comic chapter data', e);
+
         throw e;
     }
 };
@@ -289,7 +289,7 @@ export const getChapterText = async (novelId, fileId) => {
         }
         return null;
     } catch (e) {
-        console.error('Error reading chapter text', e);
+
         return null;
     }
 };
@@ -307,7 +307,7 @@ export const deleteChapterData = async (novelId, index) => {
                 await FileSystem.deleteAsync(filePath, { idempotent: true });
             }
         } catch (e) {
-            console.error('Error deleting chapter file', e);
+
         }
 
         // Shift existing chapter files up to fill the gap
@@ -320,7 +320,7 @@ export const deleteChapterData = async (novelId, index) => {
                     await FileSystem.moveAsync({ from: oldPath, to: newPath });
                 }
             } catch (e) {
-                console.error('Error shifting chapter file', e);
+
             }
         }
 
@@ -372,7 +372,7 @@ export const addChapterData = async (novelId, insertIndex, title, text) => {
                     await FileSystem.moveAsync({ from: oldPath, to: newPath });
                 }
             } catch (e) {
-                console.error('Error shifting chapter file', e);
+
             }
         }
         
@@ -516,7 +516,7 @@ export const splitChapterData = async (novelId, index, newChaptersData) => {
                         await FileSystem.moveAsync({ from: oldPath, to: newPath });
                     }
                 } catch (e) {
-                    console.error('Error shifting chapter file', e);
+
                 }
             }
         }
