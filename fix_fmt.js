@@ -1,35 +1,30 @@
 const fs = require('fs');
-const file = 'ios/Podfile';
-if (fs.existsSync(file)) {
-  let p = fs.readFileSync(file, 'utf8');
-  
-  // Foolproof regex to find react_native_post_install(...)
-  // [^)]* matches everything (including newlines) until the first closing parenthesis
-  const targetRegex = /react_native_post_install\([^)]*\)/;
-  
-  if (targetRegex.test(p)) {
-    p = p.replace(targetRegex, (match) => {
-      return match + `
-  
-  # FIX: Force fmt to c++17 AFTER react_native_post_install
-  installer.pods_project.targets.each do |t|
-    if t.name == 'fmt'
-      t.build_configurations.each do |c|
-        c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-      end
-    end
-  end
-`;
-    });
-    
-    // Clean up any old duplicate patches at the top
-    p = p.replace(/# Fix for fmt consteval error[\s\S]*?end\n    end\n  end\n/g, '');
-    
-    fs.writeFileSync(file, p);
-    console.log("Successfully patched ios/Podfile to inject fix AFTER react_native_post_install");
-  } else {
-    console.log("Could not find react_native_post_install in Podfile!");
-  }
+
+// Patch the fmt podspec DIRECTLY in node_modules BEFORE prebuild runs.
+// This is the correct fix - the podspec calls rct_cxx_language_standard() which
+// returns 'c++20' on Xcode 26+, causing consteval errors.
+// We replace it with a hardcoded 'c++17' for fmt only.
+
+const podspecPath = 'node_modules/react-native/third-party-podspecs/fmt.podspec';
+
+if (!fs.existsSync(podspecPath)) {
+  console.error(`ERROR: ${podspecPath} not found!`);
+  process.exit(1);
+}
+
+let content = fs.readFileSync(podspecPath, 'utf8');
+
+if (content.includes('rct_cxx_language_standard()')) {
+  content = content.replace(
+    '"CLANG_CXX_LANGUAGE_STANDARD" => rct_cxx_language_standard()',
+    '"CLANG_CXX_LANGUAGE_STANDARD" => "c++17"'
+  );
+  fs.writeFileSync(podspecPath, content);
+  console.log('SUCCESS: Patched fmt.podspec to use c++17 instead of rct_cxx_language_standard()');
+} else if (content.includes('"CLANG_CXX_LANGUAGE_STANDARD" => "c++17"')) {
+  console.log('fmt.podspec already patched.');
 } else {
-  console.log("ios/Podfile not found!");
+  console.error('ERROR: Could not find rct_cxx_language_standard() in fmt.podspec! Manual check required.');
+  console.log('Current content:', content);
+  process.exit(1);
 }

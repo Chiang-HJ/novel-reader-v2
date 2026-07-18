@@ -9,9 +9,15 @@ const withFmtFix = (config) => {
       const file = path.join(config.modRequest.platformProjectRoot, 'Podfile');
       if (fs.existsSync(file)) {
         let contents = fs.readFileSync(file, 'utf8');
+        
+        // Remove old broken regex patches if any
+        contents = contents.replace(/# FIX: Force fmt to c\+\+17[\s\S]*?end\n    end\n  end\n/g, '');
+        contents = contents.replace(/# Fix for fmt consteval error[\s\S]*?end\n    end\n  end\n/g, '');
 
         const fixCode = `
-  # FIX: Force fmt to c++17 AFTER react_native_post_install
+
+# FIX: Force fmt to c++17 using a dedicated hook at the end of the Podfile
+Pod::HooksManager.register('fmt_fix', :post_install) do |installer|
   installer.pods_project.targets.each do |target|
     if target.name == 'fmt'
       target.build_configurations.each do |config|
@@ -19,12 +25,12 @@ const withFmtFix = (config) => {
       end
     end
   end
+end
 `;
 
-        const targetRegex = /react_native_post_install\([^)]*\)/;
-        if (targetRegex.test(contents) && !contents.includes("FIX: Force fmt to c++17 AFTER react_native_post_install")) {
-          // Inject AFTER react_native_post_install
-          contents = contents.replace(targetRegex, (match) => match + "\n" + fixCode);
+        if (!contents.includes("Pod::HooksManager.register('fmt_fix'")) {
+          // Simply append the hook to the very end of the file!
+          contents += fixCode;
           fs.writeFileSync(file, contents);
         }
       }
