@@ -1,0 +1,1 @@
+fetch('https://api.cobalt.tools/', { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://x.com/Pokemon/status/1759604114405396656' }) }).then(r=>r.json()).then(console.log).catch(console.error);

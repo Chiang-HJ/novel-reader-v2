@@ -11,6 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
+import { WebView } from 'react-native-webview';
 import NovelListItem from '../components/home/NovelListItem';
 
 const VAULT_MEDIA_KEY = '@vault_media';
@@ -22,8 +23,16 @@ export default function VaultScreen({ navigation }) {
     const [activeTab, setActiveTab] = useState('novels'); // 'novels' or 'media'
     const [bookshelf, setBookshelf] = useState([]);
     const [mediaList, setMediaList] = useState([]);
-    const [novelFilter, setNovelFilter] = useState('all'); // 'all', 'novel', 'comic'
+    const [novelFilter, setNovelFilter] = useState('novel'); // 'novel' or 'comic'
     const [novelSearch, setNovelSearch] = useState('');
+    
+    // Novel Management state
+    const [isOptionsModalVisible, setIsOptionsModalVisible] = useState(false);
+    const [editTitle, setEditTitle] = useState('');
+    const [editAuthor, setEditAuthor] = useState('');
+    const [selectedNovel, setSelectedNovel] = useState(null);
+    const [isNovelSelectionMode, setIsNovelSelectionMode] = useState(false);
+    const [selectedNovelIds, setSelectedNovelIds] = useState(new Set());
     
     // Media tools state
     const [selectedMedia, setSelectedMedia] = useState(null);
@@ -586,74 +595,97 @@ export default function VaultScreen({ navigation }) {
         return list;
     };
 
-    const downloadTwitterVideo = async () => {
+    const handleEditNovel = async () => {
+        if (!selectedNovel) return;
+        if (!editTitle.trim()) {
+            Alert.alert('提示', '書名不能為空');
+            return;
+        }
+        try {
+            await updateNovelMetadata(selectedNovel.id, {
+                title: editTitle.trim(),
+                author: editAuthor.trim()
+            });
+            setIsOptionsModalVisible(false);
+            setSelectedNovel(null);
+            await loadBookshelf();
+        } catch (error) {
+            Alert.alert('錯誤', '更新失敗');
+        }
+    };
+
+    const toggleNovelSelection = (id) => {
+        const newSet = new Set(selectedNovelIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedNovelIds(newSet);
+    };
+
+    const downloadTwitterVideo = () => {
         if (!twitterUrl.trim()) return;
         setIsDownloadingTwitter(true);
-        try {
-            // Convert twitter.com or x.com URL to vxtwitter API format
-            const tweetPath = twitterUrl.trim()
-                .replace(/https?:\/\/(www\.)?(twitter|x)\.com/gi, '');
+    };
 
-            const apiUrl = `https://api.vxtwitter.com${tweetPath}`;
-            const response = await fetch(apiUrl);
-            if (!response.ok) throw new Error(`API 錯誤: ${response.status}`);
-            
-            const data = await response.json();
-            
-            // Find the best quality mp4
-            const mediaLinks = data.mediaURLs || [];
-            const mp4Url = mediaLinks.find(url => url.endsWith('.mp4')) ||
-                           (data.media_extended && data.media_extended.find(m => m.type === 'video')?.url);
-
-            if (!mp4Url) {
-                Alert.alert('找不到影片', '此推文沒有可下載的影片，或 API 不支援此連結格式。');
-                return;
-            }
-
-            // Save to vault
-            const vaultDir = FileSystem.documentDirectory + 'vault_media/';
-            const dirInfo = await FileSystem.getInfoAsync(vaultDir);
-            if (!dirInfo.exists) {
-                await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-            }
-
-            const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
-            const fileName = uniqueId + '_twitter.mp4';
-            const destUri = vaultDir + fileName;
-
-            const downloadResult = await FileSystem.downloadAsync(mp4Url, destUri);
-            if (downloadResult.status !== 200) throw new Error('影片下載失敗');
-
-            // Generate thumbnail
-            let thumbnailUri = null;
-            try {
-                const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
-                const tFileName = 'thumb_' + uniqueId + '.jpg';
-                const newTUri = vaultDir + tFileName;
-                await FileSystem.copyAsync({ from: tUri, to: newTUri });
-                thumbnailUri = newTUri;
-            } catch (e) {}
-
-            const newItem = {
-                id: uniqueId,
-                uri: destUri,
-                thumbnailUri,
-                type: 'video',
-                createdAt: Date.now(),
-                tags: ['twitter'],
-                title: data.text ? data.text.substring(0, 50) : 'Twitter 影片'
-            };
-
-            const newMedia = [newItem, ...mediaList];
-            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
-            setMediaList(newMedia);
-            setTwitterUrl('');
-            setActiveTab('media');
-            Alert.alert('下載成功！', '影片已儲存至金庫。');
-        } catch (e) {
-            Alert.alert('下載失敗', e.message);
-        } finally {
+    const handleWebViewMessage = async (event) => {
+        const message = event.nativeEvent.data;
+        if (message === 'TIMEOUT') {
+            Alert.alert('下載失敗', '無法獲取連結（超時）');
             setIsDownloadingTwitter(false);
+            setTwitterUrl('');
+            return;
+        }
+        
+        if (message.startsWith('http')) {
+            const fileUrl = message;
+            const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
+            const ext = isImage ? '.jpg' : '.mp4';
+            const type = isImage ? 'image' : 'video';
+            
+            try {
+                const vaultDir = FileSystem.documentDirectory + 'vault_media/';
+                const dirInfo = await FileSystem.getInfoAsync(vaultDir);
+                if (!dirInfo.exists) {
+                    await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
+                }
+
+                const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
+                const fileName = uniqueId + '_twitter' + ext;
+                const destUri = vaultDir + fileName;
+
+                const downloadResult = await FileSystem.downloadAsync(fileUrl, destUri);
+                if (downloadResult.status !== 200) throw new Error('下載失敗');
+
+                let thumbnailUri = null;
+                if (type === 'video') {
+                    try {
+                        const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
+                        const tFileName = 'thumb_' + uniqueId + '.jpg';
+                        const newTUri = vaultDir + tFileName;
+                        await FileSystem.copyAsync({ from: tUri, to: newTUri });
+                        thumbnailUri = newTUri;
+                    } catch (e) {}
+                }
+
+                const newItem = {
+                    id: uniqueId,
+                    uri: destUri,
+                    thumbnailUri,
+                    type: type,
+                    createdAt: Date.now(),
+                    tags: ['twitter'],
+                    title: 'Twitter 檔案'
+                };
+
+                const newMedia = [newItem, ...mediaList];
+                await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
+                setMediaList(newMedia);
+                Alert.alert('下載成功！', '檔案已儲存至金庫。');
+            } catch (e) {
+                Alert.alert('下載失敗', e.message);
+            } finally {
+                setIsDownloadingTwitter(false);
+                setTwitterUrl('');
+            }
         }
     };
 
@@ -735,112 +767,135 @@ export default function VaultScreen({ navigation }) {
                     )}
                 </View>
             ) : activeTab === 'novels' ? (
-                <FlatList 
-                    data={getFilteredBookshelf()}
-                    keyExtractor={item => item.id}
-                    ListHeaderComponent={
-                        <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 16 }}>
-                            {/* Original Import Buttons */}
-                            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
-                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('BlogFeed')}>
-                                    <Feather name="book-open" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                    <Text style={{ color: colors.primary, fontWeight: 'bold' }}>進入語錄集</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('WyblogsFeed')}>
-                                    <Feather name="book" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                    <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>Wyblogs</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, marginBottom: 0 }]} onPress={() => navigation.navigate('JMComicFeed')}>
-                                    <Feather name="image" size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                                    <Text style={{ color: colors.primary, fontWeight: 'bold', fontSize: 12 }}>禁漫天堂</Text>
-                                </TouchableOpacity>
-                            </View>
-                            
-                            {/* Search and Filter UI */}
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, alignItems: 'center', paddingHorizontal: 12, height: 40, borderWidth: 1, borderColor: colors.border }}>
-                                    <Feather name="search" size={16} color={colors.textSecondary} />
-                                    <TextInput 
-                                        style={{ flex: 1, marginLeft: 8, color: colors.text }}
-                                        placeholder="搜尋標題..."
-                                        placeholderTextColor={colors.textSecondary}
-                                        value={novelSearch}
-                                        onChangeText={setNovelSearch}
-                                    />
-                                    {novelSearch !== '' && (
-                                        <TouchableOpacity onPress={() => setNovelSearch('')}>
-                                            <Feather name="x-circle" size={16} color={colors.textSecondary} />
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                                
-                                <TouchableOpacity onPress={() => {
-                                    Alert.alert('分類', '選擇要顯示的類型', [
-                                        { text: '全部', onPress: () => setNovelFilter('all') },
-                                        { text: '僅小說', onPress: () => setNovelFilter('novel') },
-                                        { text: '僅漫畫', onPress: () => setNovelFilter('comic') },
-                                        { text: '取消', style: 'cancel' }
-                                    ]);
-                                }} style={{ padding: 8, backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: novelFilter !== 'all' ? colors.primary : colors.border }}>
-                                    <Feather name="filter" size={20} color={novelFilter !== 'all' ? colors.primary : colors.text} />
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    }
-                    renderItem={({ item }) => (
-                        <NovelListItem 
-                            item={item}
-                            onPress={() => {
-                                if (item.type === 'comic') {
-                                    navigation.navigate('ComicReader', { novelId: item.id, title: item.title, isVault: true });
-                                } else {
-                                    navigation.navigate('Reader', { novelId: item.id, title: item.title, isVault: true });
-                                }
-                            }}
-                            onLongPress={() => {}}
-                            onAuthorPress={(author) => {
-                                if (item.type === 'comic') {
-                                    navigation.navigate('JMComicFeed', { initialQuery: author });
-                                }
-                            }}
-                            colors={colors}
-                            isDark={isDark}
-                            customActions={
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                    <FlatList 
+                        data={getFilteredBookshelf()}
+                        keyExtractor={item => item.id}
+                        contentContainerStyle={{ paddingBottom: isNovelSelectionMode ? 100 : 20 }}
+                        ListHeaderComponent={
+                            <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 16 }}>
+                                {/* Segmented Control for Novels/Comics */}
+                                <View style={{ flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, padding: 4, marginBottom: 16 }}>
                                     <TouchableOpacity 
-                                        style={{ padding: 12, justifyContent: 'center' }}
-                                        onPress={() => {
-                                            Alert.alert('移出金庫', '確定要解除隱藏嗎？', [
-                                                { text: '取消', style: 'cancel' },
-                                                { text: '確定', onPress: async () => {
-                                                    await updateNovelMetadata(item.id, { folderId: null, isHidden: false });
-                                                    loadBookshelf();
-                                                }}
-                                            ]);
-                                        }}
+                                        style={{ flex: 1, padding: 8, borderRadius: 6, backgroundColor: novelFilter === 'novel' ? colors.primary : 'transparent', alignItems: 'center' }}
+                                        onPress={() => setNovelFilter('novel')}
                                     >
-                                        <Feather name="eye" size={20} color={colors.primary} />
+                                        <Text style={{ color: novelFilter === 'novel' ? '#fff' : colors.text, fontWeight: 'bold' }}>小說</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity 
-                                        style={{ padding: 12, justifyContent: 'center' }}
-                                        onPress={() => {
-                                            Alert.alert('刪除書籍', '確定要永久刪除這本書嗎？', [
-                                                { text: '取消', style: 'cancel' },
-                                                { text: '刪除', style: 'destructive', onPress: async () => {
-                                                    await deleteNovel(item.id);
-                                                    loadBookshelf();
-                                                }}
-                                            ]);
-                                        }}
+                                        style={{ flex: 1, padding: 8, borderRadius: 6, backgroundColor: novelFilter === 'comic' ? colors.primary : 'transparent', alignItems: 'center' }}
+                                        onPress={() => setNovelFilter('comic')}
                                     >
-                                        <Feather name="trash-2" size={20} color={colors.danger || '#ff4444'} />
+                                        <Text style={{ color: novelFilter === 'comic' ? '#fff' : colors.text, fontWeight: 'bold' }}>漫畫</Text>
                                     </TouchableOpacity>
                                 </View>
-                            }
-                        />
+
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>
+                                        {novelFilter === 'comic' ? '漫畫庫' : '小說庫'}
+                                    </Text>
+                                    <TouchableOpacity onPress={() => setIsNovelSelectionMode(!isNovelSelectionMode)}>
+                                        <Text style={{ color: isNovelSelectionMode ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>
+                                            {isNovelSelectionMode ? '取消選取' : '批次管理'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Search UI */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.surface, borderRadius: 8, alignItems: 'center', paddingHorizontal: 12, height: 40, borderWidth: 1, borderColor: colors.border }}>
+                                        <Feather name="search" size={16} color={colors.textSecondary} />
+                                        <TextInput 
+                                            style={{ flex: 1, marginLeft: 8, color: colors.text }}
+                                            placeholder="搜尋標題..."
+                                            placeholderTextColor={colors.textSecondary}
+                                            value={novelSearch}
+                                            onChangeText={setNovelSearch}
+                                        />
+                                        {novelSearch !== '' && (
+                                            <TouchableOpacity onPress={() => setNovelSearch('')}>
+                                                <Feather name="x-circle" size={16} color={colors.textSecondary} />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                </View>
+                            </View>
+                        }
+                        renderItem={({ item }) => (
+                            <NovelListItem 
+                                item={item}
+                                onPress={() => {
+                                    if (isNovelSelectionMode) {
+                                        toggleNovelSelection(item.id);
+                                    } else {
+                                        if (item.type === 'comic') {
+                                            navigation.navigate('ComicReader', { novelId: item.id, title: item.title, isVault: true });
+                                        } else {
+                                            navigation.navigate('Reader', { novelId: item.id, title: item.title, isVault: true });
+                                        }
+                                    }
+                                }}
+                                onLongPress={() => {
+                                    if (!isNovelSelectionMode) {
+                                        setSelectedNovel(item);
+                                        setEditTitle(item.title || '');
+                                        setEditAuthor(item.author || '');
+                                        setIsOptionsModalVisible(true);
+                                    } else {
+                                        toggleNovelSelection(item.id);
+                                    }
+                                }}
+                                onAuthorPress={(author) => {
+                                    if (item.type === 'comic') {
+                                        navigation.navigate('JMComicFeed', { initialQuery: author });
+                                    }
+                                }}
+                                colors={colors}
+                                isDark={isDark}
+                                customActions={isNovelSelectionMode ? (
+                                    <View style={{ justifyContent: 'center', alignItems: 'center', flex: 1 }}>
+                                        <Feather name={selectedNovelIds.has(item.id) ? "check-square" : "square"} size={24} color={selectedNovelIds.has(item.id) ? colors.primary : colors.textSecondary} />
+                                    </View>
+                                ) : null}
+                            />
+                        )}
+                        ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>金庫內目前沒有隱藏的{novelFilter === 'comic' ? '漫畫' : '小說'}。</Text>}
+                    />
+
+                    {isNovelSelectionMode && (
+                        <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={{
+                            position: 'absolute', bottom: 0, left: 0, right: 0,
+                            padding: 20, paddingBottom: 40,
+                            borderTopWidth: StyleSheet.hairlineWidth,
+                            borderTopColor: colors.border,
+                            flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'
+                        }}>
+                            <Text style={{ color: colors.text, fontWeight: 'bold' }}>已選取 {selectedNovelIds.size} 本</Text>
+                            <View style={{ flexDirection: 'row', gap: 16 }}>
+                                <TouchableOpacity 
+                                    style={{ padding: 15, backgroundColor: '#FF3B30', borderRadius: 8 }}
+                                    disabled={selectedNovelIds.size === 0}
+                                    onPress={() => {
+                                        if (selectedNovelIds.size === 0) return;
+                                        Alert.alert('批次刪除', `確定要刪除選取的 ${selectedNovelIds.size} 本書籍嗎？`, [
+                                            { text: '取消', style: 'cancel' },
+                                            { text: '刪除', style: 'destructive', onPress: async () => {
+                                                for (const id of selectedNovelIds) {
+                                                    await deleteNovel(id);
+                                                }
+                                                setIsNovelSelectionMode(false);
+                                                setSelectedNovelIds(new Set());
+                                                loadBookshelf();
+                                            }}
+                                        ]);
+                                    }}
+                                >
+                                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>批次刪除</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </BlurView>
                     )}
-                    ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>金庫內目前沒有隱藏的小說。</Text>}
-                />
+                </View>
             ) : (
                 <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, gap: 12 }}>
@@ -877,6 +932,37 @@ export default function VaultScreen({ navigation }) {
                             </View>
                         </View>
                     </KeyboardAvoidingView>
+                    {isDownloadingTwitter && twitterUrl ? (
+                        <View style={{ height: 0, width: 0, opacity: 0 }}>
+                            <WebView 
+                                source={{ uri: 'https://ssstwitter.com/' }}
+                                injectedJavaScript={`
+                                  (function() {
+                                    var interval = setInterval(function() {
+                                      var input = document.getElementById('main_page_text');
+                                      var submit = document.getElementById('submit');
+                                      if (input && submit && !input.value) {
+                                        input.value = "${twitterUrl}";
+                                        submit.click();
+                                      }
+                                      
+                                      var downBtn = document.querySelector('.result_overlay a.download_link');
+                                      if (downBtn && downBtn.href) {
+                                        clearInterval(interval);
+                                        window.ReactNativeWebView.postMessage(downBtn.href);
+                                      }
+                                    }, 1000);
+                                    setTimeout(function() {
+                                        clearInterval(interval);
+                                        window.ReactNativeWebView.postMessage('TIMEOUT');
+                                    }, 15000);
+                                  })();
+                                `}
+                                onMessage={handleWebViewMessage}
+                                javaScriptEnabled={true}
+                            />
+                        </View>
+                    ) : null}
                     
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', paddingHorizontal: 16 }}>
                         {isSelectionMode ? (
@@ -1095,6 +1181,76 @@ export default function VaultScreen({ navigation }) {
                 </KeyboardAvoidingView>
             </Modal>
             
+            {/* Novel Options Modal */}
+            <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)}>
+                    <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
+                            <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
+                                <Feather name="x" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>書名</Text>
+                        <TextInput
+                            style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
+                            value={editTitle}
+                            onChangeText={setEditTitle}
+                        />
+
+                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>作者</Text>
+                        <TextInput
+                            style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 20, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
+                            value={editAuthor}
+                            onChangeText={setEditAuthor}
+                        />
+
+                        <View style={{flexDirection: 'row', gap: 10, marginBottom: 15}}>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={handleEditNovel}
+                            >
+                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>儲存變更</Text>
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.surface, borderColor: colors.primary, borderWidth: 1, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={() => {
+                                    Alert.alert('移出金庫', '確定要解除隱藏嗎？', [
+                                        { text: '取消', style: 'cancel' },
+                                        { text: '確定', onPress: async () => {
+                                            await updateNovelMetadata(selectedNovel.id, { folderId: null, isHidden: false });
+                                            setIsOptionsModalVisible(false);
+                                            loadBookshelf();
+                                        }}
+                                    ]);
+                                }}
+                            >
+                                <Text style={{ color: colors.primary, fontSize: 16, fontWeight: 'bold' }}>解除隱藏</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.danger || '#ff4444', borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={() => {
+                                    Alert.alert('刪除書籍', '確定要永久刪除這本書嗎？', [
+                                        { text: '取消', style: 'cancel' },
+                                        { text: '刪除', style: 'destructive', onPress: async () => {
+                                            await deleteNovel(selectedNovel.id);
+                                            setIsOptionsModalVisible(false);
+                                            loadBookshelf();
+                                        }}
+                                    ]);
+                                }}
+                            >
+                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>刪除</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </Modal>
+
             {isProcessing && (
                 <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }]}>
                     <ActivityIndicator size="large" color={colors.primary} />

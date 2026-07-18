@@ -1,0 +1,1 @@
+fetch('https://twitsave.com/info?url=https://twitter.com/Pokemon/status/1759604114405396656').then(r=>r.text()).then(t => { const match = t.match(/<a[^>]+href="([^"]+)"[^>]*>Download/i); console.log(match ? match[1] : 'not found'); }).catch(console.error);

@@ -38,6 +38,7 @@ export default function ReaderScreen({ route, navigation }) {
     const [rate, setRate] = useState(1.0);
     const [pitch, setPitch] = useState(1.0);
     const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+    const [smartPauseEnabled, setSmartPauseEnabled] = useState(true);
 
     // Save exact sentence progress whenever it changes (e.g. from manual paging or TTS)
     useEffect(() => {
@@ -243,7 +244,8 @@ export default function ReaderScreen({ route, navigation }) {
                 const savedPitch = await AsyncStorage.getItem('novel_reader_pitch');
                 if (savedPitch) setPitch(parseFloat(savedPitch));
                 
-                
+                const savedSmartPause = await AsyncStorage.getItem('novel_reader_smart_pause');
+                if (savedSmartPause !== null) setSmartPauseEnabled(savedSmartPause === 'true');
                 
                 const savedPagingMode = await AsyncStorage.getItem('novel_reader_isPagingMode');
                 if (savedPagingMode !== null) {
@@ -692,7 +694,7 @@ export default function ReaderScreen({ route, navigation }) {
                 if (playId === playIdRef.current && isPlayingRef.current) {
                     const lastChar = text.trim().slice(-1);
                     const isLongPause = ['。', '！', '？', '!', '?', '…'].includes(lastChar);
-                    const pauseTime = isLongPause ? 600 : 200;
+                    const pauseTime = smartPauseEnabled ? (isLongPause ? 600 : 200) : 0;
                     
                     setTimeout(() => {
                         if (playId === playIdRef.current && isPlayingRef.current) {
@@ -1377,7 +1379,7 @@ export default function ReaderScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        <ScrollView style={{ padding: 16, maxHeight: '80%' }}>
+                        <ScrollView style={{ padding: 16, flex: 1 }}>
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>主題風格</Text>
                             <View style={[styles.optionsRow, { flexWrap: 'wrap', gap: 8 }]}>
                                 {availableThemes.map(t => (
@@ -1397,20 +1399,22 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.text }}>字體大小</Text>
                                     <Text style={{ color: colors.textSecondary }}>{fontSize}px</Text>
                                 </View>
-                                <Slider
-                                    style={{ width: '100%', height: 40 }}
-                                    minimumValue={14}
-                                    maximumValue={36}
-                                    step={1}
-                                    value={fontSize}
-                                    onValueChange={(val) => {
-                                        setFontSize(val);
-                                        AsyncStorage.setItem('novel_reader_fontSize', val.toString());
-                                    }}
-                                    minimumTrackTintColor={colors.primary}
-                                    maximumTrackTintColor={colors.border}
-                                    thumbTintColor={colors.primary}
-                                />
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={14}
+                                        maximumValue={36}
+                                        step={1}
+                                        value={fontSize}
+                                        onValueChange={(val) => {
+                                            setFontSize(val);
+                                            AsyncStorage.setItem('novel_reader_fontSize', val.toString());
+                                        }}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                    />
+                                </View>
                             </View>
 
                             <View style={{ marginBottom: 15 }}>
@@ -1418,20 +1422,22 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.text }}>行距</Text>
                                     <Text style={{ color: colors.textSecondary }}>{lineHeight.toFixed(1)}x</Text>
                                 </View>
-                                <Slider
-                                    style={{ width: '100%', height: 40 }}
-                                    minimumValue={1.2}
-                                    maximumValue={3.0}
-                                    step={0.1}
-                                    value={lineHeight}
-                                    onValueChange={(val) => {
-                                        setLineHeight(val);
-                                        AsyncStorage.setItem('novel_reader_lineHeight', val.toString());
-                                    }}
-                                    minimumTrackTintColor={colors.primary}
-                                    maximumTrackTintColor={colors.border}
-                                    thumbTintColor={colors.primary}
-                                />
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={1.2}
+                                        maximumValue={3.0}
+                                        step={0.1}
+                                        value={lineHeight}
+                                        onValueChange={(val) => {
+                                            setLineHeight(val);
+                                            AsyncStorage.setItem('novel_reader_lineHeight', val.toString());
+                                        }}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                    />
+                                </View>
                             </View>
 
                             <View style={{ marginBottom: 15 }}>
@@ -1439,20 +1445,22 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.text }}>字距</Text>
                                     <Text style={{ color: colors.textSecondary }}>{letterSpacing.toFixed(1)}px</Text>
                                 </View>
-                                <Slider
-                                    style={{ width: '100%', height: 40 }}
-                                    minimumValue={0}
-                                    maximumValue={5}
-                                    step={0.5}
-                                    value={letterSpacing}
-                                    onValueChange={(val) => {
-                                        setLetterSpacing(val);
-                                        AsyncStorage.setItem('novel_reader_letterSpacing', val.toString());
-                                    }}
-                                    minimumTrackTintColor={colors.primary}
-                                    maximumTrackTintColor={colors.border}
-                                    thumbTintColor={colors.primary}
-                                />
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={0}
+                                        maximumValue={5}
+                                        step={0.5}
+                                        value={letterSpacing}
+                                        onValueChange={(val) => {
+                                            setLetterSpacing(val);
+                                            AsyncStorage.setItem('novel_reader_letterSpacing', val.toString());
+                                        }}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                    />
+                                </View>
                             </View>
 
 
@@ -1554,42 +1562,68 @@ export default function ReaderScreen({ route, navigation }) {
                                 </>
                             )}
 
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>智慧停頓 (Smart Pause)</Text>
+                            <View style={styles.optionsRow}>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, !smartPauseEnabled && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setSmartPauseEnabled(false); 
+                                        AsyncStorage.setItem('novel_reader_smart_pause', 'false');
+                                    }}
+                                >
+                                    <Text style={{ color: !smartPauseEnabled ? 'white' : colors.text }}>關閉</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.optionBtn, smartPauseEnabled && { backgroundColor: colors.primary }]} 
+                                    onPress={() => { 
+                                        setSmartPauseEnabled(true); 
+                                        AsyncStorage.setItem('novel_reader_smart_pause', 'true');
+                                    }}
+                                >
+                                    <Text style={{ color: smartPauseEnabled ? 'white' : colors.text }}>開啟</Text>
+                                </TouchableOpacity>
+                            </View>
+
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音速度 ({rate.toFixed(2)}x)</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
-                                <Slider
-                                    style={{ width: '100%', height: 40 }}
-                                    minimumValue={0.5}
-                                    maximumValue={2.5}
-                                    step={0.05}
-                                    value={rate}
-                                    minimumTrackTintColor={colors.primary}
-                                    maximumTrackTintColor={colors.border}
-                                    thumbTintColor={colors.primary}
-                                    onValueChange={(val) => setRate(val)}
-                                    onSlidingComplete={(val) => {
-                                        changeRate(val);
-                                        AsyncStorage.setItem('novel_reader_rate', val.toString());
-                                    }}
-                                />
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={0.5}
+                                        maximumValue={2.5}
+                                        step={0.05}
+                                        value={rate}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                        onValueChange={(val) => setRate(val)}
+                                        onSlidingComplete={(val) => {
+                                            changeRate(val);
+                                            AsyncStorage.setItem('novel_reader_rate', val.toString());
+                                        }}
+                                    />
+                                </View>
                             </View>
 
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音音調 ({pitch.toFixed(2)})</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
-                                <Slider
-                                    style={{ width: '100%', height: 40 }}
-                                    minimumValue={0.5}
-                                    maximumValue={2.0}
-                                    step={0.05}
-                                    value={pitch}
-                                    minimumTrackTintColor={colors.primary}
-                                    maximumTrackTintColor={colors.border}
-                                    thumbTintColor={colors.primary}
-                                    onValueChange={(val) => setPitch(val)}
-                                    onSlidingComplete={(val) => {
-                                        changePitch(val);
-                                        AsyncStorage.setItem('novel_reader_pitch', val.toString());
-                                    }}
-                                />
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={0.5}
+                                        maximumValue={2.0}
+                                        step={0.05}
+                                        value={pitch}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                        onValueChange={(val) => setPitch(val)}
+                                        onSlidingComplete={(val) => {
+                                            changePitch(val);
+                                            AsyncStorage.setItem('novel_reader_pitch', val.toString());
+                                        }}
+                                    />
+                                </View>
                             </View>
 
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音音色</Text>
@@ -1656,7 +1690,7 @@ const styles = StyleSheet.create({
     webviewContainer: { height: 300, width: '100%', marginBottom: 16, borderRadius: 8, overflow: 'hidden', borderWidth: 1 },
     webviewTip: { textAlign: 'center', padding: 8, fontSize: 12 },
     modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-    modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '70%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
+    modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
     modalTitle: { fontSize: 20, fontWeight: '700' },
     sectionTitle: { fontSize: 14, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },
