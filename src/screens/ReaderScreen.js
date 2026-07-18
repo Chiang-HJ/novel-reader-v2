@@ -17,6 +17,7 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import TrackPlayer, { Capability, State } from 'react-native-track-player';
 
 
 export default function ReaderScreen({ route, navigation }) {
@@ -379,7 +380,29 @@ export default function ReaderScreen({ route, navigation }) {
     };
     
     const updateLockScreenMeta = async (n, title) => {
-        // TrackPlayer removed, rely on expo-av for background play
+        try {
+            await TrackPlayer.setupPlayer();
+            await TrackPlayer.updateOptions({
+                stopWithApp: false,
+                alwaysPauseOnInterruption: true,
+                capabilities: [
+                    Capability.Play,
+                    Capability.Pause,
+                    Capability.Stop,
+                ],
+                compactCapabilities: [Capability.Play, Capability.Pause],
+            });
+            await TrackPlayer.reset();
+            await TrackPlayer.add({
+                id: '1',
+                url: 'http://', 
+                title: title,
+                artist: n.title,
+                artwork: n.coverUrl || undefined
+            });
+        } catch (e) {
+            console.log('TrackPlayer setup failed', e);
+        }
     };
 
     const loadChapter = async (n, idx, sentenceIdx = 0) => {

@@ -1340,6 +1340,8 @@ export default function VaultScreen({ navigation }) {
                         <VideoView
                             style={styles.fullMedia}
                             player={player}
+                            allowsFullscreen
+                            allowsPictureInPicture
                         />
                     ) : (
                         selectedMedia && <Image source={{ uri: selectedMedia.uri }} style={styles.fullMedia} resizeMode="contain" />
