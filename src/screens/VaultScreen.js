@@ -46,6 +46,7 @@ export default function VaultScreen({ navigation }) {
     const [filterBy, setFilterBy] = useState('all'); // 'all', 'image', 'video'
     const [filterTag, setFilterTag] = useState(null); // specific tag string
     const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest'
+    const [viewMode, setViewMode] = useState('grid'); // 'grid', 'list'
 
     // Storage Management state
     const [storageItems, setStorageItems] = useState([]);
@@ -60,6 +61,9 @@ export default function VaultScreen({ navigation }) {
     // Twitter Downloader state
     const [twitterUrl, setTwitterUrl] = useState('');
     const [isDownloadingTwitter, setIsDownloadingTwitter] = useState(false);
+    const [isResolvingTwitterLink, setIsResolvingTwitterLink] = useState(false);
+    const [isDirectExtract, setIsDirectExtract] = useState(false);
+    const [downloadProgressText, setDownloadProgressText] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Selection logic state
@@ -119,7 +123,16 @@ export default function VaultScreen({ navigation }) {
             
             const tagsStr = await AsyncStorage.getItem(VAULT_TAGS_KEY);
             if (tagsStr) setAvailableTags(JSON.parse(tagsStr));
+            
+            const vmStr = await AsyncStorage.getItem('@vault_view_mode');
+            if (vmStr) setViewMode(vmStr);
         } catch (e) {}
+    };
+
+    const toggleViewMode = async () => {
+        const newMode = viewMode === 'grid' ? 'list' : 'grid';
+        setViewMode(newMode);
+        await AsyncStorage.setItem('@vault_view_mode', newMode);
     };
 
     const importMedia = async () => {
@@ -621,26 +634,51 @@ export default function VaultScreen({ navigation }) {
         setSelectedNovelIds(newSet);
     };
 
+    const confirmDeleteNovel = (item) => {
+        Alert.alert('確認刪除', `確定要刪除「${item.title}」嗎？`, [
+            { text: '取消', style: 'cancel' },
+            { text: '刪除', style: 'destructive', onPress: async () => {
+                await deleteNovel(item.id);
+                loadBookshelf();
+            }}
+        ]);
+    };
+
     const downloadTwitterVideo = () => {
         if (!twitterUrl.trim()) return;
         setIsDownloadingTwitter(true);
+        setIsResolvingTwitterLink(true);
+        setDownloadProgressText('準備下載...');
     };
 
     const handleWebViewMessage = async (event) => {
+        setIsResolvingTwitterLink(false);
         const message = event.nativeEvent.data;
-        if (message === 'TIMEOUT') {
-            Alert.alert('下載失敗', '無法獲取連結（超時）');
+        if (message === 'TIMEOUT' || message.startsWith('ERROR')) {
+            const errorMsg = message === 'ERROR_NO_VIDEO' ? '此推文不包含影片，若為私人連結請在Twitter App 中長按儲存' : '解析超時或發生錯誤';
+            Alert.alert('下載失敗', errorMsg);
             setIsDownloadingTwitter(false);
             setTwitterUrl('');
+            setDownloadProgressText('');
             return;
         }
         
-        if (message.startsWith('http')) {
-            const fileUrl = message;
-            const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
-            const ext = isImage ? '.jpg' : '.mp4';
-            const type = isImage ? 'image' : 'video';
-            
+        let urls = [];
+        let textContent = '';
+        if (message.startsWith('{')) {
+            try {
+                const data = JSON.parse(message);
+                if (data.urls) urls = data.urls;
+                if (data.text) textContent = data.text;
+            } catch(e) {}
+        } else if (message.startsWith('[')) {
+            try { urls = JSON.parse(message); } catch(e) {}
+        } else if (message.startsWith('http')) {
+            urls = [message];
+        }
+
+        if (urls.length > 0) {
+            let newlyAddedMedia = [];
             try {
                 const vaultDir = FileSystem.documentDirectory + 'vault_media/';
                 const dirInfo = await FileSystem.getInfoAsync(vaultDir);
@@ -648,43 +686,62 @@ export default function VaultScreen({ navigation }) {
                     await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
                 }
 
-                const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
-                const fileName = uniqueId + '_twitter' + ext;
-                const destUri = vaultDir + fileName;
+                for (let i = 0; i < urls.length; i++) {
+                    const fileUrl = urls[i];
+                    const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
+                    const ext = isImage ? '.jpg' : '.mp4';
+                    const type = isImage ? 'image' : 'video';
 
-                const downloadResult = await FileSystem.downloadAsync(fileUrl, destUri);
-                if (downloadResult.status !== 200) throw new Error('下載失敗');
+                    const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
+                    const fileName = uniqueId + '_twitter' + ext;
+                    const destUri = vaultDir + fileName;
 
-                let thumbnailUri = null;
-                if (type === 'video') {
-                    try {
-                        const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
-                        const tFileName = 'thumb_' + uniqueId + '.jpg';
-                        const newTUri = vaultDir + tFileName;
-                        await FileSystem.copyAsync({ from: tUri, to: newTUri });
-                        thumbnailUri = newTUri;
-                    } catch (e) {}
+                    const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => { 
+                        setDownloadProgressText(`下載中 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`); 
+                    });
+                    const downloadResult = await downloadResumable.downloadAsync();
+                    if (downloadResult.status !== 200) continue;
+
+                    let thumbnailUri = null;
+                    if (type === 'video') {
+                        try {
+                            const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
+                            const tFileName = 'thumb_' + uniqueId + '.jpg';
+                            const newTUri = vaultDir + tFileName;
+                            await FileSystem.copyAsync({ from: tUri, to: newTUri });
+                            thumbnailUri = newTUri;
+                        } catch (e) {}
+                    }
+
+                    const newItem = {
+                        id: uniqueId,
+                        uri: destUri,
+                        thumbnailUri,
+                        type: type,
+                        createdAt: Date.now(),
+                        tags: ['twitter'],
+                        title: urls.length > 1 ? `Twitter 檔案 (${i+1}/${urls.length})` : 'Twitter 檔案',
+                        description: textContent
+                    };
+                    newlyAddedMedia.push(newItem);
                 }
 
-                const newItem = {
-                    id: uniqueId,
-                    uri: destUri,
-                    thumbnailUri,
-                    type: type,
-                    createdAt: Date.now(),
-                    tags: ['twitter'],
-                    title: 'Twitter 檔案'
-                };
-
-                const newMedia = [newItem, ...mediaList];
-                await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
-                setMediaList(newMedia);
-                Alert.alert('下載成功！', '檔案已儲存至金庫。');
+                if (newlyAddedMedia.length > 0) {
+                    const stored = await AsyncStorage.getItem(VAULT_MEDIA_KEY);
+                    let currentMedia = stored ? JSON.parse(stored) : [];
+                    const newMedia = [...newlyAddedMedia, ...currentMedia];
+                    await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
+                    setMediaList(newMedia);
+                    Alert.alert('下載完成', `已成功儲存 ${newlyAddedMedia.length} 個檔案至金庫。`);
+                } else {
+                    Alert.alert('下載失敗', '無法下載任何檔案。');
+                }
             } catch (e) {
                 Alert.alert('下載失敗', e.message);
             } finally {
                 setIsDownloadingTwitter(false);
                 setTwitterUrl('');
+                setDownloadProgressText('');
             }
         }
     };
@@ -790,6 +847,30 @@ export default function VaultScreen({ navigation }) {
                                     </TouchableOpacity>
                                 </View>
 
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, gap: 8 }}>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        onPress={() => navigation.navigate('BlogFeed')}
+                                    >
+                                        <Feather name="book-open" size={16} color={colors.primary} />
+                                        <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>語錄集</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        onPress={() => navigation.navigate('WyblogsFeed')}
+                                    >
+                                        <Feather name="book" size={16} color={colors.primary} />
+                                        <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>Wyblogs</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        onPress={() => navigation.navigate('JMComicFeed')}
+                                    >
+                                        <Feather name="image" size={16} color={colors.primary} />
+                                        <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>禁漫天堂</Text>
+                                    </TouchableOpacity>
+                                </View>
+
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                     <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>
                                         {novelFilter === 'comic' ? '漫畫庫' : '小說庫'}
@@ -850,6 +931,7 @@ export default function VaultScreen({ navigation }) {
                                         navigation.navigate('JMComicFeed', { initialQuery: author });
                                     }
                                 }}
+                                onDelete={() => confirmDeleteNovel(item)}
                                 colors={colors}
                                 isDark={isDark}
                                 customActions={isNovelSelectionMode ? (
@@ -904,14 +986,12 @@ export default function VaultScreen({ navigation }) {
                             <Text style={{ color: colors.primary, fontWeight: 'bold' }}>從相簿匯入</Text>
                         </TouchableOpacity>
                     </View>
-                    
-                    {/* Twitter Video Downloader */}
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                         <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
                                 <TextInput 
                                     style={{ flex: 1, padding: 12, color: colors.text }}
-                                    placeholder="貼上 Twitter (X) 影片連結..."
+                                    placeholder="貼上 Twitter (X) 影片網址..."
                                     placeholderTextColor={colors.textSecondary}
                                     value={twitterUrl}
                                     onChangeText={setTwitterUrl}
@@ -919,12 +999,19 @@ export default function VaultScreen({ navigation }) {
                                     autoCorrect={false}
                                 />
                                 <TouchableOpacity 
-                                    style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center' }}
+                                    style={{ backgroundColor: colors.surface, padding: 12, justifyContent: 'center', alignItems: 'center', borderLeftWidth: 1, borderColor: colors.border }}
+                                    onPress={() => { setIsDirectExtract(true); setIsResolvingTwitterLink(true); }}
+                                    disabled={isDownloadingTwitter || !twitterUrl}
+                                >
+                                    <Feather name="user-check" size={20} color={twitterUrl ? colors.primary : colors.textSecondary} />
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center', minWidth: 60 }}
                                     onPress={downloadTwitterVideo}
                                     disabled={isDownloadingTwitter || !twitterUrl}
                                 >
                                     {isDownloadingTwitter ? (
-                                        <ActivityIndicator color="#fff" size="small" />
+                                        <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold'}}>{downloadProgressText || "下載中.."}</Text>
                                     ) : (
                                         <Feather name="download" size={20} color="#fff" />
                                     )}
@@ -932,36 +1019,167 @@ export default function VaultScreen({ navigation }) {
                             </View>
                         </View>
                     </KeyboardAvoidingView>
-                    {isDownloadingTwitter && twitterUrl ? (
-                        <View style={{ height: 0, width: 0, opacity: 0 }}>
-                            <WebView 
-                                source={{ uri: 'https://ssstwitter.com/' }}
-                                injectedJavaScript={`
-                                  (function() {
-                                    var interval = setInterval(function() {
-                                      var input = document.getElementById('main_page_text');
-                                      var submit = document.getElementById('submit');
-                                      if (input && submit && !input.value) {
-                                        input.value = "${twitterUrl}";
-                                        submit.click();
-                                      }
-                                      
-                                      var downBtn = document.querySelector('.result_overlay a.download_link');
-                                      if (downBtn && downBtn.href) {
-                                        clearInterval(interval);
-                                        window.ReactNativeWebView.postMessage(downBtn.href);
-                                      }
-                                    }, 1000);
-                                    setTimeout(function() {
-                                        clearInterval(interval);
-                                        window.ReactNativeWebView.postMessage('TIMEOUT');
-                                    }, 15000);
-                                  })();
-                                `}
-                                onMessage={handleWebViewMessage}
-                                javaScriptEnabled={true}
-                            />
-                        </View>
+                    {isResolvingTwitterLink && twitterUrl ? (
+                        isDirectExtract ? (
+                            <Modal visible={true} animationType="slide">
+                                <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 50 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold' }}>推特深度解析 (私人推文)</Text>
+                                        <TouchableOpacity onPress={() => { setIsResolvingTwitterLink(false); setIsDownloadingTwitter(false); }}>
+                                            <Text style={{ color: colors.danger, fontSize: 16 }}>取消</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Text style={{ color: colors.textSecondary, flex: 1 }}>若需登入請手動登入以查看私人推文。一旦影片載入，系統將自動下載。</Text>
+                                    </View>
+                                    <WebView 
+                                        key={twitterUrl + "_direct"}
+                                        source={{ uri: twitterUrl }}
+                                        injectedJavaScript={`
+                                          (function() {
+                                            try {
+                                                const origFetch = window.fetch;
+                                                window.fetch = async function(...args) {
+                                                    const res = await origFetch.apply(this, args);
+                                                    try {
+                                                        const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                                                        if (url && url.includes('graphql')) {
+                                                            res.clone().text().then(text => {
+                                                                if (text.includes('video_info')) {
+                                                                    let fullText = '';
+                                                                    const textMatch = text.match(/"full_text":"(.*?)"/);
+                                                                    if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
+                                                                    
+                                                                    const regex = /"variants":(\\[.*?\\])/g;
+                                                                    let urls = [];
+                                                                    let m;
+                                                                    while ((m = regex.exec(text)) !== null) {
+                                                                        try {
+                                                                            const variants = JSON.parse(m[1]);
+                                                                            const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
+                                                                            if (mp4s.length > 0) urls.push(mp4s[0].url);
+                                                                        } catch(e) {}
+                                                                    }
+                                                                    if (urls.length > 0) {
+                                                                        window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
+                                                                    }
+                                                                }
+                                                            }).catch(()=>{});
+                                                        }
+                                                    } catch(e) {}
+                                                    return res;
+                                                };
+                                                setTimeout(function() {
+                                                    const scripts = document.querySelectorAll('script');
+                                                    for (let s of scripts) {
+                                                        if (s.innerText && s.innerText.includes('video_info')) {
+                                                            let fullText = '';
+                                                            const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
+                                                            if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
+                                                            
+                                                            const regex = /"variants":(\\[.*?\\])/g;
+                                                            let urls = [];
+                                                            let m;
+                                                            while ((m = regex.exec(s.innerText)) !== null) {
+                                                                try {
+                                                                    const variants = JSON.parse(m[1]);
+                                                                    const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
+                                                                    if (mp4s.length > 0) urls.push(mp4s[0].url);
+                                                                } catch(e) {}
+                                                            }
+                                                            if (urls.length > 0) {
+                                                                window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
+                                                            }
+                                                        }
+                                                    }
+                                                }, 3000);
+                                                setTimeout(function() {
+                                                    window.ReactNativeWebView.postMessage('TIMEOUT');
+                                                }, 30000);
+                                            } catch(e) { window.ReactNativeWebView.postMessage('ERROR'); }
+                                          })();
+                                          true;
+                                        `}
+                                        onMessage={handleWebViewMessage}
+                                        javaScriptEnabled={true}
+                                    />
+                                </View>
+                            </Modal>
+                        ) : (
+                            <View style={{ width: 1, height: 1, opacity: 0.01, overflow: 'hidden', position: 'absolute', top: 0, left: 0, zIndex: -1 }}>
+                                <WebView 
+                                    key={twitterUrl + "_auto"}
+                                    source={{ uri: twitterUrl }}
+                                    injectedJavaScript={`
+                                      (function() {
+                                        try {
+                                            const origFetch = window.fetch;
+                                            window.fetch = async function(...args) {
+                                                const res = await origFetch.apply(this, args);
+                                                try {
+                                                    const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                                                    if (url && url.includes('graphql')) {
+                                                        res.clone().text().then(text => {
+                                                            if (text.includes('video_info')) {
+                                                                let fullText = '';
+                                                                const textMatch = text.match(/"full_text":"(.*?)"/);
+                                                                if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
+                                                                
+                                                                const regex = /"variants":(\\[.*?\\])/g;
+                                                                let urls = [];
+                                                                let m;
+                                                                while ((m = regex.exec(text)) !== null) {
+                                                                    try {
+                                                                        const variants = JSON.parse(m[1]);
+                                                                        const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
+                                                                        if (mp4s.length > 0) urls.push(mp4s[0].url);
+                                                                    } catch(e) {}
+                                                                }
+                                                                if (urls.length > 0) {
+                                                                    window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
+                                                                }
+                                                            }
+                                                        }).catch(()=>{});
+                                                    }
+                                                } catch(e) {}
+                                                return res;
+                                            };
+                                            setTimeout(function() {
+                                                const scripts = document.querySelectorAll('script');
+                                                for (let s of scripts) {
+                                                    if (s.innerText && s.innerText.includes('video_info')) {
+                                                        let fullText = '';
+                                                        const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
+                                                        if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
+                                                        
+                                                        const regex = /"variants":(\\[.*?\\])/g;
+                                                        let urls = [];
+                                                        let m;
+                                                        while ((m = regex.exec(s.innerText)) !== null) {
+                                                            try {
+                                                                const variants = JSON.parse(m[1]);
+                                                                const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
+                                                                if (mp4s.length > 0) urls.push(mp4s[0].url);
+                                                            } catch(e) {}
+                                                        }
+                                                        if (urls.length > 0) {
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
+                                                        }
+                                                    }
+                                                }
+                                            }, 3000);
+                                            setTimeout(function() {
+                                                window.ReactNativeWebView.postMessage('TIMEOUT');
+                                            }, 25000);
+                                        } catch(e) { window.ReactNativeWebView.postMessage('ERROR'); }
+                                      })();
+                                      true;
+                                    `}
+                                    onMessage={handleWebViewMessage}
+                                    javaScriptEnabled={true}
+                                />
+                            </View>
+                        )
                     ) : null}
                     
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', paddingHorizontal: 16 }}>
@@ -1008,6 +1226,9 @@ export default function VaultScreen({ navigation }) {
                                     }}>
                                         <Feather name="list" size={20} color={sortBy !== 'newest' ? colors.primary : colors.text} />
                                     </TouchableOpacity>
+                                    <TouchableOpacity onPress={toggleViewMode}>
+                                        <Feather name={viewMode === 'grid' ? 'maximize' : 'grid'} size={20} color={colors.text} />
+                                    </TouchableOpacity>
                                 </View>
                                 <TouchableOpacity onPress={() => setIsSelectionMode(true)} style={{ padding: 8 }}>
                                     <Text style={{ color: colors.primary, fontWeight: 'bold' }}>選取</Text>
@@ -1018,23 +1239,30 @@ export default function VaultScreen({ navigation }) {
 
                     <View style={{ flex: 1 }} {...panResponder.panHandlers}>
                         <FlatList 
+                            key={viewMode}
                             ref={flatListRef}
                             onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
                             scrollEventThrottle={16}
                             data={displayedMedia}
                             keyExtractor={item => item.id}
-                            numColumns={3}
+                            numColumns={viewMode === 'grid' ? 3 : 1}
                             removeClippedSubviews={true}
                             initialNumToRender={12}
                             maxToRenderPerBatch={6}
                             windowSize={5}
                             getItemLayout={(data, index) => {
+                                if (viewMode === 'list') {
+                                    return { length: 120, offset: 120 * index, index };
+                                }
                                 const itemWidth = (screenWidth - 32) / 3;
                                 return { length: itemWidth, offset: itemWidth * Math.floor(index / 3), index };
                             }}
                             renderItem={({ item }) => (
                             <TouchableOpacity 
-                                style={[styles.mediaItem, isSelectionMode && selectedItems.has(item.id) && { opacity: 0.7 }]} 
+                                style={[
+                                    viewMode === 'list' ? { flexDirection: 'row', padding: 8, borderBottomWidth: 1, borderColor: colors.border } : styles.mediaItem, 
+                                    isSelectionMode && selectedItems.has(item.id) && { opacity: 0.7 }
+                                ]} 
                                 onPress={() => {
                                     if (isSelectionMode) toggleSelection(item.id);
                                     else setSelectedMedia(item);
@@ -1046,20 +1274,34 @@ export default function VaultScreen({ navigation }) {
                                     }
                                 }}
                             >
-                                {item.type === 'video' ? (
-                                    <View style={[styles.mediaImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
-                                        {item.thumbnailUri ? (
-                                            <Image source={{ uri: item.thumbnailUri }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
-                                        ) : null}
-                                        <View style={{ backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 8, zIndex: 1 }}>
-                                            <Feather name="play-circle" size={28} color="#fff" />
+                                <View style={viewMode === 'list' ? { width: 100, height: 100 } : { flex: 1 }}>
+                                    {item.type === 'video' ? (
+                                        <View style={[styles.mediaImage, { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
+                                            {item.thumbnailUri ? (
+                                                <Image source={{ uri: item.thumbnailUri }} style={{ width: '100%', height: '100%', position: 'absolute' }} resizeMode="cover" />
+                                            ) : null}
+                                            <View style={{ backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 8, zIndex: 1 }}>
+                                                <Feather name="play-circle" size={28} color="#fff" />
+                                            </View>
                                         </View>
+                                    ) : (
+                                        <Image source={{ uri: item.thumbnailUri || item.uri }} style={styles.mediaImage} resizeMode="cover" />
+                                    )}
+                                </View>
+
+                                {viewMode === 'list' && (
+                                    <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
+                                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>{item.title || '未命名'}</Text>
+                                        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                                            {item.type === 'video' ? '影片' : '圖片'} • {new Date(item.createdAt).toLocaleDateString()}
+                                        </Text>
+                                        <Text style={{ color: colors.primary, fontSize: 12, marginTop: 4 }}>
+                                            {(item.tags || []).join(', ')}
+                                        </Text>
                                     </View>
-                                ) : (
-                                    <Image source={{ uri: item.uri }} style={styles.mediaImage} />
                                 )}
                                 
-                                {item.tags && item.tags.length > 0 && (
+                                {item.tags && item.tags.length > 0 && viewMode === 'grid' && (
                                     <View style={{ position: 'absolute', bottom: 4, left: 4, flexDirection: 'row', gap: 2, flexWrap: 'wrap', maxWidth: '80%' }}>
                                         {item.tags.map((t, idx) => (
                                             <View key={idx} style={{ backgroundColor: colors.primary, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4 }}>
@@ -1098,8 +1340,6 @@ export default function VaultScreen({ navigation }) {
                         <VideoView
                             style={styles.fullMedia}
                             player={player}
-                            allowsFullscreen
-                            allowsPictureInPicture
                         />
                     ) : (
                         selectedMedia && <Image source={{ uri: selectedMedia.uri }} style={styles.fullMedia} resizeMode="contain" />
@@ -1183,7 +1423,8 @@ export default function VaultScreen({ navigation }) {
             
             {/* Novel Options Modal */}
             <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
-                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+                    <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)} />
                     <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
@@ -1248,7 +1489,7 @@ export default function VaultScreen({ navigation }) {
                             </TouchableOpacity>
                         </View>
                     </TouchableOpacity>
-                </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
 
             {isProcessing && (

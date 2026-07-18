@@ -2,17 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
-import { zip, unzip } from 'react-native-zip-archive';
+import JSZip from 'jszip';
 import { Alert } from 'react-native';
 
 export const createBackup = async () => {
-    const backupDir = FileSystem.cacheDirectory + 'backup_temp/';
     try {
-        const backupInfoDir = await FileSystem.getInfoAsync(backupDir);
-        if (backupInfoDir.exists) {
-            await FileSystem.deleteAsync(backupDir);
-        }
-        await FileSystem.makeDirectoryAsync(backupDir, { intermediates: true });
+        const zip = new JSZip();
 
         // 1. Export AsyncStorage
         const allKeys = await AsyncStorage.getAllKeys();
@@ -25,28 +20,31 @@ export const createBackup = async () => {
             storageData[key] = value;
         });
         
-        await FileSystem.writeAsStringAsync(
-            backupDir + 'storage_backup.json',
-            JSON.stringify(storageData)
-        );
+        zip.file('storage_backup.json', JSON.stringify(storageData));
 
         // 2. Export Novel Texts
-        const files = await FileSystem.readDirectoryAsync(FileSystem.documentDirectory);
-        const novelFiles = files.filter(f => f.startsWith('novel_') && f.endsWith('.json'));
+        const booksDir = FileSystem.documentDirectory + 'books/';
+        const dirInfo = await FileSystem.getInfoAsync(booksDir);
+        let novelFiles = [];
+        if (dirInfo.exists) {
+            const files = await FileSystem.readDirectoryAsync(booksDir);
+            novelFiles = files.filter(f => f.startsWith('novel_') && f.endsWith('.json'));
+        }
         
-        const novelsDir = backupDir + 'novels/';
-        await FileSystem.makeDirectoryAsync(novelsDir, { intermediates: true });
+        const novelsFolder = zip.folder('novels');
         
         for (const file of novelFiles) {
-            await FileSystem.copyAsync({
-                from: FileSystem.documentDirectory + file,
-                to: novelsDir + file
-            });
+            const fileContent = await FileSystem.readAsStringAsync(
+                booksDir + file,
+                { encoding: FileSystem.EncodingType.Base64 }
+            );
+            novelsFolder.file(file, fileContent, { base64: true });
         }
 
         // 3. Zip it all
+        const zipContent = await zip.generateAsync({ type: 'base64' });
         const zipPath = FileSystem.cacheDirectory + `NovelReader_Backup_${Date.now()}.zip`;
-        await zip(backupDir, zipPath);
+        await FileSystem.writeAsStringAsync(zipPath, zipContent, { encoding: FileSystem.EncodingType.Base64 });
 
         // 4. Share it
         if (await Sharing.isAvailableAsync()) {
@@ -59,16 +57,11 @@ export const createBackup = async () => {
         }
 
     } catch (error) {
-
         Alert.alert('備份失敗', error.message);
-    } finally {
-        // Cleanup
-        await FileSystem.deleteAsync(backupDir, { idempotent: true });
     }
 };
 
 export const restoreBackup = async () => {
-    const extractDir = FileSystem.cacheDirectory + 'restore_temp/';
     try {
         const result = await DocumentPicker.getDocumentAsync({
             type: 'application/zip',
@@ -79,21 +72,15 @@ export const restoreBackup = async () => {
 
         const zipFileUri = result.assets[0].uri;
         
-        const extractInfo = await FileSystem.getInfoAsync(extractDir);
-        if (extractInfo.exists) {
-            await FileSystem.deleteAsync(extractDir);
-        }
-        await FileSystem.makeDirectoryAsync(extractDir, { intermediates: true });
-
         // 1. Unzip
-        await unzip(zipFileUri, extractDir);
+        const zipContent = await FileSystem.readAsStringAsync(zipFileUri, { encoding: FileSystem.EncodingType.Base64 });
+        const zip = await JSZip.loadAsync(zipContent, { base64: true });
 
         // 2. Restore AsyncStorage
-        const storageFile = extractDir + 'storage_backup.json';
-        const storageInfo = await FileSystem.getInfoAsync(storageFile);
+        const storageFile = zip.file('storage_backup.json');
         
-        if (storageInfo.exists) {
-            const storageRaw = await FileSystem.readAsStringAsync(storageFile);
+        if (storageFile) {
+            const storageRaw = await storageFile.async('string');
             const storageData = JSON.parse(storageRaw);
             const pairs = Object.keys(storageData).map(k => [k, storageData[k]]);
             await AsyncStorage.multiSet(pairs);
@@ -102,15 +89,20 @@ export const restoreBackup = async () => {
         }
 
         // 3. Restore Novels
-        const novelsDir = extractDir + 'novels/';
-        const novelsDirInfo = await FileSystem.getInfoAsync(novelsDir);
-        if (novelsDirInfo.exists) {
-            const novelFiles = await FileSystem.readDirectoryAsync(novelsDir);
-            for (const file of novelFiles) {
-                await FileSystem.copyAsync({
-                    from: novelsDir + file,
-                    to: FileSystem.documentDirectory + file
-                });
+        const booksDir = FileSystem.documentDirectory + 'books/';
+        const booksDirInfo = await FileSystem.getInfoAsync(booksDir);
+        if (!booksDirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(booksDir, { intermediates: true });
+        }
+        for (const relativePath of Object.keys(zip.files)) {
+            if (relativePath.startsWith('novels/') && !zip.files[relativePath].dir) {
+                const fileContent = await zip.files[relativePath].async('base64');
+                const fileName = relativePath.replace('novels/', '');
+                await FileSystem.writeAsStringAsync(
+                    booksDir + fileName,
+                    fileContent,
+                    { encoding: FileSystem.EncodingType.Base64 }
+                );
             }
         }
 
@@ -118,11 +110,7 @@ export const restoreBackup = async () => {
         return true;
 
     } catch (error) {
-
         Alert.alert('還原失敗', error.message);
         return false;
-    } finally {
-        // Cleanup
-        await FileSystem.deleteAsync(extractDir, { idempotent: true });
     }
 };

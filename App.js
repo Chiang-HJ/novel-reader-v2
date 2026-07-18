@@ -13,11 +13,7 @@ import WyblogsFeedScreen from './src/screens/WyblogsFeedScreen';
 import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
 import ComicReaderScreen from './src/screens/ComicReaderScreen';
 import DictionaryManagerScreen from './src/screens/DictionaryManagerScreen';
-import TrackPlayer from 'react-native-track-player';
 
-try {
-    TrackPlayer.registerPlaybackService(() => require('./src/services/PlaybackService'));
-} catch (e) {}
 
 
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';

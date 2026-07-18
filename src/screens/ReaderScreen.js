@@ -17,8 +17,6 @@ import { BlurView } from 'expo-blur';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TrackPlayer, { Capability, Event, RepeatMode, useTrackPlayerEvents } from 'react-native-track-player';
-
 
 
 export default function ReaderScreen({ route, navigation }) {
@@ -81,21 +79,6 @@ export default function ReaderScreen({ route, navigation }) {
     const sleepTimerIntervalRef = useRef(null);
     const isContinuousModeRef = useRef(true);
     const isSpeechPausedRef = useRef(false);
-    const trackPlayerSetupRef = useRef(false);
-    
-    useTrackPlayerEvents([Event.RemotePlay, Event.RemotePause, Event.RemoteNext, Event.RemotePrevious, Event.RemoteDuck], async (event) => {
-        if (event.type === Event.RemotePlay) {
-            if (!isPlayingRef.current) togglePlay();
-        } else if (event.type === Event.RemotePause) {
-            if (isPlayingRef.current) togglePlay();
-        } else if (event.type === Event.RemoteNext) {
-            nextChapter();
-        } else if (event.type === Event.RemotePrevious) {
-            prevChapter();
-        } else if (event.type === Event.RemoteDuck) {
-            if (event.paused && isPlayingRef.current) togglePlay();
-        }
-    });
     
     const scrollViewRef = useRef(null);
     const pagingWebViewRef = useRef(null);
@@ -211,13 +194,6 @@ export default function ReaderScreen({ route, navigation }) {
                 silentSoundRef.current.playAsync().catch(() => {});
             } else {
                 silentSoundRef.current.pauseAsync().catch(() => {});
-            }
-        }
-        if (trackPlayerSetupRef.current) {
-            if (state) {
-                TrackPlayer.play().catch(() => {});
-            } else {
-                TrackPlayer.pause().catch(() => {});
             }
         }
     };
@@ -374,29 +350,6 @@ export default function ReaderScreen({ route, navigation }) {
                 playThroughEarpieceAndroid: false
             });
             
-            if (!trackPlayerSetupRef.current) {
-                try {
-                    await TrackPlayer.setupPlayer();
-                    await TrackPlayer.updateOptions({
-                        capabilities: [
-                            Capability.Play,
-                            Capability.Pause,
-                            Capability.SkipToNext,
-                            Capability.SkipToPrevious,
-                            Capability.Stop,
-                        ],
-                        // Show Previous | Play/Pause | Next on lock screen compact view
-                        compactCapabilities: [
-                            Capability.SkipToPrevious,
-                            Capability.Play,
-                            Capability.Pause,
-                            Capability.SkipToNext,
-                        ],
-                    });
-                    trackPlayerSetupRef.current = true;
-                } catch(e) {}
-            }
-            
             // Use a silent audio loop to keep the audio session active in the background
             const uri = 'data:audio/wav;base64,' + silentAudioBase64;
             const { sound } = await Audio.Sound.createAsync(
@@ -426,20 +379,7 @@ export default function ReaderScreen({ route, navigation }) {
     };
     
     const updateLockScreenMeta = async (n, title) => {
-        if (trackPlayerSetupRef.current) {
-            try {
-                await TrackPlayer.reset();
-                await TrackPlayer.add({
-                    id: 'novel_track',
-                    url: 'https://cdn.jsdelivr.net/gh/anars/blank-audio/250-milliseconds-of-silence.mp3',
-                    title: title || '未知章節',
-                    artist: n ? n.title : '聽小說',
-                    artwork: n && n.cover ? n.cover : undefined
-                });
-                await TrackPlayer.setRepeatMode(RepeatMode.Track);
-                await TrackPlayer.play();
-            } catch(e) {}
-        }
+        // TrackPlayer removed, rely on expo-av for background play
     };
 
     const loadChapter = async (n, idx, sentenceIdx = 0) => {
@@ -1379,7 +1319,7 @@ export default function ReaderScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        <ScrollView style={{ padding: 16, flex: 1 }}>
+                        <ScrollView style={{ padding: 16 }}>
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>主題風格</Text>
                             <View style={[styles.optionsRow, { flexWrap: 'wrap', gap: 8 }]}>
                                 {availableThemes.map(t => (
@@ -1690,7 +1630,7 @@ const styles = StyleSheet.create({
     webviewContainer: { height: 300, width: '100%', marginBottom: 16, borderRadius: 8, overflow: 'hidden', borderWidth: 1 },
     webviewTip: { textAlign: 'center', padding: 8, fontSize: 12 },
     modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-    modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
+    modalContent: { width: '100%', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
     modalTitle: { fontSize: 20, fontWeight: '700' },
     sectionTitle: { fontSize: 14, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },

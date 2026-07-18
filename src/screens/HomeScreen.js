@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import { createBackup, restoreBackup } from '../utils/BackupService';
@@ -473,8 +473,10 @@ export default function HomeScreen({ navigation }) {
                         }}
                         onLongPress={() => {
                             if (!isSelectionMode) {
-                                setIsSelectionMode(true);
-                                toggleSelection(item.id);
+                                setSelectedNovel(item);
+                                setEditTitle(item.title);
+                                setEditAuthor(item.author || '');
+                                setIsOptionsModalVisible(true);
                             }
                         }}
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
@@ -507,7 +509,8 @@ export default function HomeScreen({ navigation }) {
                             onImportFile={handleFileImport}
                             colors={colors} 
                         />
-                        
+
+
                         <DownloadProgress 
                             queue={queue} 
                             activeTask={activeTask} 
@@ -746,7 +749,8 @@ export default function HomeScreen({ navigation }) {
             </Modal>
             {/* Options Modal */}
             <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
-                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+                    <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)} />
                     <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
@@ -778,7 +782,7 @@ export default function HomeScreen({ navigation }) {
                             </TouchableOpacity>
                         </View>
                     </TouchableOpacity>
-                </TouchableOpacity>
+                </KeyboardAvoidingView>
             </Modal>
         </View>
     );
@@ -849,5 +853,17 @@ const styles = StyleSheet.create({
     modalTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20, textAlign: 'center' },
     modalInput: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, marginRight: 8 },
     modalBtn: { padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 8 },
-    modalFolderItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1 }
+    modalFolderItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1 },
+    scraperBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    }
 });
