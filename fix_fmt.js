@@ -1,30 +1,43 @@
 const fs = require('fs');
 
-// Patch the fmt podspec DIRECTLY in node_modules BEFORE prebuild runs.
-// This is the correct fix - the podspec calls rct_cxx_language_standard() which
-// returns 'c++20' on Xcode 26+, causing consteval errors.
-// We replace it with a hardcoded 'c++17' for fmt only.
-
-const podspecPath = 'node_modules/react-native/third-party-podspecs/fmt.podspec';
-
-if (!fs.existsSync(podspecPath)) {
-  console.error(`ERROR: ${podspecPath} not found!`);
+// ── Fix 1: Patch fmt.podspec ─────────────────────────────────────────────────
+// rct_cxx_language_standard() returns 'c++20' on Xcode 26+, causing consteval errors.
+// We hardcode 'c++17' for fmt only.
+const fmtPodspecPath = 'node_modules/react-native/third-party-podspecs/fmt.podspec';
+if (!fs.existsSync(fmtPodspecPath)) {
+  console.error(`ERROR: ${fmtPodspecPath} not found!`);
   process.exit(1);
 }
-
-let content = fs.readFileSync(podspecPath, 'utf8');
-
-if (content.includes('rct_cxx_language_standard()')) {
-  content = content.replace(
+let fmtContent = fs.readFileSync(fmtPodspecPath, 'utf8');
+if (fmtContent.includes('rct_cxx_language_standard()')) {
+  fmtContent = fmtContent.replace(
     '"CLANG_CXX_LANGUAGE_STANDARD" => rct_cxx_language_standard()',
     '"CLANG_CXX_LANGUAGE_STANDARD" => "c++17"'
   );
-  fs.writeFileSync(podspecPath, content);
-  console.log('SUCCESS: Patched fmt.podspec to use c++17 instead of rct_cxx_language_standard()');
-} else if (content.includes('"CLANG_CXX_LANGUAGE_STANDARD" => "c++17"')) {
-  console.log('fmt.podspec already patched.');
+  fs.writeFileSync(fmtPodspecPath, fmtContent);
+  console.log('SUCCESS: Patched fmt.podspec to use c++17');
 } else {
-  console.error('ERROR: Could not find rct_cxx_language_standard() in fmt.podspec! Manual check required.');
-  console.log('Current content:', content);
-  process.exit(1);
+  console.log('fmt.podspec already patched.');
+}
+
+// ── Fix 2: Patch @react-native-community/slider podspec ──────────────────────
+// The slider podspec unconditionally includes RNCSliderComponentView.mm (a Fabric file)
+// even when New Architecture is disabled, causing a missing header error.
+// We exclude the Fabric .mm file when running in Old Architecture mode.
+const sliderPodspecPath = 'node_modules/@react-native-community/slider/react-native-slider.podspec';
+if (!fs.existsSync(sliderPodspecPath)) {
+  console.warn(`WARNING: ${sliderPodspecPath} not found, skipping.`);
+} else {
+  let sliderContent = fs.readFileSync(sliderPodspecPath, 'utf8');
+  if (sliderContent.includes('s.source_files = "ios/**/*.{h,m,mm}"')) {
+    sliderContent = sliderContent.replace(
+      's.source_files = "ios/**/*.{h,m,mm}"',
+      // Only include .mm files when New Architecture is enabled
+      `new_arch_enabled ? s.source_files = "ios/**/*.{h,m,mm}" : (s.source_files = "ios/**/*.{h,m}"; s.exclude_files = "ios/**/RNCSliderComponentView.{h,mm}")`
+    );
+    fs.writeFileSync(sliderPodspecPath, sliderContent);
+    console.log('SUCCESS: Patched slider podspec to exclude Fabric files in Old Architecture');
+  } else {
+    console.log('slider podspec already patched or has unexpected format.');
+  }
 }
