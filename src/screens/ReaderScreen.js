@@ -929,12 +929,12 @@ export default function ReaderScreen({ route, navigation }) {
                 const swipeDistance = touchStartX - touchEndX;
                 
                 // Swipe Left (Reading Forward) at the very end
-                if (startPos >= maxScroll - 10 && swipeDistance > 30) {
+                if (startPos >= maxScroll - 20 && swipeDistance > 20) {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
                 }
                 
                 // Swipe Right (Reading Backward) at the very beginning
-                if (startPos <= 10 && swipeDistance < -30) {
+                if (startPos <= 20 && swipeDistance < -20) {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
                 }
             }, {passive: true});

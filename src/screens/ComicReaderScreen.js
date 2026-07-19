@@ -59,6 +59,7 @@ export default function ComicReaderScreen({ route, navigation }) {
     // Zoom state
     const [zoomRatio, setZoomRatio] = useState(2.0);
     const flatListRef = useRef(null);
+    const scrollViewRef = useRef(null);
     const lastTap = useRef(0);
     
     // Native zoom tracking
@@ -323,10 +324,8 @@ export default function ComicReaderScreen({ route, navigation }) {
                     style={{ flex: 1, width: width }}
                 />
             ) : (
-                <FlatList
-                    ref={flatListRef}
-                    data={pages}
-                    keyExtractor={(item, index) => index.toString()}
+                <ScrollView
+                    ref={scrollViewRef}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -341,11 +340,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                     maximumZoomScale={zoomRatio}
                     minimumZoomScale={1}
                     bouncesZoom={true}
-                    renderItem={renderPage}
-                    removeClippedSubviews={Platform.OS === 'android'}
-                    initialNumToRender={3}
-                    windowSize={5}
-                />
+                >
+                    {pages.map((item, index) => renderPage({ item, index }))}
+                </ScrollView>
             )}
 
             {/* Footer */}

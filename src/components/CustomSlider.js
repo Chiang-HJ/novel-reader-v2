@@ -78,7 +78,7 @@ const CustomSlider = ({
 
     return (
         <View 
-            style={[style, { justifyContent: 'center' }]} 
+            style={[{ height: 40, minHeight: 40, justifyContent: 'center' }, style]} 
             onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
             collapsable={false}
         >

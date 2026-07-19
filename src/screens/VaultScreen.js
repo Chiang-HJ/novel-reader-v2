@@ -1034,80 +1034,47 @@ export default function VaultScreen({ navigation }) {
                                     </View>
                                     <WebView 
                                         key={twitterUrl + "_direct"}
-                                        source={{ html: '<meta http-equiv="refresh" content="0;url=' + twitterUrl + '">', baseUrl: 'https://x.com/' }}
+                                        source={{ 
+                                            html: `<html><body><script>
+                                                history.pushState(null, '', new URL('${twitterUrl}').pathname);
+                                                fetch('${twitterUrl}').then(r=>r.text()).then(t=>{
+                                                    document.open();
+                                                    const interceptor = '<script>' + 
+                                                        'const origFetch = window.fetch; window.fetch = async function(...args) { ' +
+                                                        'const res = await origFetch.apply(this, args); ' +
+                                                        'try { const url = typeof args[0] === "string" ? args[0] : (args[0] ? args[0].url : ""); ' +
+                                                        'if (url && url.includes("graphql")) { ' +
+                                                        'res.clone().text().then(text => { ' + 
+                                                            'if (text.includes("video_info")) { ' +
+                                                                'let fullText = ""; ' +
+                                                                'const textMatch = text.match(/"full_text":"(.*?)"/); ' +
+                                                                'if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, "\\n").replace(/\\\\"/g, "\\""); } ' +
+                                                                'const regex = /"variants":\\\\s*(\\\\[.*?\\\\])/g; ' +
+                                                                'let urls = []; let m; ' +
+                                                                'while ((m = regex.exec(text)) !== null) { ' +
+                                                                    'try { const variants = JSON.parse(m[1]); const mp4s = variants.filter(v => v.content_type === "video/mp4" && v.bitrate).sort((a,b) => b.bitrate - a.bitrate); if (mp4s.length > 0) urls.push(mp4s[0].url); } catch(e) {} ' +
+                                                                '} ' +
+                                                                'if (urls.length > 0) { window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: Array.from(new Set(urls)) })); } ' +
+                                                            '} ' +
+                                                        '}); ' +
+                                                        '} } catch(e){} return res; };' + 
+                                                        '<\\/script>';
+                                                    if (t.includes('<head>')) { t = t.replace('<head>', '<head>' + interceptor); } else { t = interceptor + t; }
+                                                    document.write(t);
+                                                    document.close();
+                                                });
+                                            </script></body></html>`, 
+                                            baseUrl: 'https://x.com/' 
+                                        }}
                                         injectedJavaScript={`
-                                          (function() {
-                                            try {
-                                                const origFetch = window.fetch;
-                                                window.fetch = async function(...args) {
-                                                    const res = await origFetch.apply(this, args);
-                                                    try {
-                                                        const url = typeof args[0] === 'string' ? args[0] : args[0].url;
-                                                        if (url && url.includes('graphql')) {
-                                                            res.clone().text().then(text => {
-                                                                if (text.includes('video_info')) {
-                                                                    let fullText = '';
-                                                                    const textMatch = text.match(/"full_text":"(.*?)"/);
-                                                                    if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
-                                                                    
-                                                                    const regex = /"variants":\s*(\[.*?\])/g;
-                                                                    let urls = [];
-                                                                    let m;
-                                                                    while ((m = regex.exec(text)) !== null) {
-                                                                        try {
-                                                                            const variants = JSON.parse(m[1]);
-                                                                            const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
-                                                                            if (mp4s.length > 0) urls.push(mp4s[0].url);
-                                                                        } catch(e) {}
-                                                                    }
-                                                                    if (urls.length > 0) {
-                                                                        window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
-                                                                    }
-                                                                }
-                                                            }).catch(()=>{});
-                                                        }
-                                                    } catch(e) {}
-                                                    return res;
-                                                };
-                                                setTimeout(function() {
-                                                    const scripts = document.querySelectorAll('script');
-                                                    for (let s of scripts) {
-                                                        if (s.innerText && s.innerText.includes('video_info')) {
-                                                            let fullText = '';
-                                                            const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
-                                                            if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
-                                                            
-                                                            const regex = /"variants":\s*(\[.*?\])/g;
-                                                            let urls = [];
-                                                            let m;
-                                                            while ((m = regex.exec(s.innerText)) !== null) {
-                                                                try {
-                                                                    const variants = JSON.parse(m[1]);
-                                                                    const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
-                                                                    if (mp4s.length > 0) urls.push(mp4s[0].url);
-                                                                } catch(e) {}
-                                                            }
-                                                            if (urls.length > 0) {
-                                                                window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
-                                                            }
-                                                        }
-                                                    }
-                                                }, 3000);
-                                                setTimeout(function() {
-                                                    window.ReactNativeWebView.postMessage('TIMEOUT');
-                                                }, 30000);
-                                            } catch(e) { window.ReactNativeWebView.postMessage('ERROR'); }
-                                          })();
-                                          true;
+                                            setTimeout(function() {
+                                                window.ReactNativeWebView.postMessage('TIMEOUT');
+                                            }, 30000);
+                                            true;
                                         `}
                                         onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
-                                        userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15"
                                         originWhitelist={['https://*', 'http://*']}
-                                        onShouldStartLoadWithRequest={(request) => {
-                                            if (!request.url.startsWith('http')) return false;
-                                            return true;
-                                        }}
                                     />
                                 </View>
                             </Modal>
@@ -1115,79 +1082,47 @@ export default function VaultScreen({ navigation }) {
                             <View style={{ width: 1, height: 1, opacity: 0.01, overflow: 'hidden', position: 'absolute', top: 0, left: 0, zIndex: -1 }}>
                                 <WebView 
                                     key={twitterUrl + "_auto"}
-                                    source={{ html: '<meta http-equiv="refresh" content="0;url=' + twitterUrl + '">', baseUrl: 'https://x.com/' }}
+                                    source={{ 
+                                        html: `<html><body><script>
+                                            history.pushState(null, '', new URL('${twitterUrl}').pathname);
+                                            fetch('${twitterUrl}').then(r=>r.text()).then(t=>{
+                                                document.open();
+                                                const interceptor = '<script>' + 
+                                                    'const origFetch = window.fetch; window.fetch = async function(...args) { ' +
+                                                    'const res = await origFetch.apply(this, args); ' +
+                                                    'try { const url = typeof args[0] === "string" ? args[0] : (args[0] ? args[0].url : ""); ' +
+                                                    'if (url && url.includes("graphql")) { ' +
+                                                    'res.clone().text().then(text => { ' + 
+                                                        'if (text.includes("video_info")) { ' +
+                                                            'let fullText = ""; ' +
+                                                            'const textMatch = text.match(/"full_text":"(.*?)"/); ' +
+                                                            'if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, "\\n").replace(/\\\\"/g, "\\""); } ' +
+                                                            'const regex = /"variants":\\\\s*(\\\\[.*?\\\\])/g; ' +
+                                                            'let urls = []; let m; ' +
+                                                            'while ((m = regex.exec(text)) !== null) { ' +
+                                                                'try { const variants = JSON.parse(m[1]); const mp4s = variants.filter(v => v.content_type === "video/mp4" && v.bitrate).sort((a,b) => b.bitrate - a.bitrate); if (mp4s.length > 0) urls.push(mp4s[0].url); } catch(e) {} ' +
+                                                            '} ' +
+                                                            'if (urls.length > 0) { window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: Array.from(new Set(urls)) })); } ' +
+                                                        '} ' +
+                                                    '}); ' +
+                                                    '} } catch(e){} return res; };' + 
+                                                    '<\\/script>';
+                                                if (t.includes('<head>')) { t = t.replace('<head>', '<head>' + interceptor); } else { t = interceptor + t; }
+                                                document.write(t);
+                                                document.close();
+                                            });
+                                        </script></body></html>`, 
+                                        baseUrl: 'https://x.com/' 
+                                    }}
                                     injectedJavaScript={`
-                                      (function() {
-                                        try {
-                                            const origFetch = window.fetch;
-                                            window.fetch = async function(...args) {
-                                                const res = await origFetch.apply(this, args);
-                                                try {
-                                                    const url = typeof args[0] === 'string' ? args[0] : args[0].url;
-                                                    if (url && url.includes('graphql')) {
-                                                        res.clone().text().then(text => {
-                                                            if (text.includes('video_info')) {
-                                                                let fullText = '';
-                                                                const textMatch = text.match(/"full_text":"(.*?)"/);
-                                                                if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
-                                                                
-                                                                const regex = /"variants":\s*(\[.*?\])/g;
-                                                                let urls = [];
-                                                                let m;
-                                                                while ((m = regex.exec(text)) !== null) {
-                                                                    try {
-                                                                        const variants = JSON.parse(m[1]);
-                                                                        const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
-                                                                        if (mp4s.length > 0) urls.push(mp4s[0].url);
-                                                                    } catch(e) {}
-                                                                }
-                                                                if (urls.length > 0) {
-                                                                    window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
-                                                                }
-                                                            }
-                                                        }).catch(()=>{});
-                                                    }
-                                                } catch(e) {}
-                                                return res;
-                                            };
-                                            setTimeout(function() {
-                                                const scripts = document.querySelectorAll('script');
-                                                for (let s of scripts) {
-                                                    if (s.innerText && s.innerText.includes('video_info')) {
-                                                        let fullText = '';
-                                                        const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
-                                                        if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
-                                                        
-                                                        const regex = /"variants":\s*(\[.*?\])/g;
-                                                        let urls = [];
-                                                        let m;
-                                                        while ((m = regex.exec(s.innerText)) !== null) {
-                                                            try {
-                                                                const variants = JSON.parse(m[1]);
-                                                                const mp4s = variants.filter(v => v.content_type === 'video/mp4' && v.bitrate).sort((a,b) => b.bitrate - a.bitrate);
-                                                                if (mp4s.length > 0) urls.push(mp4s[0].url);
-                                                            } catch(e) {}
-                                                        }
-                                                        if (urls.length > 0) {
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: [...new Set(urls)] }));
-                                                        }
-                                                    }
-                                                }
-                                            }, 3000);
-                                            setTimeout(function() {
-                                                window.ReactNativeWebView.postMessage('TIMEOUT');
-                                            }, 25000);
-                                        } catch(e) { window.ReactNativeWebView.postMessage('ERROR'); }
-                                      })();
-                                      true;
+                                        setTimeout(function() {
+                                            window.ReactNativeWebView.postMessage('TIMEOUT');
+                                        }, 30000);
+                                        true;
                                     `}
                                     onMessage={handleWebViewMessage}
                                     javaScriptEnabled={true}
                                     originWhitelist={['https://*', 'http://*']}
-                                    onShouldStartLoadWithRequest={(request) => {
-                                        if (!request.url.startsWith('http')) return false;
-                                        return true;
-                                    }}
                                 />
                             </View>
                         )
