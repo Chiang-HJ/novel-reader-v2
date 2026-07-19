@@ -165,11 +165,12 @@ export const ComicDownloadProvider = ({ children }) => {
                                     scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: 'base64' });
                                 }
                                 const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
+                                const cleanBase64 = descrambledBase64.replace(/^data:image\/\w+;base64,/, '');
                                 try {
                                     const { File } = require('expo-file-system');
-                                    new File(localPath).write(descrambledBase64, { encoding: 'base64' });
+                                    new File(localPath).write(cleanBase64, { encoding: 'base64' });
                                 } catch (e) {
-                                    await FileSystem.writeAsStringAsync(localPath, descrambledBase64, { encoding: 'base64' });
+                                    await FileSystem.writeAsStringAsync(localPath, cleanBase64, { encoding: 'base64' });
                                 }
                             }
                         }

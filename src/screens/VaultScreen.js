@@ -13,6 +13,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
 import { WebView } from 'react-native-webview';
 import NovelListItem from '../components/home/NovelListItem';
+import { useTwitterDownload } from '../context/TwitterDownloadContext';
 
 const VAULT_MEDIA_KEY = '@vault_media';
 const VAULT_TAGS_KEY = '@vault_tags';
@@ -59,11 +60,8 @@ export default function VaultScreen({ navigation }) {
     const [tempSelectedTags, setTempSelectedTags] = useState(new Set());
     
     // Twitter Downloader state
+    const { isDownloadingTwitter, twitterProgressText, downloadTwitterVideo, vaultMediaUpdated } = useTwitterDownload();
     const [twitterUrl, setTwitterUrl] = useState('');
-    const [isDownloadingTwitter, setIsDownloadingTwitter] = useState(false);
-    const [isResolvingTwitterLink, setIsResolvingTwitterLink] = useState(false);
-    const [isDirectExtract, setIsDirectExtract] = useState(false);
-    const [downloadProgressText, setDownloadProgressText] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Selection logic state
@@ -110,6 +108,10 @@ export default function VaultScreen({ navigation }) {
             };
         }, [])
     );
+
+    useEffect(() => {
+        loadMedia();
+    }, [vaultMediaUpdated]);
 
     const loadBookshelf = async () => {
         const list = await getBookshelf();
@@ -644,114 +646,10 @@ export default function VaultScreen({ navigation }) {
         ]);
     };
 
-    const downloadTwitterVideo = () => {
+    const triggerTwitterDownload = (isDirect) => {
         if (!twitterUrl.trim()) return;
-        setIsDownloadingTwitter(true);
-        setIsResolvingTwitterLink(true);
-        setDownloadProgressText('準備下載...');
-    };
-
-    const handleWebViewMessage = async (event) => {
-        setIsResolvingTwitterLink(false);
-        const message = event.nativeEvent.data;
-        if (message === 'TIMEOUT' || message.startsWith('ERROR')) {
-            const errorMsg = message === 'ERROR_NO_VIDEO' ? '此推文不包含影片，若為私人連結請在Twitter App 中長按儲存' : '解析超時或發生錯誤';
-            Alert.alert('下載失敗', errorMsg);
-            setIsDownloadingTwitter(false);
-            setTwitterUrl('');
-            setDownloadProgressText('');
-            return;
-        }
-        
-        let urls = [];
-        let textContent = '';
-        if (message.startsWith('{')) {
-            try {
-                const data = JSON.parse(message);
-                if (data.error) {
-                    Alert.alert('下載失敗', data.error);
-                    setIsDownloadingTwitter(false);
-                    setTwitterUrl('');
-                    setDownloadProgressText('');
-                    return;
-                }
-                if (data.urls) urls = data.urls;
-                if (data.url) urls = [data.url];
-                if (data.text) textContent = data.text;
-            } catch(e) {}
-        } else if (message.startsWith('[')) {
-            try { urls = JSON.parse(message); } catch(e) {}
-        } else if (message.startsWith('http')) {
-            urls = [message];
-        }
-
-        if (urls.length > 0) {
-            let newlyAddedMedia = [];
-            try {
-                const vaultDir = FileSystem.documentDirectory + 'vault_media/';
-                const dirInfo = await FileSystem.getInfoAsync(vaultDir);
-                if (!dirInfo.exists) {
-                    await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-                }
-
-                for (let i = 0; i < urls.length; i++) {
-                    const fileUrl = urls[i];
-                    const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
-                    const ext = isImage ? '.jpg' : '.mp4';
-                    const type = isImage ? 'image' : 'video';
-
-                    const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
-                    const fileName = uniqueId + '_twitter' + ext;
-                    const destUri = vaultDir + fileName;
-
-                    const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => { 
-                        setDownloadProgressText(`下載中 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`); 
-                    });
-                    const downloadResult = await downloadResumable.downloadAsync();
-                    if (downloadResult.status !== 200) continue;
-
-                    let thumbnailUri = null;
-                    if (type === 'video') {
-                        try {
-                            const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
-                            const tFileName = 'thumb_' + uniqueId + '.jpg';
-                            const newTUri = vaultDir + tFileName;
-                            await FileSystem.copyAsync({ from: tUri, to: newTUri });
-                            thumbnailUri = newTUri;
-                        } catch (e) {}
-                    }
-
-                    const newItem = {
-                        id: uniqueId,
-                        uri: destUri,
-                        thumbnailUri,
-                        type: type,
-                        createdAt: Date.now(),
-                        tags: ['twitter'],
-                        title: urls.length > 1 ? `Twitter 檔案 (${i+1}/${urls.length})` : 'Twitter 檔案',
-                        description: textContent
-                    };
-                    newlyAddedMedia.push(newItem);
-                }
-
-                if (newlyAddedMedia.length > 0) {
-                    const stored = await AsyncStorage.getItem(VAULT_MEDIA_KEY);
-                    let currentMedia = stored ? JSON.parse(stored) : [];
-                    const newMedia = [...newlyAddedMedia, ...currentMedia];
-                    await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
-                    setMediaList(newMedia);
-                    Alert.alert('下載完成', `已成功儲存 ${newlyAddedMedia.length} 個檔案至金庫。`);
-                } else {
-                    Alert.alert('下載失敗', '無法下載任何檔案。');
-                }
-            } catch (e) {
-                Alert.alert('下載失敗', e.message);
-            } finally {
-                setIsDownloadingTwitter(false);
-                setTwitterUrl('');
-                setDownloadProgressText('');
-            }
-        }
+        downloadTwitterVideo(twitterUrl, isDirect);
+        setTwitterUrl(''); // clear input after dispatching
     };
 
     return (
@@ -1007,130 +905,24 @@ export default function VaultScreen({ navigation }) {
                                     autoCorrect={false}
                                 />
                                 <TouchableOpacity 
-                                    style={{ backgroundColor: colors.surface, padding: 12, justifyContent: 'center', alignItems: 'center', borderLeftWidth: 1, borderColor: colors.border }}
-                                    onPress={() => { setIsDirectExtract(true); setIsResolvingTwitterLink(true); }}
+                                    style={{ padding: 12, backgroundColor: isDownloadingTwitter || !twitterUrl ? '#333' : '#1DA1F2', alignItems: 'center' }}
                                     disabled={isDownloadingTwitter || !twitterUrl}
-                                >
-                                    <Feather name="user-check" size={20} color={twitterUrl ? colors.primary : colors.textSecondary} />
-                                </TouchableOpacity>
-                                <TouchableOpacity 
-                                    style={{ backgroundColor: colors.primary, padding: 12, justifyContent: 'center', alignItems: 'center', minWidth: 60 }}
-                                    onPress={downloadTwitterVideo}
-                                    disabled={isDownloadingTwitter || !twitterUrl}
+                                    onPress={() => triggerTwitterDownload(false)}
                                 >
                                     {isDownloadingTwitter ? (
-                                        <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold'}}>{downloadProgressText || "下載中.."}</Text>
+                                        <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold'}}>{twitterProgressText || "下載中.."}</Text>
                                     ) : (
                                         <Feather name="download" size={20} color="#fff" />
                                     )}
                                 </TouchableOpacity>
                             </View>
                         </View>
+                        <TouchableOpacity style={{ alignSelf: 'flex-end', marginRight: 16, marginTop: 8 }} onPress={() => {
+                            triggerTwitterDownload(true);
+                        }}>
+                            <Text style={{ color: colors.textSecondary, fontSize: 12, textDecorationLine: 'underline' }}>深度抓取 (若抓不到再點)</Text>
+                        </TouchableOpacity>
                     </KeyboardAvoidingView>
-                    {isResolvingTwitterLink && twitterUrl ? (
-                        isDirectExtract ? (
-                            <Modal visible={true} animationType="slide">
-                                <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 50 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold' }}>推特深度解析 (私人推文)</Text>
-                                        <TouchableOpacity onPress={() => { setIsResolvingTwitterLink(false); setIsDownloadingTwitter(false); }}>
-                                            <Text style={{ color: colors.danger, fontSize: 16 }}>取消</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                    <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Text style={{ color: colors.textSecondary, flex: 1 }}>請手動貼上網址並點擊解析，一旦影片載入，系統將自動下載。</Text>
-                                    </View>
-                                    <WebView 
-                                        key={twitterUrl + "_direct"}
-                                        source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
-                                        injectedJavaScript={`
-                                            setTimeout(function() {
-                                                var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
-                                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
-                                                if (input && btn && !input.value) {
-                                                    var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                                    if (nativeInputValueSetter) {
-                                                        nativeInputValueSetter.call(input, '${twitterUrl}');
-                                                    } else {
-                                                        input.value = '${twitterUrl}';
-                                                    }
-                                                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                                                    // Don't auto click on manual mode, let user click if they want, 
-                                                    // but we still monitor the output links.
-                                                    
-                                                    setInterval(function() {
-                                                        var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
-                                                        var validLink = null;
-                                                        for (var i = 0; i < resLinks.length; i++) {
-                                                            if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
-                                                                validLink = resLinks[i].href;
-                                                                break;
-                                                            }
-                                                        }
-                                                        if (validLink && !window.didExtractTwitter) {
-                                                            window.didExtractTwitter = true;
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
-                                                        }
-                                                    }, 1000);
-                                                }
-                                            }, 2000);
-                                            true;
-                                        `}
-                                        onMessage={handleWebViewMessage}
-                                        javaScriptEnabled={true}
-                                        originWhitelist={['https://*', 'http://*']}
-                                    />
-                                </View>
-                            </Modal>
-                        ) : (
-                            <View style={{ position: 'absolute', top: 0, left: 0, width: 100, height: 100, overflow: 'hidden' }}>
-                                <WebView 
-                                    key={twitterUrl + "_auto"}
-                                    source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
-                                    injectedJavaScript={`
-                                        setTimeout(function() {
-                                            var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
-                                            var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
-                                            if (input && btn) {
-                                                // Set value using React's native setter if necessary
-                                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                                if (nativeInputValueSetter) {
-                                                    nativeInputValueSetter.call(input, '${twitterUrl}');
-                                                } else {
-                                                    input.value = '${twitterUrl}';
-                                                }
-                                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                                                
-                                                setTimeout(function() {
-                                                    btn.click();
-                                                    
-                                                    // Wait for result links
-                                                    var tries = 0;
-                                                    var check = setInterval(function() {
-                                                        tries++;
-                                                        var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
-                                                        var validLink = null;
-                                                        for (var i = 0; i < resLinks.length; i++) {
-                                                            if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
-                                                                validLink = resLinks[i].href;
-                                                                break;
-                                                            }
-                                                        }
-                                                        
-                                                        if (validLink) {
-                                                            clearInterval(check);
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
-                                                        } else if (tries > 20) {
-                                                            clearInterval(check);
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for SnapAny result' }));
-                                                        }
-                                                    }, 1000);
-                                                }, 500);
-                                            } else {
-                                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'SnapAny form not found' }));
-                                            }
-                                        }, 2000);
-                                        true;
                                     `}
                                     onMessage={handleWebViewMessage}
                                     javaScriptEnabled={true}

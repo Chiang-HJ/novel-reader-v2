@@ -27,8 +27,10 @@ try {
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { DownloadProvider } from './src/context/DownloadContext';
 import { ComicDownloadProvider } from './src/context/ComicDownloadContext';
+import { TwitterDownloadProvider } from './src/context/TwitterDownloadContext';
 import DownloadWebViewHost from './src/components/DownloadWebViewHost';
 import ComicDownloadWebViewHost from './src/components/ComicDownloadWebViewHost';
+import TwitterDownloadWebViewHost from './src/components/TwitterDownloadWebViewHost';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Stack = createNativeStackNavigator();
@@ -110,11 +112,11 @@ function AppContent() {
       {/* WebView for download engine - rendered as sibling to navigator, NOT inside Provider */}
       <DownloadWebViewHost />
       <ComicDownloadWebViewHost />
+      <TwitterDownloadWebViewHost />
       <PrivacyScreen />
     </View>
   );
 }
-
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -122,7 +124,9 @@ export default function App() {
         <ThemeProvider>
           <DownloadProvider>
             <ComicDownloadProvider>
-              <AppContent />
+              <TwitterDownloadProvider>
+                <AppContent />
+              </TwitterDownloadProvider>
             </ComicDownloadProvider>
           </DownloadProvider>
         </ThemeProvider>
