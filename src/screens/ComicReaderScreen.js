@@ -104,9 +104,12 @@ export default function ComicReaderScreen({ route, navigation }) {
                 // Fix absolute paths that might have broken due to UUID changes on iOS
                 const fixedPages = chapterData.pages.map(p => {
                     if (typeof p === 'string' && p.startsWith('file://')) {
-                        const parts = p.split('/novels/');
-                        if (parts.length > 1) {
-                            return FileSystem.documentDirectory + 'novels/' + parts[1];
+                        const novelIdSearch = `/${novelId}/`;
+                        const novelIdIndex = p.indexOf(novelIdSearch);
+                        if (novelIdIndex !== -1) {
+                            const afterNovelId = p.substring(novelIdIndex + novelIdSearch.length);
+                            const getNovelDir = (id) => `${FileSystem.documentDirectory}novels/${id}/`;
+                            return getNovelDir(novelId) + afterNovelId;
                         }
                     }
                     return p;

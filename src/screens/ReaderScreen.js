@@ -8,7 +8,7 @@ import { getDictionaries } from '../utils/dictionaryStorage';
 import { WebView } from 'react-native-webview';
 
 import { Feather } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
+import CustomSlider from '../components/CustomSlider';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -1297,7 +1297,7 @@ export default function ReaderScreen({ route, navigation }) {
                         <Text style={{ fontSize: 11, color: colors.textSecondary, width: 36, textAlign: 'center', fontWeight: '600' }}>
                             {sentences.length > 0 ? Math.round((currentSentenceIndex / (sentences.length - 1 || 1)) * 100) : 0}%
                         </Text>
-                        <Slider
+                        <CustomSlider
                             style={{ flex: 1, height: 30, marginHorizontal: 8 }}
                             minimumValue={0}
                             maximumValue={sentences.length > 0 ? sentences.length - 1 : 1}
@@ -1417,7 +1417,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.textSecondary }}>{fontSize}px</Text>
                                 </View>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={14}
                                         maximumValue={36}
@@ -1440,7 +1440,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.textSecondary }}>{lineHeight.toFixed(1)}x</Text>
                                 </View>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={1.2}
                                         maximumValue={3.0}
@@ -1463,7 +1463,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     <Text style={{ color: colors.textSecondary }}>{letterSpacing.toFixed(1)}px</Text>
                                 </View>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={0}
                                         maximumValue={5}
@@ -1604,7 +1604,7 @@ export default function ReaderScreen({ route, navigation }) {
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>螢幕亮度</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={0.0}
                                         maximumValue={1.0}
@@ -1621,7 +1621,7 @@ export default function ReaderScreen({ route, navigation }) {
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音速度 ({rate.toFixed(2)}x)</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={0.5}
                                         maximumValue={2.5}
@@ -1642,7 +1642,7 @@ export default function ReaderScreen({ route, navigation }) {
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音音調 ({pitch.toFixed(2)})</Text>
                             <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
                                 <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
-                                    <Slider
+                                    <CustomSlider
                                         style={{ width: '100%', height: 40 }}
                                         minimumValue={0.5}
                                         maximumValue={2.0}

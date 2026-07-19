@@ -1102,6 +1102,7 @@ export default function VaultScreen({ navigation }) {
                                         `}
                                         onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
+                                        userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15"
                                         originWhitelist={['https://*', 'http://*']}
                                         onShouldStartLoadWithRequest={(request) => {
                                             if (!request.url.startsWith('http')) return false;
@@ -1182,6 +1183,11 @@ export default function VaultScreen({ navigation }) {
                                     `}
                                     onMessage={handleWebViewMessage}
                                     javaScriptEnabled={true}
+                                    originWhitelist={['https://*', 'http://*']}
+                                    onShouldStartLoadWithRequest={(request) => {
+                                        if (!request.url.startsWith('http')) return false;
+                                        return true;
+                                    }}
                                 />
                             </View>
                         )
