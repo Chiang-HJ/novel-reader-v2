@@ -1028,12 +1028,57 @@ export default function VaultScreen({ navigation }) {
                         </View>
                     </KeyboardAvoidingView>
                     {isResolvingTwitterLink && twitterUrl ? (
+                        isDirectExtract ? (
+                            <Modal visible={true} animationType="slide">
+                                <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 50 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold' }}>推特深度解析 (私人推文)</Text>
+                                        <TouchableOpacity onPress={() => { setIsResolvingTwitterLink(false); setIsDownloadingTwitter(false); }}>
+                                            <Text style={{ color: colors.danger, fontSize: 16 }}>取消</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Text style={{ color: colors.textSecondary, flex: 1 }}>請手動貼上網址並點擊解析，一旦影片載入，系統將自動下載。</Text>
+                                    </View>
+                                    <WebView 
+                                        key={twitterUrl + "_direct"}
+                                        source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
+                                        injectedJavaScript={`
+                                            setTimeout(function() {
+                                                var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
+                                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
+                                                if (input && btn && !input.value) {
+                                                    var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                                    if (nativeInputValueSetter) {
+                                                        nativeInputValueSetter.call(input, '${twitterUrl}');
+                                                    } else {
+                                                        input.value = '${twitterUrl}';
+                                                    }
+                                                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                                                    // Don't auto click on manual mode, let user click if they want, 
+                                                    // but we still monitor the output links.
+                                                    
+                                                    setInterval(function() {
+                                                        var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
+                                                        var validLink = null;
+                                                        for (var i = 0; i < resLinks.length; i++) {
+                                                            if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
+                                                                validLink = resLinks[i].href;
+                                                                break;
+                                                            }
+                                                        }
+                                                        if (validLink && !window.didExtractTwitter) {
+                                                            window.didExtractTwitter = true;
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
+                                                        }
+                                                    }, 1000);
+                                                }
+                                            }, 2000);
+                                            true;
+                                        `}
+                                        onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
                                         originWhitelist={['https://*', 'http://*']}
-                                        onShouldStartLoadWithRequest={(request) => {
-                                            if (request.url === 'about:blank' || request.url.startsWith('data:') || request.url === 'https://x.com/') return true;
-                                            return false;
-                                        }}
                                     />
                                 </View>
                             </Modal>
