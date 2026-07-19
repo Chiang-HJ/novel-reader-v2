@@ -14,6 +14,7 @@ const CustomSlider = ({
     style
 }) => {
     const [containerWidth, setContainerWidth] = useState(0);
+    const containerWidthRef = useRef(0);
     const [isSliding, setIsSliding] = useState(false);
     const [localValue, setLocalValue] = useState(value);
     
@@ -44,9 +45,10 @@ const CustomSlider = ({
             onMoveShouldSetPanResponder: () => true,
             onPanResponderGrant: (evt) => {
                 setIsSliding(true);
-                if (containerWidth > 0) {
+                const currentWidth = containerWidthRef.current;
+                if (currentWidth > 0) {
                     const x = evt.nativeEvent.locationX;
-                    const newValue = minimumValue + (x / containerWidth) * (maximumValue - minimumValue);
+                    const newValue = minimumValue + (x / currentWidth) * (maximumValue - minimumValue);
                     const finalValue = updateValue(newValue);
                     startValueRef.current = finalValue;
                 } else {
@@ -54,9 +56,10 @@ const CustomSlider = ({
                 }
             },
             onPanResponderMove: (evt, gestureState) => {
-                if (containerWidth > 0) {
+                const currentWidth = containerWidthRef.current;
+                if (currentWidth > 0) {
                     const dx = gestureState.dx;
-                    const valDelta = (dx / containerWidth) * (maximumValue - minimumValue);
+                    const valDelta = (dx / currentWidth) * (maximumValue - minimumValue);
                     updateValue(startValueRef.current + valDelta);
                 }
             },
@@ -81,7 +84,11 @@ const CustomSlider = ({
     return (
         <View 
             style={[{ height: 40, minHeight: 40, justifyContent: 'center' }, style]} 
-            onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+            onLayout={(e) => {
+                const w = e.nativeEvent.layout.width;
+                setContainerWidth(w);
+                containerWidthRef.current = w;
+            }}
             collapsable={false}
         >
             {/* Background Track */}

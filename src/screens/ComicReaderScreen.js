@@ -18,6 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
     const [imgHeight, setImgHeight] = useState(screenWidth / 0.7);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
@@ -25,9 +26,20 @@ const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
             if (isMounted && w > 0 && h > 0) {
                 setImgHeight(screenWidth * (h / w));
             }
-        }, () => {});
+        }, () => {
+            if (isMounted) setError(true);
+        });
         return () => { isMounted = false; };
     }, [uri]);
+
+    if (error) {
+        return (
+            <View style={{ width: screenWidth, height: 300, justifyContent: 'center', alignItems: 'center' }}>
+                <Text style={{ color: '#ff4444' }}>圖片遺失或損毀</Text>
+                <Text style={{ color: '#888', fontSize: 12, marginTop: 4 }}>{uri ? uri.split('/').pop() : 'Unknown'}</Text>
+            </View>
+        );
+    }
 
     return (
         <Image 
