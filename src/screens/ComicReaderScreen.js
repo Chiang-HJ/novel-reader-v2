@@ -324,10 +324,8 @@ export default function ComicReaderScreen({ route, navigation }) {
                     style={{ flex: 1, width: width }}
                 />
             ) : (
-                <FlatList
+                <ScrollView
                     ref={scrollViewRef}
-                    data={pages}
-                    keyExtractor={(item, index) => index.toString()}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -338,13 +336,15 @@ export default function ComicReaderScreen({ route, navigation }) {
                     scrollEventThrottle={16}
                     showsHorizontalScrollIndicator={false}
                     showsVerticalScrollIndicator={false}
-                    renderItem={renderPage}
-                    removeClippedSubviews={Platform.OS === 'android'}
-                    initialNumToRender={3}
-                    maxToRenderPerBatch={2}
-                    windowSize={5}
                     style={{ flex: 1, width: width }}
-                />
+                    removeClippedSubviews={Platform.OS === 'android'}
+                >
+                    {pages.map((p, index) => (
+                        <React.Fragment key={index}>
+                            {renderPage({ item: p, index })}
+                        </React.Fragment>
+                    ))}
+                </ScrollView>
             )}
 
             {/* Footer */}

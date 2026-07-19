@@ -155,15 +155,19 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
                         position: 'absolute', 
                         top: -slice.y_src, 
                         left: 0 
-                    }} 
+                    }}
+                    resizeMode="stretch"
                 />
             </View>
         );
     });
 
+    const translateX = -w * (1 - scale) / 2;
+    const translateY = -h * (1 - scale) / 2;
+
     return (
         <View style={{ width: displayWidth, height: displayHeight, overflow: 'hidden', backgroundColor: 'black' }}>
-            <View style={{ width: w, height: h, transform: [{ scale }], transformOrigin: 'top left' }}>
+            <View style={{ width: w, height: h, transform: [{ translateX }, { translateY }, { scale }] }}>
                 {pieces}
             </View>
             <View style={{ position: 'absolute', top: 50, left: 20, backgroundColor: 'rgba(0,0,0,0.8)', padding: 10, borderRadius: 5, zIndex: 999 }}>

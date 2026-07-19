@@ -1083,7 +1083,7 @@ export default function VaultScreen({ navigation }) {
                                 </View>
                             </Modal>
                         ) : (
-                            <View style={{ width: 1, height: 1, opacity: 0.01, overflow: 'hidden', position: 'absolute', top: 0, left: 0, zIndex: -1 }}>
+                            <View style={{ position: 'absolute', top: -10000, left: -10000, width: 500, height: 500 }}>
                                 <WebView 
                                     key={twitterUrl + "_auto"}
                                     source={{ 
