@@ -907,10 +907,12 @@ export default function ReaderScreen({ route, navigation }) {
             
             let touchStartX = 0;
             let touchEndX = 0;
+            let startPos = 0;
             let isSwiping = false;
             
             document.body.addEventListener('touchstart', e => {
                 touchStartX = e.changedTouches[0].screenX;
+                startPos = getScrollPos();
                 isSwiping = true;
             }, {passive: true});
             
@@ -920,23 +922,20 @@ export default function ReaderScreen({ route, navigation }) {
                 isSwiping = false;
                 
                 const content = document.querySelector('.content');
-                const totalPages = Math.max(1, Math.round((content ? content.scrollWidth : document.body.scrollWidth) / pageWidth));
-                const currentPos = getScrollPos();
-                const page = Math.round(currentPos / pageWidth) + 1;
+                const scrollWidth = content ? content.scrollWidth : document.body.scrollWidth;
+                const clientWidth = document.body.clientWidth;
+                const maxScroll = Math.max(0, scrollWidth - clientWidth);
                 
                 const swipeDistance = touchStartX - touchEndX;
                 
-                // Swipe Left (Reading Forward)
-                if (swipeDistance > 50) {
-                    if (page >= totalPages) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
-                    }
+                // Swipe Left (Reading Forward) at the very end
+                if (startPos >= maxScroll - 10 && swipeDistance > 30) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
                 }
-                // Swipe Right (Reading Backward)
-                if (swipeDistance < -50) {
-                    if (page <= 1) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
-                    }
+                
+                // Swipe Right (Reading Backward) at the very beginning
+                if (startPos <= 10 && swipeDistance < -30) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
                 }
             }, {passive: true});
             

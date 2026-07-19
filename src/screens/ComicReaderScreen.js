@@ -104,12 +104,12 @@ export default function ComicReaderScreen({ route, navigation }) {
                 // Fix absolute paths that might have broken due to UUID changes on iOS
                 const fixedPages = chapterData.pages.map(p => {
                     if (typeof p === 'string' && p.startsWith('file://')) {
-                        const novelIdSearch = `/${novelId}/`;
-                        const novelIdIndex = p.indexOf(novelIdSearch);
-                        if (novelIdIndex !== -1) {
-                            const afterNovelId = p.substring(novelIdIndex + novelIdSearch.length);
+                        const imagesSearch = '/images/';
+                        const imagesIndex = p.indexOf(imagesSearch);
+                        if (imagesIndex !== -1) {
+                            const afterImages = p.substring(imagesIndex + imagesSearch.length);
                             const getNovelDir = (id) => `${FileSystem.documentDirectory}novels/${id}/`;
-                            return getNovelDir(novelId) + afterNovelId;
+                            return getNovelDir(novelId) + "images/" + afterImages;
                         }
                     }
                     return p;
@@ -316,10 +316,10 @@ export default function ComicReaderScreen({ route, navigation }) {
                     showsVerticalScrollIndicator={false}
                     renderItem={renderPage}
                     getItemLayout={(data, index) => ({ length: width, offset: width * index, index })}
-                    removeClippedSubviews={true}
-                    initialNumToRender={2}
-                    maxToRenderPerBatch={1}
-                    windowSize={3}
+                    removeClippedSubviews={Platform.OS === 'android'}
+                    initialNumToRender={3}
+                    maxToRenderPerBatch={2}
+                    windowSize={5}
                     style={{ flex: 1, width: width }}
                 />
             ) : (
@@ -342,9 +342,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                     minimumZoomScale={1}
                     bouncesZoom={true}
                     renderItem={renderPage}
-                    removeClippedSubviews={true}
-                    initialNumToRender={2}
-                    windowSize={3}
+                    removeClippedSubviews={Platform.OS === 'android'}
+                    initialNumToRender={3}
+                    windowSize={5}
                 />
             )}
 
