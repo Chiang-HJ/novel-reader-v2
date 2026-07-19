@@ -144,30 +144,36 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
 
     const slices = generatePieces();
     
+    const scaledW = w * scale;
+    const scaledH = h * scale;
+
     slices.forEach((slice) => {
         pieces.push(
-            <View key={slice.i} style={{ width: w, height: slice.move_h, overflow: 'hidden', position: 'absolute', top: slice.y_dst, left: 0 }}>
+            <View key={slice.i} style={{ 
+                width: scaledW, 
+                height: slice.move_h * scale, 
+                overflow: 'hidden', 
+                position: 'absolute', 
+                top: slice.y_dst * scale, 
+                left: 0 
+            }}>
                 <Image 
                     source={{ uri }} 
                     style={{ 
-                        width: w, 
-                        height: h, 
+                        width: scaledW, 
+                        height: scaledH, 
                         position: 'absolute', 
-                        top: -slice.y_src, 
+                        top: -slice.y_src * scale, 
                         left: 0 
-                    }}
-                    resizeMode="stretch"
+                    }} 
                 />
             </View>
         );
     });
 
-    const translateX = -w * (1 - scale) / 2;
-    const translateY = -h * (1 - scale) / 2;
-
     return (
         <View style={{ width: displayWidth, height: displayHeight, overflow: 'hidden', backgroundColor: 'black' }}>
-            <View style={{ width: w, height: h, transform: [{ translateX }, { translateY }, { scale }] }}>
+            <View style={{ width: displayWidth, height: displayHeight }}>
                 {pieces}
             </View>
             <View style={{ position: 'absolute', top: 50, left: 20, backgroundColor: 'rgba(0,0,0,0.8)', padding: 10, borderRadius: 5, zIndex: 999 }}>

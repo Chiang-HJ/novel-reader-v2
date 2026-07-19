@@ -17,13 +17,13 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
-    const [aspectRatio, setAspectRatio] = useState(0.7);
+    const [imgHeight, setImgHeight] = useState(screenWidth / 0.7);
 
     useEffect(() => {
         let isMounted = true;
         Image.getSize(uri, (w, h) => {
             if (isMounted && w > 0 && h > 0) {
-                setAspectRatio(w / h);
+                setImgHeight(screenWidth * (h / w));
             }
         }, () => {});
         return () => { isMounted = false; };
@@ -34,8 +34,7 @@ const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
             source={{ uri }} 
             style={{ 
                 width: screenWidth, 
-                height: isHorizontal ? screenHeight : undefined, 
-                aspectRatio: isHorizontal ? undefined : aspectRatio 
+                height: isHorizontal ? screenHeight : imgHeight
             }} 
             resizeMode={isHorizontal ? "contain" : "cover"} 
         />
