@@ -1034,7 +1034,7 @@ export default function VaultScreen({ navigation }) {
                                     </View>
                                     <WebView 
                                         key={twitterUrl + "_direct"}
-                                        source={{ uri: twitterUrl }}
+                                        source={{ html: '<meta http-equiv="refresh" content="0;url=' + twitterUrl + '">', baseUrl: 'https://x.com/' }}
                                         injectedJavaScript={`
                                           (function() {
                                             try {
@@ -1050,7 +1050,7 @@ export default function VaultScreen({ navigation }) {
                                                                     const textMatch = text.match(/"full_text":"(.*?)"/);
                                                                     if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
                                                                     
-                                                                    const regex = /"variants":(\\[.*?\\])/g;
+                                                                    const regex = /"variants":\s*(\[.*?\])/g;
                                                                     let urls = [];
                                                                     let m;
                                                                     while ((m = regex.exec(text)) !== null) {
@@ -1077,7 +1077,7 @@ export default function VaultScreen({ navigation }) {
                                                             const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
                                                             if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
                                                             
-                                                            const regex = /"variants":(\\[.*?\\])/g;
+                                                            const regex = /"variants":\s*(\[.*?\])/g;
                                                             let urls = [];
                                                             let m;
                                                             while ((m = regex.exec(s.innerText)) !== null) {
@@ -1115,8 +1115,7 @@ export default function VaultScreen({ navigation }) {
                             <View style={{ width: 1, height: 1, opacity: 0.01, overflow: 'hidden', position: 'absolute', top: 0, left: 0, zIndex: -1 }}>
                                 <WebView 
                                     key={twitterUrl + "_auto"}
-                                    source={{ uri: twitterUrl }}
-                                    userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15"
+                                    source={{ html: '<meta http-equiv="refresh" content="0;url=' + twitterUrl + '">', baseUrl: 'https://x.com/' }}
                                     injectedJavaScript={`
                                       (function() {
                                         try {
@@ -1132,7 +1131,7 @@ export default function VaultScreen({ navigation }) {
                                                                 const textMatch = text.match(/"full_text":"(.*?)"/);
                                                                 if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
                                                                 
-                                                                const regex = /"variants":(\\[.*?\\])/g;
+                                                                const regex = /"variants":\s*(\[.*?\])/g;
                                                                 let urls = [];
                                                                 let m;
                                                                 while ((m = regex.exec(text)) !== null) {
@@ -1159,7 +1158,7 @@ export default function VaultScreen({ navigation }) {
                                                         const textMatch = s.innerText.match(/"full_text":"(.*?)"/);
                                                         if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, '\\n').replace(/\\\\"/g, '"'); }
                                                         
-                                                        const regex = /"variants":(\\[.*?\\])/g;
+                                                        const regex = /"variants":\s*(\[.*?\])/g;
                                                         let urls = [];
                                                         let m;
                                                         while ((m = regex.exec(s.innerText)) !== null) {
