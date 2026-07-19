@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
-import { getNovelById, getChapterText } from '../utils/storage';
+import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
+import { getDictionaries } from '../utils/dictionaryStorage';
+import { WebView } from 'react-native-webview';
+import * as FileSystem from 'expo-file-system';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import ScrambledImage from '../components/ScrambledImage';
@@ -98,7 +101,17 @@ export default function ComicReaderScreen({ route, navigation }) {
         try {
             const chapterData = await getChapterText(novelId, index.toString());
             if (chapterData && chapterData.pages && chapterData.pages.length > 0) {
-                setPages(chapterData.pages);
+                // Fix absolute paths that might have broken due to UUID changes on iOS
+                const fixedPages = chapterData.pages.map(p => {
+                    if (typeof p === 'string' && p.startsWith('file://')) {
+                        const parts = p.split('/novels/');
+                        if (parts.length > 1) {
+                            return FileSystem.documentDirectory + 'novels/' + parts[1];
+                        }
+                    }
+                    return p;
+                });
+                setPages(fixedPages);
             } else {
                 setPages([]);
             }

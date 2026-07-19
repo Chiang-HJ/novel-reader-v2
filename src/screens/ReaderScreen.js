@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
+import * as Brightness from 'expo-brightness';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,8 +37,26 @@ export default function ReaderScreen({ route, navigation }) {
     const isPlayingRef = useRef(false);
     const [rate, setRate] = useState(1.0);
     const [pitch, setPitch] = useState(1.0);
+    const [brightness, setBrightness] = useState(0.5);
     const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
     const [smartPauseEnabled, setSmartPauseEnabled] = useState(true);
+
+    useEffect(() => {
+        (async () => {
+            const { status } = await Brightness.requestPermissionsAsync();
+            if (status === 'granted') {
+                const b = await Brightness.getBrightnessAsync();
+                setBrightness(b);
+            }
+        })();
+    }, []);
+
+    const changeBrightness = async (val) => {
+        setBrightness(val);
+        try {
+            await Brightness.setBrightnessAsync(val);
+        } catch(e) {}
+    };
 
     // Save exact sentence progress whenever it changes (e.g. from manual paging or TTS)
     useEffect(() => {
@@ -886,6 +905,41 @@ export default function ReaderScreen({ route, navigation }) {
                 }));
             }, true);
             
+            let touchStartX = 0;
+            let touchEndX = 0;
+            let isSwiping = false;
+            
+            document.body.addEventListener('touchstart', e => {
+                touchStartX = e.changedTouches[0].screenX;
+                isSwiping = true;
+            }, {passive: true});
+            
+            document.body.addEventListener('touchend', e => {
+                if (!isSwiping) return;
+                touchEndX = e.changedTouches[0].screenX;
+                isSwiping = false;
+                
+                const content = document.querySelector('.content');
+                const totalPages = Math.max(1, Math.round((content ? content.scrollWidth : document.body.scrollWidth) / pageWidth));
+                const currentPos = getScrollPos();
+                const page = Math.round(currentPos / pageWidth) + 1;
+                
+                const swipeDistance = touchStartX - touchEndX;
+                
+                // Swipe Left (Reading Forward)
+                if (swipeDistance > 50) {
+                    if (page >= totalPages) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
+                    }
+                }
+                // Swipe Right (Reading Backward)
+                if (swipeDistance < -50) {
+                    if (page <= 1) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
+                    }
+                }
+            }, {passive: true});
+            
             setTimeout(reportPage, 500);
           </script>
         </body>
@@ -1545,6 +1599,23 @@ export default function ReaderScreen({ route, navigation }) {
                                 >
                                     <Text style={{ color: smartPauseEnabled ? 'white' : colors.text }}>開啟</Text>
                                 </TouchableOpacity>
+                            </View>
+
+                            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>螢幕亮度</Text>
+                            <View style={{ paddingHorizontal: 10, paddingVertical: 10, marginBottom: 16 }}>
+                                <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+                                    <Slider
+                                        style={{ width: '100%', height: 40 }}
+                                        minimumValue={0.0}
+                                        maximumValue={1.0}
+                                        step={0.01}
+                                        value={brightness}
+                                        minimumTrackTintColor={colors.primary}
+                                        maximumTrackTintColor={colors.border}
+                                        thumbTintColor={colors.primary}
+                                        onValueChange={(val) => changeBrightness(val)}
+                                    />
+                                </View>
                             </View>
 
                             <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>語音速度 ({rate.toFixed(2)}x)</Text>

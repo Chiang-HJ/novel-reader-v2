@@ -1102,6 +1102,11 @@ export default function VaultScreen({ navigation }) {
                                         `}
                                         onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
+                                        originWhitelist={['https://*', 'http://*']}
+                                        onShouldStartLoadWithRequest={(request) => {
+                                            if (!request.url.startsWith('http')) return false;
+                                            return true;
+                                        }}
                                     />
                                 </View>
                             </Modal>
