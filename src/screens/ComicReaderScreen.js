@@ -104,7 +104,7 @@ export default function ComicReaderScreen({ route, navigation }) {
             if (chapterData && chapterData.pages && chapterData.pages.length > 0) {
                 // Fix absolute paths that might have broken due to UUID changes on iOS
                 const fixedPages = chapterData.pages.map(p => {
-                    if (typeof p === 'string' && p.startsWith('file://')) {
+                    if (typeof p === 'string' && !p.startsWith('http')) {
                         const imagesSearch = '/images/';
                         const imagesIndex = p.indexOf(imagesSearch);
                         if (imagesIndex !== -1) {
@@ -324,8 +324,10 @@ export default function ComicReaderScreen({ route, navigation }) {
                     style={{ flex: 1, width: width }}
                 />
             ) : (
-                <ScrollView
+                <FlatList
                     ref={scrollViewRef}
+                    data={pages}
+                    keyExtractor={(item, index) => index.toString()}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -336,13 +338,13 @@ export default function ComicReaderScreen({ route, navigation }) {
                     scrollEventThrottle={16}
                     showsHorizontalScrollIndicator={false}
                     showsVerticalScrollIndicator={false}
+                    renderItem={renderPage}
+                    removeClippedSubviews={Platform.OS === 'android'}
+                    initialNumToRender={3}
+                    maxToRenderPerBatch={2}
+                    windowSize={5}
                     style={{ flex: 1, width: width }}
-                    maximumZoomScale={zoomRatio}
-                    minimumZoomScale={1}
-                    bouncesZoom={true}
-                >
-                    {pages.map((item, index) => renderPage({ item, index }))}
-                </ScrollView>
+                />
             )}
 
             {/* Footer */}

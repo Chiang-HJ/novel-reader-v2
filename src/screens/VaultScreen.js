@@ -1075,6 +1075,10 @@ export default function VaultScreen({ navigation }) {
                                         onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
                                         originWhitelist={['https://*', 'http://*']}
+                                        onShouldStartLoadWithRequest={(request) => {
+                                            if (request.url === 'about:blank' || request.url.startsWith('data:') || request.url === 'https://x.com/') return true;
+                                            return false;
+                                        }}
                                     />
                                 </View>
                             </Modal>
@@ -1123,6 +1127,10 @@ export default function VaultScreen({ navigation }) {
                                     onMessage={handleWebViewMessage}
                                     javaScriptEnabled={true}
                                     originWhitelist={['https://*', 'http://*']}
+                                    onShouldStartLoadWithRequest={(request) => {
+                                        if (request.url === 'about:blank' || request.url.startsWith('data:') || request.url === 'https://x.com/') return true;
+                                        return false;
+                                    }}
                                 />
                             </View>
                         )
