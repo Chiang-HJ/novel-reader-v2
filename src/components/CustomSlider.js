@@ -18,6 +18,13 @@ const CustomSlider = ({
     const [isSliding, setIsSliding] = useState(false);
     const [localValue, setLocalValue] = useState(value);
     
+    // Store all dynamic props in a ref to avoid stale closures in PanResponder
+    const propsRef = useRef({ minimumValue, maximumValue, step, onValueChange, onSlidingComplete });
+    
+    useEffect(() => {
+        propsRef.current = { minimumValue, maximumValue, step, onValueChange, onSlidingComplete };
+    }, [minimumValue, maximumValue, step, onValueChange, onSlidingComplete]);
+    
     const startValueRef = useRef(value);
 
     useEffect(() => {
@@ -28,27 +35,32 @@ const CustomSlider = ({
 
     // Update localValue safely
     const updateValue = (newValue) => {
-        if (isNaN(newValue) || !isFinite(newValue)) newValue = minimumValue;
-        if (newValue < minimumValue) newValue = minimumValue;
-        if (newValue > maximumValue) newValue = maximumValue;
-        if (step > 0) {
-            newValue = Math.round((newValue - minimumValue) / step) * step + minimumValue;
+        const p = propsRef.current;
+        if (isNaN(newValue) || !isFinite(newValue)) newValue = p.minimumValue;
+        if (newValue < p.minimumValue) newValue = p.minimumValue;
+        if (newValue > p.maximumValue) newValue = p.maximumValue;
+        if (p.step > 0) {
+            newValue = Math.round((newValue - p.minimumValue) / p.step) * p.step + p.minimumValue;
         }
         setLocalValue(newValue);
-        if (onValueChange) onValueChange(newValue);
+        if (p.onValueChange) p.onValueChange(newValue);
         return newValue;
     };
 
     const panResponder = useRef(
         PanResponder.create({
+            // Force capture phase so ScrollView doesn't steal touches
+            onStartShouldSetPanResponderCapture: () => true,
+            onMoveShouldSetPanResponderCapture: () => true,
             onStartShouldSetPanResponder: () => true,
             onMoveShouldSetPanResponder: () => true,
             onPanResponderGrant: (evt) => {
                 setIsSliding(true);
                 const currentWidth = containerWidthRef.current;
+                const p = propsRef.current;
                 if (currentWidth > 0) {
                     const x = evt.nativeEvent.locationX;
-                    const newValue = minimumValue + (x / currentWidth) * (maximumValue - minimumValue);
+                    const newValue = p.minimumValue + (x / currentWidth) * (p.maximumValue - p.minimumValue);
                     const finalValue = updateValue(newValue);
                     startValueRef.current = finalValue;
                 } else {
@@ -57,17 +69,25 @@ const CustomSlider = ({
             },
             onPanResponderMove: (evt, gestureState) => {
                 const currentWidth = containerWidthRef.current;
+                const p = propsRef.current;
                 if (currentWidth > 0) {
                     const dx = gestureState.dx;
-                    const valDelta = (dx / currentWidth) * (maximumValue - minimumValue);
+                    const valDelta = (dx / currentWidth) * (p.maximumValue - p.minimumValue);
                     updateValue(startValueRef.current + valDelta);
                 }
             },
-            onPanResponderRelease: () => {
+            onPanResponderRelease: (evt, gestureState) => {
                 setIsSliding(false);
-                if (onSlidingComplete) {
-                    onSlidingComplete(localValue);
+                const p = propsRef.current;
+                
+                const currentWidth = containerWidthRef.current;
+                let finalValue = startValueRef.current;
+                if (currentWidth > 0) {
+                    const dx = gestureState.dx;
+                    const valDelta = (dx / currentWidth) * (p.maximumValue - p.minimumValue);
+                    finalValue = updateValue(startValueRef.current + valDelta);
                 }
+                if (p.onSlidingComplete) p.onSlidingComplete(finalValue);
             },
             onPanResponderTerminate: () => {
                 setIsSliding(false);

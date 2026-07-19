@@ -137,7 +137,7 @@ const DescrambleWebView = forwardRef((props, ref) => {
     };
 
     return (
-        <View style={styles.hidden} pointerEvents="none">
+        <View style={styles.maskContainer} pointerEvents="none">
             <WebView
                 ref={webViewRef}
                 originWhitelist={['*']}
@@ -145,13 +145,32 @@ const DescrambleWebView = forwardRef((props, ref) => {
                 onMessage={onMessage}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
+                style={{ width: 10, height: 10 }}
             />
+            {/* Opaque mask to hide it from the user but keep it visible to iOS */}
+            <View style={styles.mask} pointerEvents="none" />
         </View>
     );
 });
 
 const styles = StyleSheet.create({
-    hidden: { width: 1, height: 1, position: 'absolute', top: -1000, opacity: 0 }
+    maskContainer: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: 10,
+        height: 10,
+        overflow: 'hidden',
+        zIndex: -1
+    },
+    mask: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: 10,
+        height: 10,
+        backgroundColor: '#000'
+    }
 });
 
 export default DescrambleWebView;

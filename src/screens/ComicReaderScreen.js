@@ -216,12 +216,25 @@ export default function ComicReaderScreen({ route, navigation }) {
         ]);
     };
 
+    // iOS Document Directory changes UUID across app updates. 
+    // We must dynamically fix old absolute paths.
+    const resolveLocalPath = (path) => {
+        if (typeof path === 'string' && path.includes('/novels/')) {
+            const parts = path.split('/novels/');
+            if (parts.length > 1) {
+                return FileSystem.documentDirectory + 'novels/' + parts[1];
+            }
+        }
+        return path;
+    };
+
     const changeZoomRatio = async (ratio) => {
         setZoomRatio(ratio);
         await AsyncStorage.setItem('@comic_zoom_ratio', ratio.toString());
     };
 
-    const renderPage = ({ item, index }) => {
+    const renderPage = ({ item: rawItem, index }) => {
+        const item = resolveLocalPath(rawItem);
         const imageContent = (
             <TouchableWithoutFeedback onPress={(e) => handleImageTap(e, index)}>
                 <View style={{ width, justifyContent: 'center', alignItems: 'center' }}>

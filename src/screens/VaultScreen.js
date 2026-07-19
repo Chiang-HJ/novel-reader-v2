@@ -668,7 +668,15 @@ export default function VaultScreen({ navigation }) {
         if (message.startsWith('{')) {
             try {
                 const data = JSON.parse(message);
+                if (data.error) {
+                    Alert.alert('下載失敗', data.error);
+                    setIsDownloadingTwitter(false);
+                    setTwitterUrl('');
+                    setDownloadProgressText('');
+                    return;
+                }
                 if (data.urls) urls = data.urls;
+                if (data.url) urls = [data.url];
                 if (data.text) textContent = data.text;
             } catch(e) {}
         } else if (message.startsWith('[')) {
@@ -1020,59 +1028,6 @@ export default function VaultScreen({ navigation }) {
                         </View>
                     </KeyboardAvoidingView>
                     {isResolvingTwitterLink && twitterUrl ? (
-                        isDirectExtract ? (
-                            <Modal visible={true} animationType="slide">
-                                <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: 50 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold' }}>推特深度解析 (私人推文)</Text>
-                                        <TouchableOpacity onPress={() => { setIsResolvingTwitterLink(false); setIsDownloadingTwitter(false); }}>
-                                            <Text style={{ color: colors.danger, fontSize: 16 }}>取消</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                    <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <Text style={{ color: colors.textSecondary, flex: 1 }}>若需登入請手動登入以查看私人推文。一旦影片載入，系統將自動下載。</Text>
-                                    </View>
-                                    <WebView 
-                                        key={twitterUrl + "_direct"}
-                                        source={{ 
-                                            html: `<html><body><script>
-                                                history.pushState(null, '', new URL('${twitterUrl}').pathname);
-                                                fetch('${twitterUrl}').then(r=>r.text()).then(t=>{
-                                                    document.open();
-                                                    const interceptor = '<script>' + 
-                                                        'const origFetch = window.fetch; window.fetch = async function(...args) { ' +
-                                                        'const res = await origFetch.apply(this, args); ' +
-                                                        'try { const url = typeof args[0] === "string" ? args[0] : (args[0] ? args[0].url : ""); ' +
-                                                        'if (url && url.includes("graphql")) { ' +
-                                                        'res.clone().text().then(text => { ' + 
-                                                            'if (text.includes("video_info")) { ' +
-                                                                'let fullText = ""; ' +
-                                                                'const textMatch = text.match(/"full_text":"(.*?)"/); ' +
-                                                                'if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, "\\n").replace(/\\\\"/g, "\\""); } ' +
-                                                                'const regex = /"variants":\\\\s*(\\\\[.*?\\\\])/g; ' +
-                                                                'let urls = []; let m; ' +
-                                                                'while ((m = regex.exec(text)) !== null) { ' +
-                                                                    'try { const variants = JSON.parse(m[1]); const mp4s = variants.filter(v => v.content_type === "video/mp4" && v.bitrate).sort((a,b) => b.bitrate - a.bitrate); if (mp4s.length > 0) urls.push(mp4s[0].url); } catch(e) {} ' +
-                                                                '} ' +
-                                                                'if (urls.length > 0) { window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: Array.from(new Set(urls)) })); } ' +
-                                                            '} ' +
-                                                        '}); ' +
-                                                        '} } catch(e){} return res; };' + 
-                                                        '<\\/script>';
-                                                    if (t.includes('<head>')) { t = t.replace('<head>', '<head>' + interceptor); } else { t = interceptor + t; }
-                                                    document.write(t);
-                                                    document.close();
-                                                });
-                                            </script></body></html>`, 
-                                            baseUrl: 'https://x.com/' 
-                                        }}
-                                        injectedJavaScript={`
-                                            setTimeout(function() {
-                                                window.ReactNativeWebView.postMessage('TIMEOUT');
-                                            }, 30000);
-                                            true;
-                                        `}
-                                        onMessage={handleWebViewMessage}
                                         javaScriptEnabled={true}
                                         originWhitelist={['https://*', 'http://*']}
                                         onShouldStartLoadWithRequest={(request) => {
@@ -1086,51 +1041,55 @@ export default function VaultScreen({ navigation }) {
                             <View style={{ position: 'absolute', top: 0, left: 0, width: 100, height: 100, overflow: 'hidden' }}>
                                 <WebView 
                                     key={twitterUrl + "_auto"}
-                                    source={{ 
-                                        html: `<html><body><script>
-                                            history.pushState(null, '', new URL('${twitterUrl}').pathname);
-                                            fetch('${twitterUrl}').then(r=>r.text()).then(t=>{
-                                                document.open();
-                                                const interceptor = '<script>' + 
-                                                    'const origFetch = window.fetch; window.fetch = async function(...args) { ' +
-                                                    'const res = await origFetch.apply(this, args); ' +
-                                                    'try { const url = typeof args[0] === "string" ? args[0] : (args[0] ? args[0].url : ""); ' +
-                                                    'if (url && url.includes("graphql")) { ' +
-                                                    'res.clone().text().then(text => { ' + 
-                                                        'if (text.includes("video_info")) { ' +
-                                                            'let fullText = ""; ' +
-                                                            'const textMatch = text.match(/"full_text":"(.*?)"/); ' +
-                                                            'if (textMatch) { fullText = textMatch[1].replace(/\\\\n/g, "\\n").replace(/\\\\"/g, "\\""); } ' +
-                                                            'const regex = /"variants":\\\\s*(\\\\[.*?\\\\])/g; ' +
-                                                            'let urls = []; let m; ' +
-                                                            'while ((m = regex.exec(text)) !== null) { ' +
-                                                                'try { const variants = JSON.parse(m[1]); const mp4s = variants.filter(v => v.content_type === "video/mp4" && v.bitrate).sort((a,b) => b.bitrate - a.bitrate); if (mp4s.length > 0) urls.push(mp4s[0].url); } catch(e) {} ' +
-                                                            '} ' +
-                                                            'if (urls.length > 0) { window.ReactNativeWebView.postMessage(JSON.stringify({ text: fullText, urls: Array.from(new Set(urls)) })); } ' +
-                                                        '} ' +
-                                                    '}); ' +
-                                                    '} } catch(e){} return res; };' + 
-                                                    '<\\/script>';
-                                                if (t.includes('<head>')) { t = t.replace('<head>', '<head>' + interceptor); } else { t = interceptor + t; }
-                                                document.write(t);
-                                                document.close();
-                                            });
-                                        </script></body></html>`, 
-                                        baseUrl: 'https://x.com/' 
-                                    }}
+                                    source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
                                     injectedJavaScript={`
                                         setTimeout(function() {
-                                            window.ReactNativeWebView.postMessage('TIMEOUT');
-                                        }, 30000);
+                                            var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
+                                            var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
+                                            if (input && btn) {
+                                                // Set value using React's native setter if necessary
+                                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                                if (nativeInputValueSetter) {
+                                                    nativeInputValueSetter.call(input, '${twitterUrl}');
+                                                } else {
+                                                    input.value = '${twitterUrl}';
+                                                }
+                                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                                
+                                                setTimeout(function() {
+                                                    btn.click();
+                                                    
+                                                    // Wait for result links
+                                                    var tries = 0;
+                                                    var check = setInterval(function() {
+                                                        tries++;
+                                                        var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
+                                                        var validLink = null;
+                                                        for (var i = 0; i < resLinks.length; i++) {
+                                                            if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
+                                                                validLink = resLinks[i].href;
+                                                                break;
+                                                            }
+                                                        }
+                                                        
+                                                        if (validLink) {
+                                                            clearInterval(check);
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
+                                                        } else if (tries > 20) {
+                                                            clearInterval(check);
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for SnapAny result' }));
+                                                        }
+                                                    }, 1000);
+                                                }, 500);
+                                            } else {
+                                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'SnapAny form not found' }));
+                                            }
+                                        }, 2000);
                                         true;
                                     `}
                                     onMessage={handleWebViewMessage}
                                     javaScriptEnabled={true}
                                     originWhitelist={['https://*', 'http://*']}
-                                    onShouldStartLoadWithRequest={(request) => {
-                                        if (request.url === 'about:blank' || request.url.startsWith('data:') || request.url === 'https://x.com/') return true;
-                                        return false;
-                                    }}
                                 />
                             </View>
                         )
