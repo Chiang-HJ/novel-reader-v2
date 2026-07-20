@@ -134,7 +134,7 @@ export const ComicDownloadProvider = ({ children }) => {
                 for (let j = 0; j < chapterResult.images.length; j++) {
                     const base64OrUrl = chapterResult.images[j];
                     setProgressText('正在下載圖片 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
-                    const localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl);
+                    let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl);
                     
                     // Offline Descrambling
                     try {
@@ -158,11 +158,19 @@ export const ComicDownloadProvider = ({ children }) => {
                                 let scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: FileSystem.EncodingType.Base64 });
                                 const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
                                 const cleanBase64 = descrambledBase64.replace(/^data:image\/\w+;base64,/, '');
-                                await FileSystem.writeAsStringAsync(localPath, cleanBase64, { encoding: FileSystem.EncodingType.Base64 });
+                                
+                                // Since DescrambleWebView forces canvas.toDataURL('image/jpeg'), we must save as .jpg
+                                // Otherwise, React Native iOS <Image> will try to decode JPEG data as WEBP and render blank!
+                                const newPath = localPath.replace(/\.webp$/i, '.jpg').replace(/\.png$/i, '.jpg');
+                                await FileSystem.writeAsStringAsync(newPath, cleanBase64, { encoding: FileSystem.EncodingType.Base64 });
+                                
+                                if (newPath !== localPath) {
+                                    try { await FileSystem.deleteAsync(localPath, { idempotent: true }); } catch (e) {}
+                                    localPath = newPath;
+                                }
                             }
                         }
                     } catch(e) {
-
                     }
                     
                     localPages.push(localPath);
