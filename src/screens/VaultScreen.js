@@ -923,14 +923,6 @@ export default function VaultScreen({ navigation }) {
                             <Text style={{ color: colors.textSecondary, fontSize: 12, textDecorationLine: 'underline' }}>深度抓取 (若抓不到再點)</Text>
                         </TouchableOpacity>
                     </KeyboardAvoidingView>
-                                    `}
-                                    onMessage={handleWebViewMessage}
-                                    javaScriptEnabled={true}
-                                    originWhitelist={['https://*', 'http://*']}
-                                />
-                            </View>
-                        )
-                    ) : null}
                     
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center', paddingHorizontal: 16 }}>
                         {isSelectionMode ? (
