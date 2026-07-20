@@ -57,6 +57,8 @@ export default function VaultScreen({ navigation }) {
     const [isStorageInspectorVisible, setIsStorageInspectorVisible] = useState(false);
     const [storageInspectorData, setStorageInspectorData] = useState([]);
     const [storageInspectorTitle, setStorageInspectorTitle] = useState('');
+    const [inspectorPathStack, setInspectorPathStack] = useState([]);
+    const [inspectorFilePreview, setInspectorFilePreview] = useState(null); // null or { type, uri, content }
     
     // Tag management state
     const [availableTags, setAvailableTags] = useState([]);
@@ -377,30 +379,33 @@ export default function VaultScreen({ navigation }) {
         );
     };
 
-    const openStorageInspector = async (item) => {
-        setStorageInspectorTitle(item.name);
-        setStorageInspectorData([]);
-        setIsStorageInspectorVisible(true);
-        
+    const loadInspectorPath = async (path, title, isBack = false) => {
         try {
             const result = [];
-            const info = await FileSystem.getInfoAsync(item.path);
+            const info = await FileSystem.getInfoAsync(path);
             if (!info.exists) {
                 setStorageInspectorData([{ name: 'Directory missing', size: 0, isDir: false }]);
                 return;
             }
             
-            // If it's a file
             if (!info.isDirectory) {
-                result.push({ name: item.path.split('/').pop(), size: info.size, isDir: false });
-                setStorageInspectorData(result);
+                // If it's a file, preview it instead of listing
+                const ext = path.split('.').pop().toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+                    setInspectorFilePreview({ type: 'image', uri: path });
+                } else if (['json', 'txt', 'md'].includes(ext)) {
+                    const content = await FileSystem.readAsStringAsync(path);
+                    setInspectorFilePreview({ type: 'text', content });
+                } else {
+                    Alert.alert('不支援預覽', `無法預覽此檔案類型 (.${ext})`);
+                }
                 return;
             }
             
             // If it's a directory, read contents
-            const children = await FileSystem.readDirectoryAsync(item.path);
+            const children = await FileSystem.readDirectoryAsync(path);
             for (const child of children) {
-                const childPath = `${item.path}/${child}`;
+                const childPath = `${path}/${child}`;
                 const childInfo = await FileSystem.getInfoAsync(childPath);
                 
                 if (childInfo.isDirectory) {
@@ -419,23 +424,52 @@ export default function VaultScreen({ navigation }) {
                         name: `${child}/`, 
                         size: totalSize, 
                         isDir: true,
-                        details: `${fileCount} files`
+                        details: `${fileCount} files`,
+                        path: childPath
                     });
                 } else {
                     result.push({
                         name: child,
                         size: childInfo.size,
-                        isDir: false
+                        isDir: false,
+                        path: childPath
                     });
                 }
             }
             
             result.sort((a, b) => b.size - a.size);
             setStorageInspectorData(result);
+            setStorageInspectorTitle(title);
+            
+            if (!isBack) {
+                setInspectorPathStack(prev => [...prev, { path, title }]);
+            }
         } catch (e) {
             Alert.alert('Error', e.message);
+        }
+    };
+
+    const handleInspectorBack = () => {
+        if (inspectorFilePreview) {
+            setInspectorFilePreview(null);
+            return;
+        }
+        if (inspectorPathStack.length > 1) {
+            const newStack = [...inspectorPathStack];
+            newStack.pop();
+            setInspectorPathStack(newStack);
+            const parent = newStack[newStack.length - 1];
+            loadInspectorPath(parent.path, parent.title, true);
+        } else {
             setIsStorageInspectorVisible(false);
         }
+    };
+
+    const openStorageInspector = (item) => {
+        setInspectorPathStack([]);
+        setInspectorFilePreview(null);
+        setIsStorageInspectorVisible(true);
+        loadInspectorPath(item.path, item.name, false);
     };
 
     const displayedMedia = useMemo(() => {
@@ -1411,38 +1445,67 @@ export default function VaultScreen({ navigation }) {
                 visible={isStorageInspectorVisible}
                 animationType="slide"
                 transparent={true}
-                onRequestClose={() => setIsStorageInspectorVisible(false)}
+                onRequestClose={handleInspectorBack}
             >
                 <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center' }]}>
                     <View style={[styles.modalContent, { backgroundColor: colors.background, width: '90%', height: '80%', borderRadius: 16 }]}>
                         <View style={[styles.modalHeader, { padding: 16 }]}>
-                            <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>
-                                {storageInspectorTitle}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                                {(inspectorPathStack.length > 1 || inspectorFilePreview) && (
+                                    <TouchableOpacity onPress={handleInspectorBack} style={{ marginRight: 12 }}>
+                                        <Feather name="arrow-left" size={24} color={colors.text} />
+                                    </TouchableOpacity>
+                                )}
+                                <Text style={[styles.modalTitle, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+                                    {inspectorFilePreview ? inspectorFilePreview.uri?.split('/').pop() || '預覽' : storageInspectorTitle}
+                                </Text>
+                            </View>
                             <TouchableOpacity onPress={() => setIsStorageInspectorVisible(false)}>
                                 <Feather name="x" size={24} color={colors.text} />
                             </TouchableOpacity>
                         </View>
-                        <FlatList
-                            data={storageInspectorData}
-                            keyExtractor={item => item.name}
-                            contentContainerStyle={{ padding: 16 }}
-                            renderItem={({ item }) => (
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-                                        <Feather name={item.isDir ? "folder" : "file"} size={20} color={item.isDir ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
-                                        <View>
-                                            <Text style={{ color: colors.text, fontSize: 16 }}>{item.name}</Text>
-                                            {item.details && <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{item.details}</Text>}
+                        
+                        {inspectorFilePreview ? (
+                            <View style={{ flex: 1 }}>
+                                {inspectorFilePreview.type === 'image' ? (
+                                    <Image 
+                                        source={{ uri: inspectorFilePreview.uri }} 
+                                        style={{ flex: 1, width: '100%', height: '100%' }} 
+                                        resizeMode="contain" 
+                                    />
+                                ) : (
+                                    <ScrollView style={{ flex: 1, padding: 16 }}>
+                                        <Text style={{ color: colors.text, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 }}>
+                                            {inspectorFilePreview.content}
+                                        </Text>
+                                    </ScrollView>
+                                )}
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={storageInspectorData}
+                                keyExtractor={item => item.name}
+                                contentContainerStyle={{ padding: 16 }}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity 
+                                        onPress={() => loadInspectorPath(item.path, item.name)}
+                                        style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                                    >
+                                        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                                            <Feather name={item.isDir ? "folder" : "file"} size={20} color={item.isDir ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
+                                            <View>
+                                                <Text style={{ color: colors.text, fontSize: 16 }}>{item.name}</Text>
+                                                {item.details && <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{item.details}</Text>}
+                                            </View>
                                         </View>
-                                    </View>
-                                    <Text style={{ color: colors.textSecondary, fontSize: 14 }}>{formatBytes(item.size)}</Text>
-                                </View>
-                            )}
-                            ListEmptyComponent={
-                                <Text style={{ color: colors.textSecondary, textAlign: 'center', marginTop: 20 }}>查無資料</Text>
-                            }
-                        />
+                                        <Text style={{ color: colors.textSecondary, fontSize: 14 }}>{formatBytes(item.size)}</Text>
+                                    </TouchableOpacity>
+                                )}
+                                ListEmptyComponent={
+                                    <Text style={{ color: colors.textSecondary, textAlign: 'center', marginTop: 20 }}>查無資料</Text>
+                                }
+                            />
+                        )}
                     </View>
                 </View>
             </Modal>
