@@ -1,4 +1,4 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const NOVELS_KEY = '@novels_list';
@@ -230,7 +230,13 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData) 
             
             // It's a URL - download the file directly
             const filePath = `${imagesDir}${fileName}`;
-            const result = await FileSystem.downloadAsync(imageData, filePath);
+            const downloadOptions = {
+                headers: {
+                    'Referer': 'https://18comic.vip/',
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+                }
+            };
+            const result = await FileSystem.downloadAsync(imageData, filePath, downloadOptions);
             return result.uri;
         } else {
             const filePath = `${imagesDir}${fileName}`;
