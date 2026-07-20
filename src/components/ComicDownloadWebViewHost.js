@@ -101,7 +101,7 @@ export default function ComicDownloadWebViewHost() {
                                 }
                             }
                             if (imgs.length > 0) {
-                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: imgs }));
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: imgs, cookies: document.cookie }));
                             } else {
                                 // Canvas tainted - fall back to collecting raw image URLs
                                 // STRICT filter: only get images that are actual comic pages
@@ -116,7 +116,7 @@ export default function ComicDownloadWebViewHost() {
                                 }
                                 
                                 if (fallbackImgs.length > 0) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: fallbackImgs }));
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: fallbackImgs, cookies: document.cookie }));
                                 } else {
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', error: 'canvas tainted and no fallback img URLs found' }));
                                 }
@@ -136,7 +136,7 @@ export default function ComicDownloadWebViewHost() {
                                 }
                             }
                             if (imgs.length > 0) {
-                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: imgs }));
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', images: imgs, cookies: document.cookie }));
                             } else {
                                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'photoData', error: 'no images found' }));
                             }

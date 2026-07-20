@@ -134,7 +134,7 @@ export const ComicDownloadProvider = ({ children }) => {
                 for (let j = 0; j < chapterResult.images.length; j++) {
                     const base64OrUrl = chapterResult.images[j];
                     setProgressText('正在下載圖片 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
-                    let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl);
+                    let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, chapterResult.cookies);
                     
                     // Offline Descrambling
                     try {

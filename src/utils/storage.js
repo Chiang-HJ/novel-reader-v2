@@ -208,7 +208,7 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
     }
 };
 
-export const saveComicImage = async (novelId, chapterId, imageIndex, imageData) => {
+export const saveComicImage = async (novelId, chapterId, imageIndex, imageData, cookieStr = '') => {
     const imagesDir = `${getNovelDir(novelId)}images/`;
     try {
         const info = await FileSystem.getInfoAsync(imagesDir);
@@ -236,6 +236,9 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData) 
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
                 }
             };
+            if (cookieStr) {
+                downloadOptions.headers['Cookie'] = cookieStr;
+            }
             const result = await FileSystem.downloadAsync(imageData, filePath, downloadOptions);
             return result.uri;
         } else {

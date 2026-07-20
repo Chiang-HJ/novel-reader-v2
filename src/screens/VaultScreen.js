@@ -52,6 +52,11 @@ export default function VaultScreen({ navigation }) {
     // Storage Management state
     const [storageItems, setStorageItems] = useState([]);
     const [isScanningStorage, setIsScanningStorage] = useState(false);
+    const [isStorageSelectionMode, setIsStorageSelectionMode] = useState(false);
+    const [selectedStorageItems, setSelectedStorageItems] = useState(new Set());
+    const [isStorageInspectorVisible, setIsStorageInspectorVisible] = useState(false);
+    const [storageInspectorData, setStorageInspectorData] = useState([]);
+    const [storageInspectorTitle, setStorageInspectorTitle] = useState('');
     
     // Tag management state
     const [availableTags, setAvailableTags] = useState([]);
@@ -332,6 +337,105 @@ export default function VaultScreen({ navigation }) {
                 }}
             ]
         );
+    };
+    const handleBatchDeleteStorageItems = () => {
+        if (selectedStorageItems.size === 0) return;
+        Alert.alert(
+            '批次刪除',
+            `確定要刪除選取的 ${selectedStorageItems.size} 個項目嗎？`,
+            [
+                { text: '取消', style: 'cancel' },
+                { text: '確定刪除', style: 'destructive', onPress: async () => {
+                    try {
+                        let newMediaList = [...mediaList];
+                        for (const id of selectedStorageItems) {
+                            const item = storageItems.find(i => i.id === id);
+                            if (!item) continue;
+                            if (item.type === 'novel' && !item.isOrphan) {
+                                await deleteNovel(item.rawId);
+                            } else if (item.type === 'media' && !item.isOrphan) {
+                                newMediaList = newMediaList.filter(m => m.id !== item.rawId);
+                                await FileSystem.deleteAsync(item.path, { idempotent: true });
+                            } else {
+                                await FileSystem.deleteAsync(item.path, { idempotent: true });
+                            }
+                        }
+                        
+                        if (newMediaList.length !== mediaList.length) {
+                            setMediaList(newMediaList);
+                            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMediaList));
+                        }
+                        loadBookshelf();
+                        scanStorage();
+                        setIsStorageSelectionMode(false);
+                        setSelectedStorageItems(new Set());
+                    } catch (e) {
+                        Alert.alert('刪除失敗', e.message);
+                    }
+                }}
+            ]
+        );
+    };
+
+    const openStorageInspector = async (item) => {
+        setStorageInspectorTitle(item.name);
+        setStorageInspectorData([]);
+        setIsStorageInspectorVisible(true);
+        
+        try {
+            const result = [];
+            const info = await FileSystem.getInfoAsync(item.path);
+            if (!info.exists) {
+                setStorageInspectorData([{ name: 'Directory missing', size: 0, isDir: false }]);
+                return;
+            }
+            
+            // If it's a file
+            if (!info.isDirectory) {
+                result.push({ name: item.path.split('/').pop(), size: info.size, isDir: false });
+                setStorageInspectorData(result);
+                return;
+            }
+            
+            // If it's a directory, read contents
+            const children = await FileSystem.readDirectoryAsync(item.path);
+            for (const child of children) {
+                const childPath = `${item.path}/${child}`;
+                const childInfo = await FileSystem.getInfoAsync(childPath);
+                
+                if (childInfo.isDirectory) {
+                    let totalSize = 0;
+                    let fileCount = 0;
+                    try {
+                        const grandChildren = await FileSystem.readDirectoryAsync(childPath);
+                        fileCount = grandChildren.length;
+                        for (const gc of grandChildren) {
+                            const gcInfo = await FileSystem.getInfoAsync(`${childPath}/${gc}`);
+                            if (!gcInfo.isDirectory) totalSize += gcInfo.size;
+                        }
+                    } catch (e) {}
+                    
+                    result.push({ 
+                        name: `${child}/`, 
+                        size: totalSize, 
+                        isDir: true,
+                        details: `${fileCount} files`
+                    });
+                } else {
+                    result.push({
+                        name: child,
+                        size: childInfo.size,
+                        isDir: false
+                    });
+                }
+            }
+            
+            result.sort((a, b) => b.size - a.size);
+            setStorageInspectorData(result);
+        } catch (e) {
+            Alert.alert('Error', e.message);
+            setIsStorageInspectorVisible(false);
+        }
     };
 
     const displayedMedia = useMemo(() => {
@@ -689,37 +793,98 @@ export default function VaultScreen({ navigation }) {
                             contentContainerStyle={{ padding: 16 }}
                             ListHeaderComponent={
                                 <View style={{ marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
-                                        總共 {storageItems.length} 個項目
-                                    </Text>
-                                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: 'bold' }}>
-                                        合計: {formatBytes(storageItems.reduce((acc, curr) => acc + curr.size, 0))}
-                                    </Text>
+                                    <View>
+                                        <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+                                            總共 {storageItems.length} 個項目
+                                        </Text>
+                                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: 'bold' }}>
+                                            合計: {formatBytes(storageItems.reduce((acc, curr) => acc + curr.size, 0))}
+                                        </Text>
+                                    </View>
+                                    
+                                    <View style={{ flexDirection: 'row' }}>
+                                        {isStorageSelectionMode ? (
+                                            <>
+                                                <TouchableOpacity 
+                                                    style={[styles.headerBtn, { backgroundColor: 'rgba(255, 68, 68, 0.1)', marginRight: 8 }]}
+                                                    onPress={handleBatchDeleteStorageItems}
+                                                >
+                                                    <Feather name="trash-2" size={16} color="#ff4444" />
+                                                    <Text style={{ color: '#ff4444', marginLeft: 4 }}>刪除 ({selectedStorageItems.size})</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={[styles.headerBtn, { backgroundColor: colors.surface }]}
+                                                    onPress={() => {
+                                                        setIsStorageSelectionMode(false);
+                                                        setSelectedStorageItems(new Set());
+                                                    }}
+                                                >
+                                                    <Text style={{ color: colors.text }}>取消</Text>
+                                                </TouchableOpacity>
+                                            </>
+                                        ) : (
+                                            <TouchableOpacity 
+                                                style={[styles.headerBtn, { backgroundColor: colors.surface }]}
+                                                onPress={() => setIsStorageSelectionMode(true)}
+                                            >
+                                                <Feather name="check-square" size={16} color={colors.text} />
+                                                <Text style={{ color: colors.text, marginLeft: 4 }}>選取</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
                                 </View>
                             }
                             renderItem={({ item }) => (
-                                <View style={[styles.storageItem, { backgroundColor: colors.surface, borderLeftColor: item.isOrphan ? (colors.danger || '#ff4444') : colors.primary }]}>
-                                    <View style={{ flex: 1, marginRight: 12 }}>
-                                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }} numberOfLines={1}>
-                                            {item.name}
-                                        </Text>
-                                        <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                                            {item.type === 'novel' ? '📚 書籍/文章' : '🖼️ 媒體檔案'} {item.isOrphan && ' (未知殘留)'}
-                                        </Text>
+                                <TouchableOpacity 
+                                    style={[styles.storageItem, { backgroundColor: selectedStorageItems.has(item.id) ? (colors.primary + '20') : colors.surface, borderLeftColor: item.isOrphan ? (colors.danger || '#ff4444') : colors.primary }]}
+                                    onPress={() => {
+                                        if (isStorageSelectionMode) {
+                                            const newSet = new Set(selectedStorageItems);
+                                            if (newSet.has(item.id)) newSet.delete(item.id);
+                                            else newSet.add(item.id);
+                                            setSelectedStorageItems(newSet);
+                                        } else {
+                                            openStorageInspector(item);
+                                        }
+                                    }}
+                                    onLongPress={() => {
+                                        if (!isStorageSelectionMode) {
+                                            setIsStorageSelectionMode(true);
+                                            const newSet = new Set([item.id]);
+                                            setSelectedStorageItems(newSet);
+                                        }
+                                    }}
+                                >
+                                    <View style={{ flex: 1, marginRight: 12, flexDirection: 'row', alignItems: 'center' }}>
+                                        {isStorageSelectionMode && (
+                                            <View style={[styles.checkbox, { borderColor: selectedStorageItems.has(item.id) ? colors.primary : colors.border, backgroundColor: selectedStorageItems.has(item.id) ? colors.primary : 'transparent', marginRight: 12 }]}>
+                                                {selectedStorageItems.has(item.id) && <Feather name="check" size={14} color="#fff" />}
+                                            </View>
+                                        )}
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }} numberOfLines={1}>
+                                                {item.name}
+                                            </Text>
+                                            <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
+                                                {item.type === 'novel' ? '📚 書籍/文章' : '🖼️ 媒體檔案'} {item.isOrphan && ' (未知殘留)'}
+                                            </Text>
+                                        </View>
                                     </View>
                                     <View style={{ alignItems: 'flex-end' }}>
                                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: 'bold', marginBottom: 8 }}>
                                             {formatBytes(item.size)}
                                         </Text>
-                                        <TouchableOpacity 
-                                            style={[styles.storageDeleteBtn, { backgroundColor: 'rgba(255, 68, 68, 0.1)' }]}
-                                            onPress={() => handleDeleteStorageItem(item)}
-                                        >
-                                            <Feather name="trash-2" size={16} color="#ff4444" />
-                                            <Text style={{ color: '#ff4444', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>刪除</Text>
-                                        </TouchableOpacity>
+                                        {!isStorageSelectionMode && (
+                                            <TouchableOpacity 
+                                                style={[styles.storageDeleteBtn, { backgroundColor: 'rgba(255, 68, 68, 0.1)' }]}
+                                                onPress={() => handleDeleteStorageItem(item)}
+                                            >
+                                                <Feather name="trash-2" size={16} color="#ff4444" />
+                                                <Text style={{ color: '#ff4444', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>刪除</Text>
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             )}
                             ListEmptyComponent={
                                 <View style={{ padding: 32, alignItems: 'center' }}>
@@ -1241,6 +1406,46 @@ export default function VaultScreen({ navigation }) {
                     <ActivityIndicator size="large" color={colors.primary} />
                 </View>
             )}
+
+            <Modal
+                visible={isStorageInspectorVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setIsStorageInspectorVisible(false)}
+            >
+                <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.background, width: '90%', height: '80%', borderRadius: 16 }]}>
+                        <View style={[styles.modalHeader, { padding: 16 }]}>
+                            <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>
+                                {storageInspectorTitle}
+                            </Text>
+                            <TouchableOpacity onPress={() => setIsStorageInspectorVisible(false)}>
+                                <Feather name="x" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <FlatList
+                            data={storageInspectorData}
+                            keyExtractor={item => item.name}
+                            contentContainerStyle={{ padding: 16 }}
+                            renderItem={({ item }) => (
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                                        <Feather name={item.isDir ? "folder" : "file"} size={20} color={item.isDir ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
+                                        <View>
+                                            <Text style={{ color: colors.text, fontSize: 16 }}>{item.name}</Text>
+                                            {item.details && <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{item.details}</Text>}
+                                        </View>
+                                    </View>
+                                    <Text style={{ color: colors.textSecondary, fontSize: 14 }}>{formatBytes(item.size)}</Text>
+                                </View>
+                            )}
+                            ListEmptyComponent={
+                                <Text style={{ color: colors.textSecondary, textAlign: 'center', marginTop: 20 }}>查無資料</Text>
+                            }
+                        />
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
