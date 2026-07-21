@@ -179,17 +179,6 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
             <View style={{ width: displayWidth, height: displayHeight }}>
                 {pieces}
             </View>
-            <View style={{ position: 'absolute', top: 50, left: 20, backgroundColor: 'rgba(0,0,0,0.8)', padding: 10, borderRadius: 5, zIndex: 999 }}>
-                <Text style={{ color: 'red', fontSize: 16, fontWeight: 'bold' }}>
-                    Mode: {algorithmMode}
-                </Text>
-                <Text style={{ color: 'red', fontSize: 16, fontWeight: 'bold' }}>
-                    ID: {photo_id} | Num: {num}
-                </Text>
-                <Text style={{ color: 'red', fontSize: 16, fontWeight: 'bold' }}>
-                    File: {filename}
-                </Text>
-            </View>
         </View>
     );
 };

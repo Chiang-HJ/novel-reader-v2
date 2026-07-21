@@ -263,6 +263,13 @@ export default function TocScreen({ route, navigation }) {
             <FlatList 
                 data={novel.chapters}
                 keyExtractor={(item, index) => index.toString()}
+                initialNumToRender={15}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
+                getItemLayout={(data, index) => (
+                    {length: 50, offset: 50 * index, index}
+                )}
                 ListHeaderComponent={
                     <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
                         <TouchableOpacity

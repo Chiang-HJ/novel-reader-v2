@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal, InteractionManager } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
@@ -61,8 +61,12 @@ export default function ReaderScreen({ route, navigation }) {
     // Save exact sentence progress whenever it changes (e.g. from manual paging or TTS)
     useEffect(() => {
         if (novelRef.current && chapterIndexRef.current !== null && currentSentenceIndex !== null) {
-            // Debounce or just save directly since AsyncStorage is reasonably fast
-            updateReadingProgress(novelRef.current.id, chapterIndexRef.current, currentSentenceIndex);
+            // Use debounce to prevent rapid AsyncStorage writes locking up the UI
+            const timer = setTimeout(() => {
+                updateReadingProgress(novelRef.current.id, chapterIndexRef.current, currentSentenceIndex);
+            }, 3000); // 3 second debounce
+            
+            return () => clearTimeout(timer);
         }
     }, [currentSentenceIndex]);
 
@@ -296,10 +300,12 @@ export default function ReaderScreen({ route, navigation }) {
             }
         };
 
-        loadSettings();
-        setupAudio();
-        loadNovel();
-        loadVoices();
+        InteractionManager.runAfterInteractions(() => {
+            loadSettings();
+            setupAudio();
+            loadNovel();
+            loadVoices();
+        });
         return () => {
             Speech.stop();
 

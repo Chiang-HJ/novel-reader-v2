@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert, InteractionManager } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
@@ -59,10 +59,6 @@ const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
                 }}
                 onError={() => setError(true)}
             />
-            {/* Debug Overlay */}
-            <Text style={{ position: 'absolute', top: 5, left: 5, color: 'rgba(255,255,255,0.3)', fontSize: 8, maxWidth: screenWidth - 10 }} numberOfLines={2}>
-                {uri}
-            </Text>
         </View>
     );
 };
@@ -116,7 +112,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                 setIsLoading(false);
             }
         };
-        loadInitialData();
+        InteractionManager.runAfterInteractions(() => {
+            loadInitialData();
+        });
     }, []);
 
     const loadChapter = async (index, novelData) => {
@@ -376,8 +374,11 @@ export default function ComicReaderScreen({ route, navigation }) {
                     }
                 />
             ) : (
-                <ScrollView
+                <FlatList
                     ref={scrollViewRef}
+                    data={pages}
+                    keyExtractor={(item, index) => index.toString()}
+                    renderItem={renderPage}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -390,13 +391,10 @@ export default function ComicReaderScreen({ route, navigation }) {
                     showsVerticalScrollIndicator={false}
                     style={{ flex: 1, width: width }}
                     removeClippedSubviews={Platform.OS === 'android'}
-                >
-                    {pages.map((p, index) => (
-                        <React.Fragment key={index}>
-                            {renderPage({ item: p, index })}
-                        </React.Fragment>
-                    ))}
-                </ScrollView>
+                    initialNumToRender={2}
+                    maxToRenderPerBatch={2}
+                    windowSize={3}
+                />
             )}
 
             {/* Footer */}

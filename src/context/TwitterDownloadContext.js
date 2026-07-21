@@ -130,15 +130,15 @@ export const TwitterDownloadProvider = ({ children }) => {
                 }
 
                 if (newlyAddedMedia.length > 0) {
-                    const VAULT_MEDIA_KEY = '@novel_reader_vault_media';
+                    const VAULT_MEDIA_KEY = '@vault_media';
                     const stored = await AsyncStorage.getItem(VAULT_MEDIA_KEY);
                     let currentMedia = stored ? JSON.parse(stored) : [];
                     const newMedia = [...newlyAddedMedia, ...currentMedia];
                     await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
                     setVaultMediaUpdated(Date.now());
-                    Alert.alert('下載成功', `成功儲存 ${newlyAddedMedia.length} 個媒體檔案。`);
+                    Alert.alert('下載完成', `已成功加入 ${newlyAddedMedia.length} 個媒體檔案至私密金庫。`);
                 } else {
-                    Alert.alert('下載失敗', '無法下載檔案。');
+                    Alert.alert('下載失敗', '沒有下載任何檔案。');
                 }
             } catch (e) {
                 Alert.alert('下載錯誤', e.message);
