@@ -5,19 +5,9 @@ import { getScramblePieces } from '../utils/comicUtils';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIGHT, screenWidth = SCREEN_WIDTH, algorithmMode = 0 }) => {
-    const [dimensions, setDimensions] = useState(null);
+    const [dimensions, setDimensions] = useState({ w: screenWidth, h: screenWidth * 1.5 }); // Default fallback
     const [error, setError] = useState(false);
-
-    useEffect(() => {
-        let isMounted = true;
-        Image.getSize(uri, (w, h) => {
-            if (isMounted) setDimensions({ w, h });
-        }, (err) => {
-
-            if (isMounted) setError(true);
-        });
-        return () => { isMounted = false; };
-    }, [uri]);
+    const [isLoaded, setIsLoaded] = useState(false);
 
     if (error) {
         return (
@@ -27,10 +17,23 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
         );
     }
 
-    if (!dimensions) {
+    if (!isLoaded && !error) {
+        // Render a hidden image to get its size, while showing a loading indicator
         return (
             <View style={{ width: screenWidth, height: 300, justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="small" color="#888" />
+                <Image 
+                    source={{ uri }} 
+                    style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }} 
+                    onLoad={(e) => {
+                        const { width, height } = e.nativeEvent.source;
+                        if (width > 0 && height > 0) {
+                            setDimensions({ w: width, h: height });
+                        }
+                        setIsLoaded(true);
+                    }}
+                    onError={() => setError(true)}
+                />
             </View>
         );
     }

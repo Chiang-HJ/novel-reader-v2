@@ -20,17 +20,6 @@ const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
     const [imgHeight, setImgHeight] = useState(screenWidth / 0.7);
     const [error, setError] = useState(false);
 
-    useEffect(() => {
-        let isMounted = true;
-        Image.getSize(uri, (w, h) => {
-            if (isMounted && w > 0 && h > 0) {
-                setImgHeight(screenWidth * (h / w));
-            }
-        }, () => {
-            if (isMounted) setError(true);
-        });
-        return () => { isMounted = false; };
-    }, [uri]);
 
     if (error) {
         return (
@@ -49,6 +38,13 @@ const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
                 height: isHorizontal ? screenHeight : imgHeight
             }} 
             resizeMode={isHorizontal ? "contain" : "cover"} 
+            onLoad={(e) => {
+                const { width: w, height: h } = e.nativeEvent.source;
+                if (w > 0 && h > 0) {
+                    setImgHeight(screenWidth * (h / w));
+                }
+            }}
+            onError={() => setError(true)}
         />
     );
 };
@@ -219,13 +215,18 @@ export default function ComicReaderScreen({ route, navigation }) {
     // iOS Document Directory changes UUID across app updates. 
     // We must dynamically fix old absolute paths.
     const resolveLocalPath = (path) => {
+        let resolved = path;
         if (typeof path === 'string' && path.includes('/novels/')) {
             const parts = path.split('/novels/');
             if (parts.length > 1) {
-                return FileSystem.documentDirectory + 'novels/' + parts[1];
+                resolved = FileSystem.documentDirectory + 'novels/' + parts[1];
             }
         }
-        return path;
+        // Ensure it has file:// prefix if it's an absolute path starting with /
+        if (typeof resolved === 'string' && resolved.startsWith('/') && !resolved.startsWith('file://')) {
+            resolved = 'file://' + resolved;
+        }
+        return resolved;
     };
 
     const changeZoomRatio = async (ratio) => {
