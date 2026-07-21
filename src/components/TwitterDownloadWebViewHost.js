@@ -41,16 +41,22 @@ const TwitterDownloadWebViewHost = () => {
                                     
                                     setInterval(function() {
                                         var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
-                                        var validLink = null;
+                                        var validLinks = [];
+                                        var seenIds = {};
                                         for (var i = 0; i < resLinks.length; i++) {
-                                            if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
-                                                validLink = resLinks[i].href;
-                                                break;
+                                            var href = resLinks[i].href;
+                                            if (href && href.startsWith('http') && !href.includes('snapany.com')) {
+                                                var match = href.match(/(?:ext_tw_video|amplify_video|tweet_video|vid)\/([^\/]+)/);
+                                                var vidId = match ? match[1] : href;
+                                                if (!seenIds[vidId]) {
+                                                    seenIds[vidId] = true;
+                                                    validLinks.push(href);
+                                                }
                                             }
                                         }
-                                        if (validLink && !window.didExtractTwitter) {
+                                        if (validLinks.length > 0 && !window.didExtractTwitter) {
                                             window.didExtractTwitter = true;
-                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: validLinks }));
                                         }
                                     }, 1000);
                                 }
@@ -91,17 +97,23 @@ const TwitterDownloadWebViewHost = () => {
                                 var check = setInterval(function() {
                                     tries++;
                                     var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
-                                    var validLink = null;
+                                    var validLinks = [];
+                                    var seenIds = {};
                                     for (var i = 0; i < resLinks.length; i++) {
-                                        if (resLinks[i].href && resLinks[i].href.startsWith('http') && !resLinks[i].href.includes('snapany.com')) {
-                                            validLink = resLinks[i].href;
-                                            break;
+                                        var href = resLinks[i].href;
+                                        if (href && href.startsWith('http') && !href.includes('snapany.com')) {
+                                            var match = href.match(/(?:ext_tw_video|amplify_video|tweet_video|vid)\/([^\/]+)/);
+                                            var vidId = match ? match[1] : href;
+                                            if (!seenIds[vidId]) {
+                                                seenIds[vidId] = true;
+                                                validLinks.push(href);
+                                            }
                                         }
                                     }
                                     
-                                    if (validLink) {
+                                    if (validLinks.length > 0) {
                                         clearInterval(check);
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', url: validLink }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: validLinks }));
                                     } else if (tries > 20) {
                                         clearInterval(check);
                                         window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for SnapAny result' }));
