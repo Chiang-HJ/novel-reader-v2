@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
 import { WebView } from 'react-native-webview';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import ScrambledImage from '../components/ScrambledImage';
@@ -19,33 +19,51 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
     const [imgHeight, setImgHeight] = useState(screenWidth / 0.7);
     const [error, setError] = useState(false);
-
+    const [loaded, setLoaded] = useState(false);
 
     if (error) {
         return (
-            <View style={{ width: screenWidth, height: 300, justifyContent: 'center', alignItems: 'center' }}>
-                <Text style={{ color: '#ff4444' }}>圖片遺失或損毀</Text>
-                <Text style={{ color: '#888', fontSize: 12, marginTop: 4 }}>{uri ? uri.split('/').pop() : 'Unknown'}</Text>
-            </View>
+            <TouchableOpacity onPress={async () => {
+                try {
+                    const info = await FileSystem.getInfoAsync(uri);
+                    Alert.alert('檔案資訊', `存在 (Exists): ${info.exists}\n大小 (Size): ${info.size}\n\n路徑: ${info.uri}`);
+                } catch (e) {
+                    Alert.alert('檢查失敗', `錯誤訊息: ${e.message}\n\nURI 型別: ${typeof uri}\nURI 內容: ${JSON.stringify(uri)}`);
+                }
+            }}>
+                <View style={{ width: screenWidth, minHeight: 300, justifyContent: 'center', alignItems: 'center', backgroundColor: '#222' }}>
+                    <Text style={{ color: '#ff4444', fontSize: 16, fontWeight: 'bold' }}>圖片載入失敗 (點擊檢查檔案)</Text>
+                    <Text style={{ color: '#aaa', fontSize: 10, marginTop: 8, paddingHorizontal: 10, textAlign: 'center' }}>{uri}</Text>
+                </View>
+            </TouchableOpacity>
         );
     }
 
     return (
-        <Image 
-            source={{ uri }} 
-            style={{ 
-                width: screenWidth, 
-                height: isHorizontal ? screenHeight : imgHeight
-            }} 
-            resizeMode={isHorizontal ? "contain" : "cover"} 
-            onLoad={(e) => {
-                const { width: w, height: h } = e.nativeEvent.source;
-                if (w > 0 && h > 0) {
-                    setImgHeight(screenWidth * (h / w));
-                }
-            }}
-            onError={() => setError(true)}
-        />
+        <View style={{ width: screenWidth, height: isHorizontal ? screenHeight : imgHeight, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+            {!loaded && <ActivityIndicator size="small" color="#555" style={{ position: 'absolute' }} />}
+            <Image 
+                source={{ uri }} 
+                style={{ 
+                    width: screenWidth, 
+                    height: isHorizontal ? screenHeight : imgHeight,
+                    opacity: 1 // Fix iOS aborting invisible images
+                }} 
+                resizeMode={isHorizontal ? "contain" : "cover"} 
+                onLoad={(e) => {
+                    const { width: w, height: h } = e.nativeEvent.source;
+                    if (w > 0 && h > 0) {
+                        setImgHeight(screenWidth * (h / w));
+                    }
+                    setLoaded(true);
+                }}
+                onError={() => setError(true)}
+            />
+            {/* Debug Overlay */}
+            <Text style={{ position: 'absolute', top: 5, left: 5, color: 'rgba(255,255,255,0.3)', fontSize: 8, maxWidth: screenWidth - 10 }} numberOfLines={2}>
+                {uri}
+            </Text>
+        </View>
     );
 };
 
@@ -343,10 +361,19 @@ export default function ComicReaderScreen({ route, navigation }) {
                     renderItem={renderPage}
                     getItemLayout={(data, index) => ({ length: width, offset: width * index, index })}
                     removeClippedSubviews={Platform.OS === 'android'}
-                    initialNumToRender={3}
+                    initialNumToRender={2}
                     maxToRenderPerBatch={2}
-                    windowSize={5}
-                    style={{ flex: 1, width: width }}
+                    windowSize={3}
+                    ListEmptyComponent={
+                        isLoading ? null : (
+                            <View style={{ width, height, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+                                <Text style={{ color: '#fff', fontSize: 18, marginBottom: 10 }}>沒有找到任何頁面資料</Text>
+                                <Text style={{ color: '#888', fontSize: 12 }}>ID: {novelId}</Text>
+                                <Text style={{ color: '#888', fontSize: 12 }}>Pages Array Length: {pages.length}</Text>
+                                <Text style={{ color: '#888', fontSize: 12, marginTop: 10, paddingHorizontal: 20, textAlign: 'center' }}>如果圖片存在於空間管理中，代表章節資料 (JSON) 可能損毀或無法正確關聯。</Text>
+                            </View>
+                        )
+                    }
                 />
             ) : (
                 <ScrollView

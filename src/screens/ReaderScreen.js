@@ -18,7 +18,7 @@ import * as Brightness from 'expo-brightness';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TrackPlayer, { Capability, State } from 'react-native-track-player';
+import TrackPlayer, { Capability, State, Event, useTrackPlayerEvents } from 'react-native-track-player';
 
 
 export default function ReaderScreen({ route, navigation }) {
@@ -174,6 +174,23 @@ export default function ReaderScreen({ route, navigation }) {
         startTracking();
         return () => clearInterval(interval);
     }, []);
+    
+    // Fix background playback missing highlight when returning to foreground
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', nextAppState => {
+            if (nextAppState === 'active') {
+                if (isPagingModeRef.current && pagingWebViewRef.current) {
+                    pagingWebViewRef.current.injectJavaScript(`
+                        if (typeof highlightSentence === 'function') {
+                            highlightSentence(${currentSentenceIndex});
+                        }
+                        true;
+                    `);
+                }
+            }
+        });
+        return () => subscription.remove();
+    }, [currentSentenceIndex]);
     
     
 

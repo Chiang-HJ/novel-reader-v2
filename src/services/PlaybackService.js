@@ -8,7 +8,6 @@
 // because we don't have a real queue - chapter navigation is handled by the app.
 
 import TrackPlayer, { Event, State } from 'react-native-track-player';
-
 module.exports = async function() {
     TrackPlayer.addEventListener(Event.RemotePlay, async () => {
         await TrackPlayer.play();
