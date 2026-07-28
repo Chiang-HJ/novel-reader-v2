@@ -21,7 +21,7 @@ import FolderListItem from '../components/home/FolderListItem';
 
 export default function HomeScreen({ navigation }) {
     const { colors, isDark, themeName, availableThemes, changeTheme, themeId } = useTheme();
-    const { startDownload, cancelDownload, activeTask, progressText, queue, bookshelfUpdated } = useDownload();
+    const { startDownload, cancelDownload, activeTask, progressText, queue, bookshelfUpdated, pendingSelection, resumeDownload, cancelSelection } = useDownload();
     
     const [searchInput, setSearchInput] = useState('');
     const [bookshelf, setBookshelf] = useState([]);
@@ -29,6 +29,13 @@ export default function HomeScreen({ navigation }) {
     const [storageUsage, setStorageUsage] = useState('計算中...');
     const [readingStats, setReadingStats] = useState({ totalSeconds: 0 });
     const [isBackingUp, setIsBackingUp] = useState(false);
+    
+    // For Chapter Selection Modal
+    const [selectStartChapter, setSelectStartChapter] = useState('1');
+    const [selectEndChapter, setSelectEndChapter] = useState('1');
+
+    // For 7-day Sideload Timer
+    const [sideloadDaysLeft, setSideloadDaysLeft] = useState(null);
     
     const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
     const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
@@ -53,6 +60,7 @@ export default function HomeScreen({ navigation }) {
     useEffect(() => {
         const unsubscribe = navigation.addListener('focus', () => {
             loadBookshelf();
+            loadSideloadTimer();
         });
         return unsubscribe;
     }, [navigation]);
@@ -60,6 +68,54 @@ export default function HomeScreen({ navigation }) {
     useEffect(() => {
         loadBookshelf();
     }, [bookshelfUpdated]);
+
+    useEffect(() => {
+        if (pendingSelection) {
+            setSelectStartChapter('1');
+            setSelectEndChapter(pendingSelection.novelInfo.chapters.length.toString());
+        }
+    }, [pendingSelection]);
+
+    const loadSideloadTimer = async () => {
+        try {
+            const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+            const lastDateStr = await AsyncStorage.getItem('@sideload_date');
+            if (lastDateStr) {
+                const diffMs = Date.now() - parseInt(lastDateStr, 10);
+                const daysPassed = diffMs / (1000 * 60 * 60 * 24);
+                const left = 7 - daysPassed;
+                setSideloadDaysLeft(left < 0 ? 0 : left);
+            } else {
+                setSideloadDaysLeft(null); // Not set yet
+            }
+        } catch (e) {}
+    };
+
+    const handleResetSideloadTimer = async () => {
+        try {
+            const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+            await AsyncStorage.setItem('@sideload_date', Date.now().toString());
+            await loadSideloadTimer();
+            Alert.alert('已重置', '7 天簽名倒數已重置為今天！');
+        } catch (e) {}
+    };
+
+    const handleSubmitChapterSelection = () => {
+        if (!pendingSelection) return;
+        
+        let start = parseInt(selectStartChapter, 10) - 1; // Convert 1-based to 0-based index
+        let end = parseInt(selectEndChapter, 10); // end is exclusive in loop, so keep it as is
+        
+        if (isNaN(start) || start < 0) start = 0;
+        if (isNaN(end) || end > pendingSelection.novelInfo.chapters.length) end = pendingSelection.novelInfo.chapters.length;
+        
+        if (start >= end) {
+            Alert.alert('錯誤', '起始章節必須小於結束章節');
+            return;
+        }
+        
+        resumeDownload(start, end);
+    };
 
     const loadBookshelf = async () => {
         try {
@@ -441,9 +497,30 @@ export default function HomeScreen({ navigation }) {
             {/* Pinned Glassmorphism Header */}
             <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={styles.pinnedHeader}>
                 <View style={styles.appHeader}>
-                    <TouchableOpacity onLongPress={unlockVault} activeOpacity={0.8}>
-                        <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
-                    </TouchableOpacity>
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                        <TouchableOpacity onLongPress={unlockVault} activeOpacity={0.8}>
+                            <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
+                        </TouchableOpacity>
+
+                        {sideloadDaysLeft !== null && (
+                            <TouchableOpacity onPress={handleResetSideloadTimer}>
+                                <View style={{
+                                    backgroundColor: sideloadDaysLeft <= 2 ? '#FF3B30' : (isDark ? '#333' : '#eee'),
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    borderRadius: 12
+                                }}>
+                                    <Text style={{
+                                        color: sideloadDaysLeft <= 2 ? '#fff' : colors.textSecondary,
+                                        fontSize: 12,
+                                        fontWeight: 'bold'
+                                    }}>
+                                        憑證: {Math.max(0, sideloadDaysLeft).toFixed(1)} 天
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        )}
+                    </View>
                     <View style={styles.headerActions}>
                         <TouchableOpacity onPress={() => setIsSettingsModalVisible(true)} style={[styles.themeBtn, { backgroundColor: colors.surface }]}>
                             <Feather name="settings" size={16} color={colors.primary} style={{ marginRight: 6 }} />
@@ -663,6 +740,15 @@ export default function HomeScreen({ navigation }) {
                             <Feather name="download-cloud" size={20} color={colors.primary} style={{ marginRight: 12 }} />
                             <Text style={{ color: colors.text, fontSize: 16 }}>從備份檔還原</Text>
                         </TouchableOpacity>
+
+                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>開發者設定</Text>
+                        <TouchableOpacity 
+                            style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}
+                            onPress={handleResetSideloadTimer}
+                        >
+                            <Feather name="refresh-cw" size={20} color={colors.primary} style={{ marginRight: 12 }} />
+                            <Text style={{ color: colors.text, fontSize: 16 }}>重置 7 天簽名倒數</Text>
+                        </TouchableOpacity>
                         
                         <View style={{ marginTop: 24 }}>
                             <Button title="關閉" onPress={() => setIsSettingsModalVisible(false)} color={colors.textSecondary} />
@@ -742,6 +828,54 @@ export default function HomeScreen({ navigation }) {
                                 <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>
                                     {isImporting ? '解析並匯入中...' : '開始解析並匯入'}
                                 </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+            
+            {/* Chapter Selection Modal */}
+            <Modal visible={!!pendingSelection} transparent={true} animationType="fade">
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>選擇下載章節</Text>
+                        </View>
+                        
+                        <Text style={{color: colors.textSecondary, marginBottom: 15, fontSize: 14}}>
+                            《{pendingSelection?.novelInfo?.title}》共 {pendingSelection?.novelInfo?.chapters?.length} 章
+                        </Text>
+
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10}}>
+                            <Text style={{color: colors.text}}>從第</Text>
+                            <TextInput
+                                style={[{ flex: 1, color: colors.text, borderColor: colors.border, borderWidth: 1, height: 40, borderRadius: 8, paddingHorizontal: 10, textAlign: 'center' }]}
+                                value={selectStartChapter}
+                                onChangeText={setSelectStartChapter}
+                                keyboardType="number-pad"
+                            />
+                            <Text style={{color: colors.text}}>章，到第</Text>
+                            <TextInput
+                                style={[{ flex: 1, color: colors.text, borderColor: colors.border, borderWidth: 1, height: 40, borderRadius: 8, paddingHorizontal: 10, textAlign: 'center' }]}
+                                value={selectEndChapter}
+                                onChangeText={setSelectEndChapter}
+                                keyboardType="number-pad"
+                            />
+                            <Text style={{color: colors.text}}>章</Text>
+                        </View>
+
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={cancelSelection}
+                            >
+                                <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>取消</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
+                                onPress={handleSubmitChapterSelection}
+                            >
+                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>確定下載</Text>
                             </TouchableOpacity>
                         </View>
                     </View>

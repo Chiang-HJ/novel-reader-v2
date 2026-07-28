@@ -23,6 +23,9 @@ export const DownloadProvider = ({ children }) => {
     const [progressText, setProgressText] = useState('');
     const [downloadingNovelId, setDownloadingNovelId] = useState(null);
     const [bookshelfUpdated, setBookshelfUpdated] = useState(Date.now());
+    
+    // For custom chapter selection
+    const [pendingSelection, setPendingSelection] = useState(null);
 
     const webViewRef = useRef(null);
     const chapterHtmlResolveRef = useRef(null);
@@ -148,9 +151,33 @@ export const DownloadProvider = ({ children }) => {
 
                 const existingList = await getBookshelf();
                 const existing = existingList.find(n => n.id === novelInfo.id);
-                let startIndex = existing?.downloadedChapters || 0;
+                
+                if (task.startChapter === undefined) {
+                    setProgressText('等待選擇章節...');
+                    const selection = await new Promise((resolve) => {
+                        setPendingSelection({ novelInfo, existing, task, resolve });
+                    });
+                    
+                    if (!selection) {
+                        // User cancelled
+                        setScrapeUrl(null);
+                        downloadingNovelIdRef.current = null;
+                        setDownloadingNovelId(null);
+                        setProgressText('');
+                        setActiveTask(null);
+                        activeTaskRef.current = null;
+                        setQueue(prev => prev.filter(q => q.url !== task?.url));
+                        return;
+                    }
+                    
+                    task.startChapter = selection.start;
+                    task.endChapter = selection.end;
+                }
 
-                if (startIndex >= novelInfo.chapters.length) {
+                let startIndex = task.startChapter;
+                let endIndex = task.endChapter;
+
+                if (startIndex >= endIndex) {
                     setScrapeUrl(null);
                     downloadingNovelIdRef.current = null;
                     setDownloadingNovelId(null);
@@ -161,10 +188,10 @@ export const DownloadProvider = ({ children }) => {
                     return;
                 }
 
-                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: startIndex });
+                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(startIndex, existing?.downloadedChapters || 0) });
                 setBookshelfUpdated(Date.now());
 
-                for (let i = startIndex; i < novelInfo.chapters.length; i++) {
+                for (let i = startIndex; i < endIndex; i++) {
                     if (cancelFlagRef.current.has(task?.url)) {
                         cancelFlagRef.current.delete(task?.url);
                         setScrapeUrl(null);
@@ -263,7 +290,11 @@ export const DownloadProvider = ({ children }) => {
                         return;
                     }
 
+                    // Yield event loop to unblock UI/TTS before heavy regex parsing
+                    await new Promise(r => setTimeout(r, 50));
                     let text = parseChapterText(html, chapterUrl);
+                    // Yield again after parsing
+                    await new Promise(r => setTimeout(r, 50));
 
                     if (!text) {
                         if (html === '') {
@@ -310,21 +341,30 @@ export const DownloadProvider = ({ children }) => {
                             return;
                         }
 
+                        // Yield event loop to unblock UI/TTS before heavy regex parsing
+                        await new Promise(r => setTimeout(r, 50));
                         text = parseChapterText(manualHtml, chapterUrl);
+                        // Yield again after parsing
+                        await new Promise(r => setTimeout(r, 50));
+                        
                         setIsCaptchaBlocked(false);
+                        
+                        if (!text) {
+                            throw new Error('解析章節內容失敗，可能遇到 VIP 章節或網頁結構改變');
+                        }
                     }
 
                     await saveChapterText(novelInfo.id, i, novelInfo.chapters[i].title, text);
 
-                    if (i === 4 || (i + 1) % 10 === 0 || i === novelInfo.chapters.length - 1) {
-                        await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: i + 1 });
+                    if (i === startIndex + 4 || (i + 1) % 10 === 0 || i === endIndex - 1) {
+                        await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(i + 1, existing?.downloadedChapters || 0) });
                         setBookshelfUpdated(Date.now());
                     }
 
                     await new Promise(r => setTimeout(r, Math.floor(Math.random() * 500) + 300));
                 }
 
-                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: novelInfo.chapters.length });
+                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(endIndex, existing?.downloadedChapters || 0) });
                 setScrapeUrl(null);
                 downloadingNovelIdRef.current = null;
                 setDownloadingNovelId(null);
@@ -345,10 +385,27 @@ export const DownloadProvider = ({ children }) => {
         }
     };
 
+    const resumeDownload = (start, end) => {
+        if (pendingSelection?.resolve) {
+            pendingSelection.resolve({ start, end });
+            setPendingSelection(null);
+        }
+    };
+
+    const cancelSelection = () => {
+        if (pendingSelection?.resolve) {
+            pendingSelection.resolve(null);
+            setPendingSelection(null);
+        }
+    };
+
     return (
         <DownloadContext.Provider value={{
             startDownload,
             cancelDownload,
+            resumeDownload,
+            cancelSelection,
+            pendingSelection,
             isDownloading: !!downloadingNovelId || queue.length > 0,
             progressText,
             queue,
