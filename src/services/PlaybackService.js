@@ -7,7 +7,7 @@
 // so the lock screen UI stays in sync. We do NOT call skipToNext/Previous here
 // because we don't have a real queue - chapter navigation is handled by the app.
 
-import TrackPlayer, { Event, State } from 'react-native-track-player';
+import TrackPlayer, { Event, State } from '../utils/safeTrackPlayer';
 export default async function() {
 
     TrackPlayer.addEventListener(Event.RemotePause, async () => {

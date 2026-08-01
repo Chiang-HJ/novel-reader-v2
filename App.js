@@ -13,14 +13,12 @@ import WyblogsFeedScreen from './src/screens/WyblogsFeedScreen';
 import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
 import ComicReaderScreen from './src/screens/ComicReaderScreen';
 import DictionaryManagerScreen from './src/screens/DictionaryManagerScreen';
-import TrackPlayer from 'react-native-track-player';
+import TrackPlayer from './src/utils/safeTrackPlayer';
 import PlaybackService from './src/services/PlaybackService';
 
 try {
     TrackPlayer.registerPlaybackService(() => PlaybackService);
-} catch (e) {
-    console.warn('TrackPlayer registration failed:', e);
-}
+} catch (e) {}
 
 
 

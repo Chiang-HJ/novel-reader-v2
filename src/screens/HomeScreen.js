@@ -84,15 +84,15 @@ export default function HomeScreen({ navigation }) {
     const loadSideloadTimer = async () => {
         try {
             const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-            const lastDateStr = await AsyncStorage.getItem('@sideload_date');
-            if (lastDateStr) {
-                const diffMs = Date.now() - parseInt(lastDateStr, 10);
-                const daysPassed = diffMs / (1000 * 60 * 60 * 24);
-                const left = 7 - daysPassed;
-                setSideloadDaysLeft(left < 0 ? 0 : left);
-            } else {
-                setSideloadDaysLeft(null); // Not set yet
+            let lastDateStr = await AsyncStorage.getItem('@sideload_date');
+            if (!lastDateStr) {
+                lastDateStr = Date.now().toString();
+                await AsyncStorage.setItem('@sideload_date', lastDateStr);
             }
+            const diffMs = Date.now() - parseInt(lastDateStr, 10);
+            const daysPassed = diffMs / (1000 * 60 * 60 * 24);
+            const left = 7 - daysPassed;
+            setSideloadDaysLeft(left < 0 ? 0 : left);
         } catch (e) {}
     };
 
@@ -101,7 +101,7 @@ export default function HomeScreen({ navigation }) {
             const AsyncStorage = require('@react-native-async-storage/async-storage').default;
             await AsyncStorage.setItem('@sideload_date', Date.now().toString());
             await loadSideloadTimer();
-            Alert.alert('已重置', '7 天簽名倒數已重置為今天！');
+            Alert.alert('已重置', '側載 7 天簽名倒數已重置為今天！');
         } catch (e) {}
     };
 
@@ -746,13 +746,23 @@ export default function HomeScreen({ navigation }) {
                             <Text style={{ color: colors.text, fontSize: 16 }}>從備份檔還原</Text>
                         </TouchableOpacity>
 
-                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>開發者設定</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>側載簽名管理 (7天驗證)</Text>
+                        <View style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}>
+                            <Feather name="shield" size={20} color={sideloadDaysLeft !== null && sideloadDaysLeft <= 2 ? '#FF3B30' : colors.primary} style={{ marginRight: 12 }} />
+                            <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>
+                                {sideloadDaysLeft !== null 
+                                    ? (sideloadDaysLeft <= 0 
+                                        ? '⚠️ 簽名已到期，請接電腦重新驗證/簽名！' 
+                                        : `剩餘時間: ${Math.floor(sideloadDaysLeft)} 天 ${Math.floor((sideloadDaysLeft % 1) * 24)} 小時`)
+                                    : '計算中...'}
+                            </Text>
+                        </View>
                         <TouchableOpacity 
                             style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}
                             onPress={handleResetSideloadTimer}
                         >
                             <Feather name="refresh-cw" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                            <Text style={{ color: colors.text, fontSize: 16 }}>重置 7 天簽名倒數</Text>
+                            <Text style={{ color: colors.primary, fontSize: 16, fontWeight: '600' }}>插電腦重簽完成，重置 7 天倒數</Text>
                         </TouchableOpacity>
                         
                         <View style={{ marginTop: 24 }}>

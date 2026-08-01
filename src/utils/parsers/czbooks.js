@@ -79,19 +79,45 @@ export const parseInfo = (html, url = '') => {
 
 export const parseChapter = (html) => {
     if (!html) return '';
+    
+    const lower = html.toLowerCase();
+    // Explicitly reject Cloudflare / Captcha / Turnstile challenge pages
+    if (
+        lower.includes('enable javascript and cookies to continue') ||
+        lower.includes('just a moment...') ||
+        lower.includes('attention required! | cloudflare') ||
+        lower.includes('cf-browser-verification') ||
+        lower.includes('challenge-running') ||
+        lower.includes('turnstile') ||
+        lower.includes('verify you are human')
+    ) {
+        return '';
+    }
+
+    // Explicitly reject novel directory / overview / tag notice pages
+    if (html.includes('id="chapter-list"') || html.includes('class="novel-detail"') || html.includes('小說標籤功能上線')) {
+        if (!html.includes('chapter-detail') && !html.includes('chapter-nav')) {
+            return '';
+        }
+    }
+
     let content = '';
 
-    const contentIndex = html.search(/<div[^>]*class=["'][^"']*content[^"']*["'][^>]*>/i);
+    // First try: look for content inside chapter-detail
+    const chapterDetailMatch = html.match(/<div[^>]*class=["'][^"']*chapter-detail[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class=["'](?:chapter-nav|footer|comment)/i) ||
+                               html.match(/<div[^>]*class=["'][^"']*chapter-detail[^"']*["'][^>]*>([\s\S]*)/i);
+    
+    const scope = chapterDetailMatch ? chapterDetailMatch[1] : html;
+
+    const contentIndex = scope.search(/<div[^>]*class=["'][^"']*content[^"']*["'][^>]*>/i);
     if (contentIndex !== -1) {
-        const startTagEnd = html.indexOf('>', contentIndex);
+        const startTagEnd = scope.indexOf('>', contentIndex);
         if (startTagEnd !== -1) {
-            const rest = html.substring(startTagEnd + 1);
-            // In czbooks, content div is followed by chapter navigation or footer
+            const rest = scope.substring(startTagEnd + 1);
             const endMatch = rest.search(/<div[^>]*class=["'](?:chapter-nav|nav|comment|footer|pagination|chapter-detail)/i);
             if (endMatch !== -1) {
                 content = rest.substring(0, endMatch);
             } else {
-                // Count balanced div tags to avoid cutting off nested divs (like ads or wrappers)
                 let depth = 1;
                 const tagRegex = /<\/?div[^>]*>/gi;
                 let match;
@@ -114,17 +140,18 @@ export const parseChapter = (html) => {
     }
 
     if (!content) {
-        const fallbackMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                              html.match(/<div[^>]*class=["']?[^"']*post-content[^"']*["']?[^>]*>([\s\S]*?)<\/div>/i) ||
+        const fallbackMatch = html.match(/<div[^>]*class=["']?[^"']*post-content[^"']*["']?[^>]*>([\s\S]*?)<\/div>/i) ||
                               html.match(/<div[^>]*id=["']?content["']?[^>]*>([\s\S]*?)<\/div>/i);
         if (fallbackMatch) content = fallbackMatch[1];
     }
     
     if (!content) return '';
     
+    // Strip ads and navigation
     content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
     content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
     content = content.replace(/<ins[\s\S]*?<\/ins>/gi, '');
+    content = content.replace(/<div[^>]*class=["'](?:ad|advertisement|banner)[^"']*["'][\s\S]*?<\/div>/gi, '');
     content = content.replace(/<br\s*\/?>/gi, '\n');
     content = content.replace(/<\/p>/gi, '\n');
     content = content.replace(/<\/div>/gi, '\n');
@@ -148,6 +175,22 @@ export const parseChapter = (html) => {
     content = content.replace(/&(?:middot|#183);/gi, '·');
     content = content.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
 
-    content = content.replace(/[\r\n]+/g, '\n');
-    return content.trim();
+    content = content.replace(/[\r\n]+/g, '\n').trim();
+
+    // If result contains the announcement text or bot warning text, reject it!
+    const lowerContent = content.toLowerCase();
+    if (
+        content.includes('小說標籤功能上線') ||
+        content.includes('替小說新增標籤喔') ||
+        lowerContent.includes('enable javascript and cookies to continue') ||
+        lowerContent.includes('just a moment') ||
+        lowerContent.includes('attention required') ||
+        lowerContent.includes('cloudflare') ||
+        lowerContent.includes('challenge-running') ||
+        lowerContent.includes('verify you are human')
+    ) {
+        return '';
+    }
+
+    return content;
 };

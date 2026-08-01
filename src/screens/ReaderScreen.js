@@ -5,6 +5,7 @@ import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
+import { parseChapterText } from '../utils/scraper';
 import { WebView } from 'react-native-webview';
 
 import { Feather } from '@expo/vector-icons';
@@ -18,7 +19,7 @@ import * as Brightness from 'expo-brightness';
 import { silentAudioBase64 } from '../utils/silentAudio';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import TrackPlayer, { Capability, State, Event, useTrackPlayerEvents } from 'react-native-track-player';
+import TrackPlayer, { Capability, State, Event, useTrackPlayerEvents } from '../utils/safeTrackPlayer';
 
 
 export default function ReaderScreen({ route, navigation }) {
@@ -468,8 +469,17 @@ export default function ReaderScreen({ route, navigation }) {
                 data.text = applyTextFilters(data.text, textFiltersRef.current);
             }
 
-            // Check if data is missing or empty
-            if (!data || !data.text || data.text.trim() === '') {
+            // Check if data is missing, empty, or corrupted
+            const textLower = (data?.text || '').toLowerCase();
+            const isCorrupted = !data || !data.text || data.text.trim() === '' || 
+                                data.text.includes('【章節下載失敗') || 
+                                data.text.includes('【小說標籤功能上線') ||
+                                textLower.includes('enable javascript and cookies to continue') ||
+                                textLower.includes('just a moment') ||
+                                textLower.includes('attention required! | cloudflare') ||
+                                textLower.includes('challenge-running');
+
+            if (isCorrupted) {
                 const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
                 if (url && String(url).startsWith('http')) {
                     // Start scraping via WebView
@@ -551,9 +561,23 @@ export default function ReaderScreen({ route, navigation }) {
                 return;
             }
             
-            const text = parsed.text;
             const currentIdx = chapterIndexRef.current;
             const n = novelRef.current || novel;
+            const chapterUrl = n.chapters && n.chapters[currentIdx] ? n.chapters[currentIdx].url : scrapeUrl;
+            
+            let text = '';
+            if (parsed.html) {
+                text = parseChapterText(parsed.html, chapterUrl);
+            } else if (parsed.text) {
+                text = parsed.text;
+            }
+
+            if (!text) {
+                setErrorLog(`無法解析該章節內容，請稍候重試`);
+                setScrapeUrl(null);
+                return;
+            }
+
             const title = n.chapters[currentIdx].title;
             
             // Save local
@@ -1030,25 +1054,22 @@ export default function ReaderScreen({ route, navigation }) {
                     <WebView 
                         source={{ uri: scrapeUrl }} 
                         injectedJavaScript={`
-                            var checkInterval = setInterval(function() {
-                                var title = document.title || '';
-                                if (title.indexOf('Just a moment') === -1 && title.indexOf('Cloudflare') === -1 && title.indexOf('Attention Required') === -1) {
-                                    clearInterval(checkInterval);
-                                    try {
-                                        var contentMatch = document.body.innerHTML.match(/<div class="content">([\\s\\S]*?)<\\/div>/);
-                                        var text = '';
-                                        if (contentMatch) {
-                                            text = contentMatch[1].replace(/<script[\\s\\S]*?<\\/script>/gi, '');
-                                            text = text.replace(/<br\\s*\\/?>/gi, '\\n');
-                                            text = text.replace(/<[^>]+>/g, '');
-                                            text = text.trim();
+                            (function() {
+                                var checkInterval = setInterval(function() {
+                                    var title = document.title || '';
+                                    if (title.indexOf('Just a moment') === -1 && title.indexOf('Cloudflare') === -1 && title.indexOf('Attention Required') === -1) {
+                                        clearInterval(checkInterval);
+                                        try {
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                                                html: document.documentElement.outerHTML,
+                                                url: window.location.href 
+                                            }));
+                                        } catch(e) {
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));
                                         }
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ text: text }));
-                                    } catch(e) {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ error: e.toString() }));
                                     }
-                                }
-                            }, 1000);
+                                }, 500);
+                            })();
                             true;
                         `}
                         onMessage={onWebViewMessage}
