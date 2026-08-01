@@ -71,8 +71,13 @@ export default function HomeScreen({ navigation }) {
 
     useEffect(() => {
         if (pendingSelection) {
-            setSelectStartChapter('1');
-            setSelectEndChapter(pendingSelection.novelInfo.chapters.length.toString());
+            const existingDownloaded = pendingSelection.existing ? (pendingSelection.existing.downloadedChapters || 0) : 0;
+            const totalSource = pendingSelection.novelInfo?.chapters?.length || 0;
+            const start = (existingDownloaded > 0 && existingDownloaded < totalSource) 
+                ? (existingDownloaded + 1) 
+                : 1;
+            setSelectStartChapter(start.toString());
+            setSelectEndChapter(totalSource.toString());
         }
     }, [pendingSelection]);
 
@@ -842,9 +847,17 @@ export default function HomeScreen({ navigation }) {
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>選擇下載章節</Text>
                         </View>
                         
-                        <Text style={{color: colors.textSecondary, marginBottom: 15, fontSize: 14}}>
+                        <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 14}}>
                             《{pendingSelection?.novelInfo?.title}》共 {pendingSelection?.novelInfo?.chapters?.length} 章
                         </Text>
+                        
+                        {pendingSelection?.existing && (pendingSelection.existing.downloadedChapters > 0) && (
+                            <View style={{ backgroundColor: colors.primary + '20', padding: 8, borderRadius: 6, marginBottom: 15 }}>
+                                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>
+                                    ✨ 上次已下載至第 {pendingSelection.existing.downloadedChapters} 章（已為您自動接續）
+                                </Text>
+                            </View>
+                        )}
 
                         <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10}}>
                             <Text style={{color: colors.text}}>從第</Text>

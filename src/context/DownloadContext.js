@@ -28,7 +28,8 @@ export const DownloadProvider = ({ children }) => {
     const [pendingSelection, setPendingSelection] = useState(null);
 
     const webViewRef = useRef(null);
-    const chapterHtmlResolveRef = useRef(null);
+    const pendingRequestsRef = useRef(new Map());
+    const manualCaptchaResolveRef = useRef(null);
     const cancelFlagRef = useRef(new Set());
     const activeTaskRef = useRef(null);
     const downloadingNovelIdRef = useRef(null);
@@ -77,8 +78,10 @@ export const DownloadProvider = ({ children }) => {
         cancelFlagRef.current.add(url);
         if (activeTaskRef.current && activeTaskRef.current.url === url) {
             setScrapeUrl(null);
-            if (chapterHtmlResolveRef.current) {
-                chapterHtmlResolveRef.current('');
+            pendingRequestsRef.current.forEach(resolve => resolve(''));
+            pendingRequestsRef.current.clear();
+            if (manualCaptchaResolveRef.current) {
+                manualCaptchaResolveRef.current('');
             }
             setIsCaptchaBlocked(false);
             downloadingNovelIdRef.current = null;
@@ -111,7 +114,81 @@ export const DownloadProvider = ({ children }) => {
                     cancelDownload(finalUrl);
                 }, 2000);
             }
-        }, 20000); // 20 seconds timeout for initial novel info fetch
+        }, 20000);
+    };
+
+    const fetchChapterHtmlDirect = async (url) => {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
+            const res = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'zh-TW,zh-HK;q=0.9,zh;q=0.8,en;q=0.7'
+                }
+            });
+            clearTimeout(timeout);
+            if (res.ok) {
+                const text = await res.text();
+                if (text && !text.includes('Just a moment...') && !text.includes('Attention Required! | Cloudflare') && text.includes('<div') && text.length > 200) {
+                    return text;
+                }
+            }
+        } catch (e) {}
+        return null;
+    };
+
+    const fetchChapterHtmlViaWebView = async (chapterUrl) => {
+        const reqId = 'req_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+        return new Promise((resolve) => {
+            let timerId;
+            const cleanupAndResolve = (val) => {
+                clearTimeout(timerId);
+                pendingRequestsRef.current.delete(reqId);
+                resolve(val);
+            };
+            pendingRequestsRef.current.set(reqId, cleanupAndResolve);
+            timerId = setTimeout(() => cleanupAndResolve(''), 15000);
+
+            const code = `
+                (function() {
+                    fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', {
+                        credentials: 'include',
+                        redirect: 'follow',
+                        headers: {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'Accept-Language': navigator.language || 'zh-TW,zh;q=0.9,en;q=0.7',
+                            'Cache-Control': 'no-cache'
+                        }
+                    })
+                    .then(function(res) { return res.text(); })
+                    .then(function(text) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                            type: 'chapterHtml', 
+                            requestId: '${reqId}',
+                            url: '${chapterUrl.replace(/'/g, "\\'")}',
+                            html: text 
+                        }));
+                    })
+                    .catch(function(e) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                            type: 'chapterHtml', 
+                            requestId: '${reqId}',
+                            url: '${chapterUrl.replace(/'/g, "\\'")}',
+                            html: '' 
+                        }));
+                    });
+                })();
+                true;
+            `;
+            if (webViewRef.current) {
+                webViewRef.current.injectJavaScript(code);
+            } else {
+                cleanupAndResolve('');
+            }
+        });
     };
 
     const onWebViewMessage = async (event) => {
@@ -124,8 +201,17 @@ export const DownloadProvider = ({ children }) => {
             const parsed = JSON.parse(dataStr);
 
             if (parsed.type === 'chapterHtml') {
-                if (chapterHtmlResolveRef.current) {
-                    chapterHtmlResolveRef.current(parsed.html || '');
+                if (parsed.requestId && pendingRequestsRef.current.has(parsed.requestId)) {
+                    const resolve = pendingRequestsRef.current.get(parsed.requestId);
+                    pendingRequestsRef.current.delete(parsed.requestId);
+                    resolve(parsed.html || '');
+                }
+                return;
+            }
+
+            if (parsed.type === 'manualCaptchaPassed') {
+                if (manualCaptchaResolveRef.current) {
+                    manualCaptchaResolveRef.current(parsed.html || '');
                 }
                 return;
             }
@@ -139,10 +225,10 @@ export const DownloadProvider = ({ children }) => {
                 if (!novelInfo || !novelInfo.chapters || novelInfo.chapters.length === 0) {
                     setIsCaptchaBlocked(true);
                     setProgressText('遇到防護網或內容警告，請協助驗證...');
-                    return; // Wait for user to interact and navigate
+                    return;
                 } else {
                     setIsCaptchaBlocked(false);
-                    cachedHtmlRef.current = parsed.html; // CACHE IT HERE!
+                    cachedHtmlRef.current = parsed.html;
                 }
 
                 downloadingNovelIdRef.current = novelInfo.id;
@@ -159,7 +245,6 @@ export const DownloadProvider = ({ children }) => {
                     });
                     
                     if (!selection) {
-                        // User cancelled
                         setScrapeUrl(null);
                         downloadingNovelIdRef.current = null;
                         setDownloadingNovelId(null);
@@ -177,194 +262,179 @@ export const DownloadProvider = ({ children }) => {
                 let startIndex = task.startChapter;
                 let endIndex = task.endChapter;
 
-                if (startIndex >= endIndex) {
+                if (startIndex >= endIndex || startIndex < 0 || endIndex > novelInfo.chapters.length) {
                     setScrapeUrl(null);
                     downloadingNovelIdRef.current = null;
                     setDownloadingNovelId(null);
-                    setProgressText('已下載完畢');
+                    setProgressText('無需要下載的章節');
                     setActiveTask(null);
                     activeTaskRef.current = null;
                     setQueue(prev => prev.filter(q => q.url !== task?.url));
                     return;
                 }
 
-                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(startIndex, existing?.downloadedChapters || 0) });
+                // Slice the EXACT range of chapters user chose to download
+                const selectedSourceChapters = novelInfo.chapters.slice(startIndex, endIndex);
+                const totalToDownload = selectedSourceChapters.length;
+
+                // Determine whether this is appending to an existing book, overwriting, or a new book
+                let finalChapters = [];
+                let isAppending = false;
+                let isOverwriting = false;
+
+                if (existing && existing.chapters && existing.chapters.length > 0) {
+                    if (startIndex >= existing.chapters.length) {
+                        isAppending = true;
+                        finalChapters = [...existing.chapters, ...selectedSourceChapters];
+                    } else {
+                        isOverwriting = true;
+                        finalChapters = [...existing.chapters];
+                        for (let k = 0; k < selectedSourceChapters.length; k++) {
+                            finalChapters[startIndex + k] = selectedSourceChapters[k];
+                        }
+                    }
+                } else {
+                    // New book: ONLY store the selected slice of chapters! No phantom out-of-range chapters!
+                    finalChapters = selectedSourceChapters;
+                }
+
+                const initialDownloadedCount = isAppending 
+                    ? existing.chapters.length 
+                    : (isOverwriting ? (existing.downloadedChapters || 0) : 0);
+
+                await saveNovelToBookshelf({
+                    ...novelInfo,
+                    chapters: finalChapters,
+                    chapterCount: finalChapters.length,
+                    downloadedChapters: initialDownloadedCount
+                });
                 setBookshelfUpdated(Date.now());
 
-                for (let i = startIndex; i < endIndex; i++) {
-                    if (cancelFlagRef.current.has(task?.url)) {
-                        cancelFlagRef.current.delete(task?.url);
-                        setScrapeUrl(null);
-                        downloadingNovelIdRef.current = null;
-                        setDownloadingNovelId(null);
-                        setProgressText('');
-                        setActiveTask(null);
-                        activeTaskRef.current = null;
-                        setQueue(prev => prev.filter(q => q.url !== task?.url));
-                        return;
-                    }
+                // Concurrent Worker Pool (Concurrency = 3)
+                const CONCURRENCY = 3;
+                let completedCount = 0;
+                let workerCursor = 0;
 
-                    setProgressText(`背景下載中... ${i + 1}/${novelInfo.chapters.length}`);
-                    const chapterUrl = novelInfo.chapters[i].url;
+                const downloadSingleChapter = async (index) => {
+                    if (cancelFlagRef.current.has(task?.url)) return;
 
-                    let html;
+                    const sourceIdx = startIndex + index;
+                    const localFileIdx = isAppending 
+                        ? (existing.chapters.length + index) 
+                        : (isOverwriting ? (startIndex + index) : index);
+                    const ch = selectedSourceChapters[index];
+                    const chapterUrl = ch.url;
+
+                    let html = null;
+
+                    // Fast check for single-page cached HTML
                     let cleanChapterUrl = chapterUrl.split('#')[0].split('?')[0];
                     let cleanScrapeUrl = (task?.url || '').split('#')[0].split('?')[0];
-                    
                     try { cleanChapterUrl = decodeURIComponent(cleanChapterUrl); } catch(e) {}
                     try { cleanScrapeUrl = decodeURIComponent(cleanScrapeUrl); } catch(e) {}
 
                     if (cleanChapterUrl === cleanScrapeUrl && cachedHtmlRef.current) {
                         html = cachedHtmlRef.current;
                     } else {
-                        // Add a small delay to prevent aggressive rate limiting from czbooks/Cloudflare
-                        await new Promise(r => setTimeout(r, 200));
-
-                        html = await new Promise((resolve) => {
-                            let timerId;
-                            const cleanupAndResolve = (val) => {
-                                clearTimeout(timerId);
-                                resolve(val);
-                            };
-                            chapterHtmlResolveRef.current = cleanupAndResolve;
-                            const code = `
-                                (function() {
-                                    try {
-                                        var currentUrl = decodeURIComponent(document.location.href.split('#')[0].split('?')[0]);
-                                    } catch(e) {
-                                        var currentUrl = document.location.href.split('#')[0].split('?')[0];
-                                    }
-                                    try {
-                                        var targetUrl = decodeURIComponent('${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0]);
-                                    } catch(e) {
-                                        var targetUrl = '${chapterUrl.replace(/'/g, "\\'")}'.split('#')[0].split('?')[0];
-                                    }
-                                    
-                                    // If the chapter is on the same page (single-page novel), just return the HTML
-                                    if (currentUrl === targetUrl) {
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: document.documentElement.outerHTML }));
-                                        return;
-                                    }
-
-                                    fetch('${chapterUrl.replace(/'/g, "\\'").split('#')[0]}', { 
-                                        credentials: 'include',
-                                        redirect: 'follow',
-                                        headers: {
-                                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                                            'Accept-Language': navigator.language || 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-                                            'Cache-Control': 'no-cache',
-                                            'Pragma': 'no-cache',
-                                            'Sec-Fetch-Dest': 'document',
-                                            'Sec-Fetch-Mode': 'navigate',
-                                            'Sec-Fetch-Site': 'same-origin',
-                                            'Upgrade-Insecure-Requests': '1'
-                                        }
-                                    })
-                                        .then(function(res) { return res.text(); })
-                                        .then(function(text) {
-                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: text }));
-                                        })
-                                        .catch(function(e) {
-                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'chapterHtml', html: '' }));
-                                        });
-                                })();
-                                true;
-                            `;
-                            if (webViewRef.current) {
-                                webViewRef.current.injectJavaScript(code);
-                            } else {
-                                cleanupAndResolve('');
-                            }
-                            timerId = setTimeout(() => cleanupAndResolve(''), 15000);
-                        });
+                        // 1. Direct HTTP fast fetch
+                        html = await fetchChapterHtmlDirect(chapterUrl);
+                        
+                        // 2. Fallback to WebView injected fetch
+                        if (!html) {
+                            html = await fetchChapterHtmlViaWebView(chapterUrl);
+                        }
                     }
 
-                    if (cancelFlagRef.current.has(task?.url)) {
-                        cancelFlagRef.current.delete(task?.url);
-                        setScrapeUrl(null);
-                        setDownloadingNovelId(null);
-                        setProgressText('');
-                        setActiveTask(null);
-                        activeTaskRef.current = null;
-                        setQueue(prev => prev.filter(q => q.url !== task?.url));
-                        return;
-                    }
+                    if (cancelFlagRef.current.has(task?.url)) return;
 
-                    // Yield event loop to unblock UI/TTS before heavy regex parsing
-                    await new Promise(r => setTimeout(r, 50));
+                    // Micro-yield to keep TTS and UI at 60fps
+                    await new Promise(r => setTimeout(r, 10));
                     let text = parseChapterText(html, chapterUrl);
-                    // Yield again after parsing
-                    await new Promise(r => setTimeout(r, 50));
+                    await new Promise(r => setTimeout(r, 10));
 
+                    // 3. If Cloudflare captcha blocked, handle manual verification
                     if (!text) {
-                        if (html === '') {
-                            // If html is empty string, it's a network error/timeout from iframe, not CAPTCHA
-
-                            setProgressText(`網路錯誤，跳過 (${i + 1}/${novelInfo.chapters.length})`);
-                            await new Promise(r => setTimeout(r, 2000));
-                            continue;
-                        }
-
-                        setProgressText(`遇到防護網，嘗試自動繞過 (${i + 1}/${novelInfo.chapters.length})`);
-                        scrapeModeRef.current = 'chapter';
-                        setScrapeMode('chapter');
-                        setScrapeUrl(chapterUrl);
-                        
-                        // Wait 3 seconds for auto-pass before showing the WebView
-                        let showTimer = setTimeout(() => {
+                        if (html === '' || !html) {
+                            text = '【章節下載失敗：網路連線逾時】';
+                        } else {
+                            setProgressText(`遇到防護網，請協助驗證 (${sourceIdx + 1}/${novelInfo.chapters.length})`);
+                            scrapeModeRef.current = 'chapter';
+                            setScrapeMode('chapter');
+                            setScrapeUrl(chapterUrl);
                             setIsCaptchaBlocked(true);
-                            setProgressText(`遇到防護網，請協助驗證 (${i + 1}/${novelInfo.chapters.length})`);
-                        }, 3000);
 
-                        const manualHtml = await new Promise((resolve, reject) => {
-                            const timer = setTimeout(() => {
-                                reject(new Error('Manual verification timeout'));
-                            }, 60000);
-                            chapterHtmlResolveRef.current = (html) => {
-                                clearTimeout(timer);
-                                resolve(html);
-                            };
-                        });
+                            const manualHtml = await new Promise((resolve) => {
+                                const timer = setTimeout(() => {
+                                    resolve('');
+                                }, 60000);
+                                manualCaptchaResolveRef.current = (h) => {
+                                    clearTimeout(timer);
+                                    resolve(h);
+                                };
+                            });
 
-                        clearTimeout(showTimer);
-
-                        if (cancelFlagRef.current.has(task?.url)) {
-                            cancelFlagRef.current.delete(task?.url);
-                            setScrapeUrl(null);
-                            downloadingNovelIdRef.current = null;
-                            setDownloadingNovelId(null);
-                            setProgressText('');
-                            setActiveTask(null);
-                            activeTaskRef.current = null;
                             setIsCaptchaBlocked(false);
-                            setQueue(prev => prev.filter(q => q.url !== task?.url));
-                            return;
-                        }
-
-                        // Yield event loop to unblock UI/TTS before heavy regex parsing
-                        await new Promise(r => setTimeout(r, 50));
-                        text = parseChapterText(manualHtml, chapterUrl);
-                        // Yield again after parsing
-                        await new Promise(r => setTimeout(r, 50));
-                        
-                        setIsCaptchaBlocked(false);
-                        
-                        if (!text) {
-                            throw new Error('解析章節內容失敗，可能遇到 VIP 章節或網頁結構改變');
+                            if (manualHtml) {
+                                text = parseChapterText(manualHtml, chapterUrl);
+                            }
+                            if (!text) {
+                                text = '【章節下載失敗：防護網驗證未通過】';
+                            }
                         }
                     }
 
-                    await saveChapterText(novelInfo.id, i, novelInfo.chapters[i].title, text);
+                    // Save chapter text directly to disk
+                    await saveChapterText(novelInfo.id, localFileIdx, ch.title, text);
+                    completedCount++;
 
-                    if (i === startIndex + 4 || (i + 1) % 10 === 0 || i === endIndex - 1) {
-                        await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(i + 1, existing?.downloadedChapters || 0) });
+                    setProgressText(`背景極速下載中... ${completedCount}/${totalToDownload}`);
+
+                    if (completedCount % 5 === 0 || completedCount === totalToDownload) {
+                        const currentDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+                        await updateNovelMetadata(novelInfo.id, { 
+                            downloadedChapters: currentDownloaded,
+                            chapterCount: finalChapters.length
+                        });
                         setBookshelfUpdated(Date.now());
                     }
+                };
 
-                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 500) + 300));
+                const runWorker = async () => {
+                    while (workerCursor < totalToDownload) {
+                        if (cancelFlagRef.current.has(task?.url)) break;
+                        const currentIndex = workerCursor++;
+                        await downloadSingleChapter(currentIndex);
+                        // Micro yield between requests
+                        await new Promise(r => setTimeout(r, 20));
+                    }
+                };
+
+                const workers = Array.from(
+                    { length: Math.min(CONCURRENCY, totalToDownload) }, 
+                    () => runWorker()
+                );
+                await Promise.all(workers);
+
+                if (cancelFlagRef.current.has(task?.url)) {
+                    cancelFlagRef.current.delete(task?.url);
+                    setScrapeUrl(null);
+                    downloadingNovelIdRef.current = null;
+                    setDownloadingNovelId(null);
+                    setProgressText('');
+                    setActiveTask(null);
+                    activeTaskRef.current = null;
+                    setQueue(prev => prev.filter(q => q.url !== task?.url));
+                    return;
                 }
 
-                await saveNovelToBookshelf({ ...novelInfo, chapterCount: novelInfo.chapters.length, downloadedChapters: Math.max(endIndex, existing?.downloadedChapters || 0) });
+                const finalDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+                await updateNovelMetadata(novelInfo.id, {
+                    chapters: finalChapters,
+                    chapterCount: finalChapters.length,
+                    downloadedChapters: finalDownloaded
+                });
+                setBookshelfUpdated(Date.now());
+
                 setScrapeUrl(null);
                 downloadingNovelIdRef.current = null;
                 setDownloadingNovelId(null);
@@ -374,7 +444,6 @@ export const DownloadProvider = ({ children }) => {
                 setQueue(prev => prev.filter(q => q.url !== task?.url));
             }
         } catch (error) {
-
             setScrapeUrl(null);
             downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);
