@@ -182,17 +182,25 @@ export const getStorageUsage = async () => {
     }
 };
 
-export const getNovelDir = (novelId) => {
-    return `${FileSystem.documentDirectory}novels/${novelId}/`;
+const verifiedNovelDirs = new Set();
+
+export const ensureNovelDir = async (novelId) => {
+    const folderPath = getNovelDir(novelId);
+    if (!verifiedNovelDirs.has(folderPath)) {
+        try {
+            const info = await FileSystem.getInfoAsync(folderPath);
+            if (!info.exists) {
+                await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+            }
+            verifiedNovelDirs.add(folderPath);
+        } catch (e) {}
+    }
+    return folderPath;
 };
 
 export const saveChapterText = async (novelId, chapterIndex, title, text) => {
-    const folderPath = getNovelDir(novelId);
     try {
-        const info = await FileSystem.getInfoAsync(folderPath);
-        if (!info.exists) {
-            await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
-        }
+        const folderPath = await ensureNovelDir(novelId);
         
         // We use chapterIndex for backward compatibility, but we should make sure it's safely written
         const fileId = typeof chapterIndex === 'number' ? chapterIndex.toString() : chapterIndex;
@@ -203,7 +211,6 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
         
         return fileId;
     } catch (e) {
-
         throw e;
     }
 };

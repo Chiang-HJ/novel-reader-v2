@@ -13,6 +13,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import { parseEpub } from '../utils/epubParser';
 import { convertS2T } from '../utils/opencc';
+import { importLargeTxtNovel } from '../utils/txtImporter';
+import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
 
 import SearchBar from '../components/home/SearchBar';
 import DownloadProgress from '../components/home/DownloadProgress';
@@ -49,6 +51,15 @@ export default function HomeScreen({ navigation }) {
     const [importTitle, setImportTitle] = useState('');
     const [importText, setImportText] = useState('');
     const [isImporting, setIsImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState({
+        isVisible: false,
+        percent: 0,
+        statusText: '',
+        current: 0,
+        total: 0,
+        currentTitle: '',
+        title: ''
+    });
     const [splitRegexStr, setSplitRegexStr] = useState('第[零一二三四五六七八九十百千0-9]+[章節][^\\n]*');
     const [splitExampleStr, setSplitExampleStr] = useState('1.');
     const [splitMode, setSplitMode] = useState('regex');
@@ -289,117 +300,48 @@ export default function HomeScreen({ navigation }) {
     };
 
 
-        const processLargeTextImport = async (title, rawContent) => {
+    const processLargeTextImport = async (title, rawContent) => {
         setIsImporting(true);
+        setIsImportModalVisible(false);
+        setImportProgress({
+            isVisible: true,
+            percent: 0,
+            statusText: '正在分析章節目錄結構...',
+            current: 0,
+            total: 0,
+            currentTitle: '',
+            title: title.trim()
+        });
+        startBackgroundKeepAlive('txt_import');
+
         try {
-            const novelId = 'manual_' + Date.now();
-            let chapters = [];
-            
-            // Yield UI
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            // Normalize newlines and convert to Traditional Chinese
-            let textData = rawContent.replace(/\r\n/g, '\n');
-            textData = convertS2T(textData);
-
-            // Yield UI
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            let headingRegex;
-            try {
-                let finalRegexStr = splitRegexStr;
-                if (splitMode === 'example') {
-                    if (!splitExampleStr.trim()) {
-                        setIsImporting(false);
-                        return;
-                    }
-                    const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    finalRegexStr = escapeRegExp(splitExampleStr.trim()).replace(/\d+/g, '\\d+');
-                }
-                headingRegex = new RegExp('(' + finalRegexStr + ')', 'g');
-            } catch (e) {
-                Alert.alert('規則錯誤', '您輸入的章節分割規則格式有誤。');
-                setIsImporting(false);
-                return;
-            }
-
-            const parts = textData.split(headingRegex);
-
-            if (parts.length > 1) {
-                let chapterIndex = 0;
-                
-                if (parts[0].trim().length > 0) {
-                    chapters.push({ title: '前言/簡介', url: 'manual_' + chapterIndex, id: chapterIndex });
-                    await saveChapterText(novelId, chapterIndex, '前言/簡介', parts[0].trim());
-                    chapterIndex++;
-                }
-
-                for (let i = 1; i < parts.length; i += 2) {
-                    const chTitle = parts[i].trim();
-                    const textContent = parts[i + 1] ? parts[i + 1].trim() : '';
-                    
-                    if (textContent.length === 0) continue;
-
-                    chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
-                    await saveChapterText(novelId, chapterIndex, chTitle, textContent);
-                    chapterIndex++;
-
-                    if (i % 50 === 1) {
-                        await new Promise(resolve => setTimeout(resolve, 0)); // Yield UI
-                    }
-                }
-            } else {
-                const lines = textData.trim().split('\n');
-                const MAX_CHARS = 10000;
-                let currentChunkLines = [];
-                let currentLength = 0;
-                let chapterIndex = 0;
-
-                for (let i = 0; i < lines.length; i++) {
-                    currentChunkLines.push(lines[i]);
-                    currentLength += lines[i].length + 1;
-
-                    if (currentLength > MAX_CHARS) {
-                        const chTitle = `第 ${chapterIndex + 1} 部分`;
-                        const chunkText = currentChunkLines.join('\n');
-                        chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
-                        await saveChapterText(novelId, chapterIndex, chTitle, chunkText);
-                        chapterIndex++;
-                        currentChunkLines = [];
-                        currentLength = 0;
-                        await new Promise(resolve => setTimeout(resolve, 0)); // Yield UI
-                    }
-                }
-                if (currentChunkLines.length > 0) {
-                    const chTitle = `第 ${chapterIndex + 1} 部分`;
-                    chapters.push({ title: chTitle, url: 'manual_' + chapterIndex, id: chapterIndex });
-                    await saveChapterText(novelId, chapterIndex, chTitle, currentChunkLines.join('\n'));
-                }
-            }
-
-            const novelInfo = {
-                id: novelId,
+            const result = await importLargeTxtNovel({
                 title: title.trim(),
-                author: '自訂匯入',
-                cover: '',
-                url: 'manual',
-                chapters,
-                chapterCount: chapters.length,
-                downloadedChapters: chapters.length,
-            };
+                rawContent,
+                customRegexStr: splitRegexStr,
+                splitMode,
+                splitExampleStr,
+                onProgress: (prog) => {
+                    setImportProgress(prev => ({
+                        ...prev,
+                        ...prog,
+                        isVisible: true,
+                        title: title.trim()
+                    }));
+                }
+            });
 
-            await saveNovelToBookshelf(novelInfo);
-            setIsImportModalVisible(false);
+            await loadBookshelf();
+            setImportProgress(prev => ({ ...prev, isVisible: false }));
             setImportTitle('');
             setImportText('');
-            loadBookshelf();
-            
-            Alert.alert('成功', '小說匯入完成！');
+            Alert.alert('匯入成功', `《${result.title}》已成功匯入書櫃，共 ${result.chapterCount} 章！`);
         } catch (error) {
-
-            Alert.alert('錯誤', '匯入過程中發生問題');
+            setImportProgress(prev => ({ ...prev, isVisible: false }));
+            Alert.alert('匯入失敗', error.message || '處理檔案時發生錯誤');
         } finally {
             setIsImporting(false);
+            stopBackgroundKeepAlive('txt_import');
         }
     };
 
@@ -427,16 +369,40 @@ export default function HomeScreen({ navigation }) {
             }
 
             const file = result.assets[0];
-            setIsImporting(true);
             
             if (file.name.toLowerCase().endsWith('.epub')) {
-                // Handle EPUB
+                // Handle EPUB with live progress
+                const baseTitle = file.name.replace(/\.epub$/i, '');
+                setImportProgress({
+                    isVisible: true,
+                    percent: 5,
+                    statusText: '正在解析 EPUB 結構...',
+                    current: 0,
+                    total: 0,
+                    currentTitle: '',
+                    title: baseTitle
+                });
+                startBackgroundKeepAlive('txt_import');
+
                 try {
                     const parsed = await parseEpub(file.uri);
                     const novelId = 'novel_epub_' + Date.now();
-                    
-                    for (let i = 0; i < parsed.chapters.length; i++) {
+                    const total = parsed.chapters.length;
+
+                    for (let i = 0; i < total; i++) {
                         await saveChapterText(novelId, i, parsed.chapters[i].title, parsed.chapters[i].text);
+                        if (i % 20 === 0 || i === total - 1) {
+                            setImportProgress({
+                                isVisible: true,
+                                percent: Math.round(((i + 1) / total) * 100),
+                                statusText: `正在寫入章節 (${i + 1} / ${total})`,
+                                current: i + 1,
+                                total,
+                                currentTitle: parsed.chapters[i].title,
+                                title: parsed.title
+                            });
+                            await new Promise(r => setTimeout(r, 0));
+                        }
                     }
                     
                     const novelInfo = {
@@ -451,36 +417,37 @@ export default function HomeScreen({ navigation }) {
                     };
                     
                     await saveNovelToBookshelf(novelInfo);
-                    loadBookshelf();
-                    Alert.alert('成功', 'EPUB 匯入完成！');
+                    await loadBookshelf();
+                    setImportProgress(prev => ({ ...prev, isVisible: false }));
+                    Alert.alert('成功', `EPUB《${parsed.title}》匯入完成！`);
                 } catch (e) {
-
+                    setImportProgress(prev => ({ ...prev, isVisible: false }));
                     Alert.alert('錯誤', '無法解析 EPUB 檔案: ' + e.message);
+                } finally {
+                    stopBackgroundKeepAlive('txt_import');
                 }
             } else if (file.name.toLowerCase().endsWith('.txt')) {
-                // Handle TXT
-                const txtContent = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
-                const baseName = file.name.replace('.txt', '');
+                // Handle TXT with live progress
+                const baseName = file.name.replace(/\.txt$/i, '');
+                setImportProgress({
+                    isVisible: true,
+                    percent: 2,
+                    statusText: '正在讀取文字檔內容...',
+                    current: 0,
+                    total: 0,
+                    currentTitle: '',
+                    title: baseName
+                });
                 
-                Alert.alert(
-                    '確認匯入',
-                    `即將匯入文字檔：${file.name}\n\n(系統將使用您在手動匯入視窗中設定的「章節分割規則」來切分)`,
-                    [
-                        { text: '取消', style: 'cancel' },
-                        { 
-                            text: '開始匯入', 
-                            onPress: () => processLargeTextImport(baseName, txtContent) 
-                        }
-                    ]
-                );
+                await new Promise(r => setTimeout(r, 50));
+                const txtContent = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
+                await processLargeTextImport(baseName, txtContent);
             } else {
                 Alert.alert('不支援的格式', '目前只支援 .txt 與 .epub 檔案');
             }
         } catch (error) {
-
-            Alert.alert('錯誤', '選取檔案時發生問題');
-        } finally {
-            setIsImporting(false);
+            setImportProgress(prev => ({ ...prev, isVisible: false }));
+            Alert.alert('錯誤', '選取檔案時發生問題: ' + error.message);
         }
     };
 
@@ -940,6 +907,53 @@ export default function HomeScreen({ navigation }) {
                         </View>
                     </TouchableOpacity>
                 </KeyboardAvoidingView>
+            </Modal>
+
+            {/* Live Import Progress Modal */}
+            <Modal visible={importProgress.isVisible} transparent={true} animationType="fade">
+                <BlurView intensity={isDark ? 80 : 60} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface, padding: 24, borderRadius: 20, alignItems: 'center' }]}>
+                        <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                            <Feather name="book-open" size={28} color={colors.primary} />
+                        </View>
+                        
+                        <Text style={[styles.modalTitle, { color: colors.text, fontSize: 18, marginBottom: 8, textAlign: 'center' }]} numberOfLines={1}>
+                            正在匯入《{importProgress.title}》
+                        </Text>
+                        
+                        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
+                            {importProgress.statusText || '正在處理中...'}
+                        </Text>
+
+                        {/* Progress Bar */}
+                        <View style={{ width: '100%', height: 8, backgroundColor: colors.background, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+                            <View style={{ width: `${importProgress.percent}%`, height: '100%', backgroundColor: colors.primary, borderRadius: 4 }} />
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 12 }}>
+                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+                                {importProgress.percent}%
+                            </Text>
+                            {importProgress.total > 0 && (
+                                <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+                                    {importProgress.current} / {importProgress.total} 章
+                                </Text>
+                            )}
+                        </View>
+
+                        {importProgress.currentTitle ? (
+                            <View style={{ backgroundColor: colors.background, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, width: '100%', marginTop: 4 }}>
+                                <Text style={{ color: colors.textSecondary, fontSize: 12 }} numberOfLines={1}>
+                                    📝 當前：{importProgress.currentTitle}
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 16, textAlign: 'center' }}>
+                            🌙 已啟用防休眠保護，請稍候片刻...
+                        </Text>
+                    </View>
+                </BlurView>
             </Modal>
         </View>
     );

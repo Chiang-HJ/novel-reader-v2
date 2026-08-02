@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveNovelToBookshelf, saveComicChapterData, saveComicImage } from '../utils/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getScramblePieces } from '../utils/comicUtils';
+import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
 
 import DescrambleWebView from '../components/DescrambleWebView';
 
@@ -47,6 +48,7 @@ export const ComicDownloadProvider = ({ children }) => {
     const cancelDownload = (comicId) => {
         setQueue(prev => prev.filter(q => q.id !== comicId));
         cancelFlagRef.current.add(comicId);
+        stopBackgroundKeepAlive('comic_download');
         if (activeTaskRef.current && activeTaskRef.current.id === comicId) {
             setScrapeUrl(null);
             if (chapterHtmlResolveRef.current) {
@@ -59,6 +61,7 @@ export const ComicDownloadProvider = ({ children }) => {
     };
 
     const processNextTask = async (task) => {
+        startBackgroundKeepAlive('comic_download');
         activeTaskRef.current = task;
         setActiveTask(task);
         setProgressText('正在取得漫畫資訊...');
@@ -192,6 +195,7 @@ export const ComicDownloadProvider = ({ children }) => {
                     activeTaskRef.current = null;
                     setQueue(prev => prev.slice(1));
                     setProgressText('');
+                    stopBackgroundKeepAlive('comic_download');
                 }
             }, 2000);
             
@@ -204,6 +208,7 @@ export const ComicDownloadProvider = ({ children }) => {
             activeTaskRef.current = null;
             setQueue(prev => prev.slice(1));
             setProgressText('');
+            stopBackgroundKeepAlive('comic_download');
         }
     };
 

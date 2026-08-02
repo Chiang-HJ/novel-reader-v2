@@ -7,6 +7,7 @@ import { saveNovelToBookshelf, saveChapterText, getBookshelf, updateNovelMetadat
 import * as FileSystem from 'expo-file-system/legacy';
 import { parseEpub } from '../utils/epubParser';
 import { convertS2T } from '../utils/opencc';
+import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
 
 const DownloadContext = createContext();
 
@@ -99,6 +100,7 @@ export const DownloadProvider = ({ children }) => {
     const cancelDownload = (url) => {
         setQueue(prev => prev.filter(q => q.url !== url));
         cancelFlagRef.current.add(url);
+        stopBackgroundKeepAlive('novel_download');
         if (activeTaskRef.current && activeTaskRef.current.url === url) {
             setScrapeUrl(null);
             pendingRequestsRef.current.forEach(resolve => resolve(''));
@@ -353,15 +355,18 @@ export const DownloadProvider = ({ children }) => {
                 activeTaskRef.current = null;
                 setProgressText('');
                 setQueue(prev => prev.filter(q => q.url !== task?.url));
+                stopBackgroundKeepAlive('novel_download');
             }, 1500);
 
             return true;
         } catch(e) {
+            stopBackgroundKeepAlive('novel_download');
             return false;
         }
     };
 
     const processNextTask = async (task) => {
+        startBackgroundKeepAlive('novel_download');
         activeTaskRef.current = task;
         setActiveTask(task);
         downloadingNovelIdRef.current = null;
@@ -443,6 +448,7 @@ export const DownloadProvider = ({ children }) => {
                 setActiveTask(null);
                 activeTaskRef.current = null;
                 setQueue(prev => prev.filter(q => q.url !== task?.url));
+                stopBackgroundKeepAlive('novel_download');
                 return;
             }
             
@@ -461,6 +467,7 @@ export const DownloadProvider = ({ children }) => {
             setActiveTask(null);
             activeTaskRef.current = null;
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+            stopBackgroundKeepAlive('novel_download');
             return;
         }
 
@@ -625,6 +632,7 @@ export const DownloadProvider = ({ children }) => {
             setActiveTask(null);
             activeTaskRef.current = null;
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+            stopBackgroundKeepAlive('novel_download');
             return;
         }
 
@@ -643,6 +651,7 @@ export const DownloadProvider = ({ children }) => {
         setActiveTask(null);
         activeTaskRef.current = null;
         setQueue(prev => prev.filter(q => q.url !== task?.url));
+        stopBackgroundKeepAlive('novel_download');
     };
 
     const onWebViewMessage = async (event) => {

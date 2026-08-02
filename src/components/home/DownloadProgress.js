@@ -45,9 +45,12 @@ export default function DownloadProgress({ queue, activeTask, progressText, canc
                     </TouchableOpacity>
                 </View>
             ))}
-            <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 8 }}>
-                下載期間可離開此畫面，或點選書櫃閱讀其他小說。
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: colors.background, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+                <Feather name="moon" size={12} color={colors.primary} style={{ marginRight: 6 }} />
+                <Text style={{ color: colors.textSecondary, fontSize: 11, flex: 1 }}>
+                    已啟動背景保活與防休眠，鎖定螢幕或切換 App 仍會持續下載。
+                </Text>
+            </View>
         </View>
     );
 }
