@@ -182,6 +182,10 @@ export const getStorageUsage = async () => {
     }
 };
 
+export const getNovelDir = (novelId) => {
+    return `${FileSystem.documentDirectory}novels/${novelId}/`;
+};
+
 const verifiedNovelDirs = new Set();
 
 export const ensureNovelDir = async (novelId) => {
