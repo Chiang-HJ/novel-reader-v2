@@ -580,9 +580,18 @@ export const DownloadProvider = ({ children }) => {
                 setScrapeUrl(chapterUrl);
 
                 const navHtml = await new Promise((resolve) => {
-                    const timer = setTimeout(() => resolve(''), 8000);
-                    manualCaptchaResolveRef.current = (h) => {
+                    const timer = setTimeout(() => resolve(''), 9000);
+                    manualCaptchaResolveRef.current = (h, reportedUrl) => {
+                        // Ensure the reported HTML is actually from the requested chapter URL
+                        if (reportedUrl && chapterUrl) {
+                            const cleanReported = reportedUrl.split('?')[0].split('#')[0].toLowerCase();
+                            const cleanTarget = chapterUrl.split('?')[0].split('#')[0].toLowerCase();
+                            if (!cleanReported.includes(cleanTarget) && !cleanTarget.includes(cleanReported)) {
+                                return; // Ignore stale page events from previous chapter
+                            }
+                        }
                         clearTimeout(timer);
+                        manualCaptchaResolveRef.current = null;
                         resolve(h);
                     };
                 });
@@ -687,7 +696,7 @@ export const DownloadProvider = ({ children }) => {
                 setIsCaptchaBlocked(false);
 
                 if (manualCaptchaResolveRef.current) {
-                    manualCaptchaResolveRef.current(parsed.html || '');
+                    manualCaptchaResolveRef.current(parsed.html || '', parsed.url);
                 }
 
                 if (scrapeModeRef.current === 'info' && !downloadingNovelIdRef.current) {

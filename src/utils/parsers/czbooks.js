@@ -57,6 +57,14 @@ export const parseInfo = (html, url = '') => {
         
         // Match czbooks chapter pattern: /n/xxxx/yyyy
         if (href.match(/\/n\/[a-zA-Z0-9]+\/\w+/) && !seen.has(href)) {
+            // Cycle detection: If catalog restarts from Chapter 1 after a substantial list (e.g. 50+ chapters), stop duplicate cycle
+            if (chapters.length >= 50 && text && chapters[0].title) {
+                const normText = text.replace(/\s+/g, '');
+                const normFirst = chapters[0].title.replace(/\s+/g, '');
+                if (normText === normFirst || (normText.startsWith('第1章') && normFirst.startsWith('第1章'))) {
+                    break;
+                }
+            }
             seen.add(href);
             chapters.push({
                 url: href.startsWith('http') ? href : (href.startsWith('//') ? `https:${href}` : `https://czbooks.net${href}`),
