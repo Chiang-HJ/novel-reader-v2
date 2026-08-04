@@ -136,13 +136,14 @@ export const ComicDownloadProvider = ({ children }) => {
                 const localPages = [];
                 for (let j = 0; j < chapterResult.images.length; j++) {
                     const base64OrUrl = chapterResult.images[j];
-                    setProgressText('正在下載圖片 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
+                    const pct = Math.round(((j + 1) / chapterResult.images.length) * 100);
+                    setProgressText(`[第 ${i + 1}/${chapters.length} 話] 下載圖片 (${j + 1}/${chapterResult.images.length}) - ${pct}%`);
                     let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, chapterResult.cookies);
                     
                     // Offline Descrambling
                     try {
                         if (descrambleWebViewRef.current) {
-                            setProgressText('正在解密重組 (' + (j + 1) + '/' + chapterResult.images.length + ')...');
+                            setProgressText(`[第 ${i + 1}/${chapters.length} 話] 解密重組 (${j + 1}/${chapterResult.images.length})...`);
                             const parts = localPath.split('/');
                             let filename = parts[parts.length - 1];
                             let photo_id = parseInt(chapter.id, 10);
@@ -216,9 +217,24 @@ export const ComicDownloadProvider = ({ children }) => {
 
     const fetchHtmlViaWebView = (url, mode) => {
         return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                if (chapterHtmlResolveRef.current) {
+                    chapterHtmlResolveRef.current = null;
+                    reject(new Error('網頁載入逾時 (35秒)，可能受驗證阻擋'));
+                }
+            }, 35000);
             setScrapeMode(mode);
             setScrapeId(prev => prev + 1);
-            chapterHtmlResolveRef.current = { resolve, reject };
+            chapterHtmlResolveRef.current = {
+                resolve: (data) => {
+                    clearTimeout(timer);
+                    resolve(data);
+                },
+                reject: (err) => {
+                    clearTimeout(timer);
+                    reject(err);
+                }
+            };
             setScrapeUrl(url);
         });
     };

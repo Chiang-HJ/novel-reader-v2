@@ -101,6 +101,10 @@ export const DownloadProvider = ({ children }) => {
         setQueue(prev => prev.filter(q => q.url !== url));
         cancelFlagRef.current.add(url);
         stopBackgroundKeepAlive('novel_download');
+        if (initialFetchTimerRef.current) {
+            clearTimeout(initialFetchTimerRef.current);
+            initialFetchTimerRef.current = null;
+        }
         if (activeTaskRef.current && activeTaskRef.current.url === url) {
             setScrapeUrl(null);
             pendingRequestsRef.current.forEach(resolve => resolve(''));
@@ -437,7 +441,18 @@ export const DownloadProvider = ({ children }) => {
         if (task.startChapter === undefined) {
             setProgressText(`請選擇《${novelInfo.title}》的下載章節範圍...`);
             const selection = await new Promise((resolve) => {
-                setPendingSelection({ novelInfo, existing, task, resolve });
+                const timer = setTimeout(() => {
+                    resolve({ start: 0, end: novelInfo.chapters.length });
+                }, 90000);
+                setPendingSelection({
+                    novelInfo,
+                    existing,
+                    task,
+                    resolve: (val) => {
+                        clearTimeout(timer);
+                        resolve(val);
+                    }
+                });
             });
             
             if (!selection) {

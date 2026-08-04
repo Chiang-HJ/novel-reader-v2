@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats } from '../utils/storage';
+import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import { createBackup, restoreBackup } from '../utils/BackupService';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -183,9 +183,7 @@ export default function HomeScreen({ navigation }) {
                 await moveNovelToFolder(selectedNovel.id, newFolder.id);
                 setSelectedNovel(null);
             } else if (isSelectionMode && selectedIds.size > 0) {
-                for (const id of selectedIds) {
-                    await moveNovelToFolder(id, newFolder.id);
-                }
+                await batchMoveNovels(Array.from(selectedIds), newFolder.id);
                 setSelectedIds(new Set());
                 setIsSelectionMode(false);
             }
@@ -202,9 +200,7 @@ export default function HomeScreen({ navigation }) {
                 await moveNovelToFolder(selectedNovel.id, folderId);
                 setSelectedNovel(null);
             } else if (isSelectionMode && selectedIds.size > 0) {
-                for (const id of selectedIds) {
-                    await moveNovelToFolder(id, folderId);
-                }
+                await batchMoveNovels(Array.from(selectedIds), folderId);
                 setSelectedIds(new Set());
                 setIsSelectionMode(false);
             }
@@ -242,9 +238,7 @@ export default function HomeScreen({ navigation }) {
                 { text: '取消', style: 'cancel' },
                 { text: '刪除', style: 'destructive', onPress: async () => {
                     try {
-                        for (const id of selectedIds) {
-                            await deleteNovel(id);
-                        }
+                        await batchDeleteNovels(Array.from(selectedIds));
                         setIsSelectionMode(false);
                         setSelectedIds(new Set());
                         await loadBookshelf();
@@ -385,7 +379,17 @@ export default function HomeScreen({ navigation }) {
                 startBackgroundKeepAlive('txt_import');
 
                 try {
-                    const parsed = await parseEpub(file.uri);
+                    const parsed = await parseEpub(file.uri, (current, total, msg) => {
+                        setImportProgress({
+                            isVisible: true,
+                            percent: Math.min(50, Math.round((current / (total || 1)) * 50)),
+                            statusText: msg,
+                            current,
+                            total,
+                            currentTitle: '',
+                            title: baseTitle
+                        });
+                    });
                     const novelId = 'novel_epub_' + Date.now();
                     const total = parsed.chapters.length;
 
@@ -394,7 +398,7 @@ export default function HomeScreen({ navigation }) {
                         if (i % 20 === 0 || i === total - 1) {
                             setImportProgress({
                                 isVisible: true,
-                                percent: Math.round(((i + 1) / total) * 100),
+                                percent: 50 + Math.round(((i + 1) / total) * 50),
                                 statusText: `正在寫入章節 (${i + 1} / ${total})`,
                                 current: i + 1,
                                 total,

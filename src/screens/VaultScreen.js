@@ -282,7 +282,11 @@ export default function VaultScreen({ navigation }) {
                 const files = await FileSystem.readDirectoryAsync(mediaDir);
                 for (const file of files) {
                     const size = await calculateFolderSize(mediaDir + file);
-                    const matchedMedia = mediaList.find(m => m.id === file);
+                    const matchedMedia = mediaList.find(m => 
+                        m.id === file || 
+                        (m.uri && m.uri.endsWith(file)) || 
+                        (m.thumbnailUri && m.thumbnailUri.endsWith(file))
+                    );
                     items.push({
                         id: `media_${file}`,
                         type: 'media',

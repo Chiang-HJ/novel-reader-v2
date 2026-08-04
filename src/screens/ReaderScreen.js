@@ -1152,101 +1152,106 @@ export default function ReaderScreen({ route, navigation }) {
                             }
                         }}
                         onMessage={(event) => {
-                            const data = JSON.parse(event.nativeEvent.data);
-                            if (data.type === 'click') {
-                                playIdRef.current += 1;
-                                Speech.stop();
-                                isSpeechPausedRef.current = false;
-                                setCurrentSentenceIndex(data.index);
-                                if (isPlayingRef.current) playFromIndex(data.index, sentences, playIdRef.current);
-                            } else if (data.type === 'tap') {
-                                const { x, y, w, h } = data;
+                            try {
+                                if (!event?.nativeEvent?.data) return;
+                                const data = JSON.parse(event.nativeEvent.data);
+                                if (!data || typeof data !== 'object') return;
                                 
-                                // Toggle fullscreen if tapped in center area
-                                if (x > w * 0.3 && x < w * 0.7 && y > h * 0.3 && y < h * 0.7) {
-                                    setIsFullScreen(prev => !prev);
-                                    return; // STOP! Don't trigger a page turn!
-                                }
-                                
-                                let direction = 0;
-                                
-                                if (pagingDirectionRef.current === 'horizontal') {
-                                    if (x > w * 0.5) direction = 1;
-                                    else direction = -1;
-                                } else {
-                                    if (y < h * 0.5) direction = 1;
-                                    else direction = -1;
-                                }
-                                
-                                if (pagingWebViewRef.current) {
-                                    pagingWebViewRef.current.injectJavaScript(`
-                                        (function() {
-                                            const pageWidth = window.innerWidth;
-                                        const content = document.querySelector('.content');
-                                        if (!content) return;
-                                        
-                                        if (${direction} === 1) {
-                                            const lastEl = content.lastElementChild;
-                                            if (lastEl) {
-                                                const rect = lastEl.getBoundingClientRect();
-                                                if (rect.right <= window.innerWidth + 5) {
-                                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
+                                if (data.type === 'click') {
+                                    playIdRef.current += 1;
+                                    Speech.stop();
+                                    isSpeechPausedRef.current = false;
+                                    setCurrentSentenceIndex(data.index);
+                                    if (isPlayingRef.current) playFromIndex(data.index, sentences, playIdRef.current);
+                                } else if (data.type === 'tap') {
+                                    const { x, y, w, h } = data;
+                                    
+                                    // Toggle fullscreen if tapped in center area
+                                    if (x > w * 0.3 && x < w * 0.7 && y > h * 0.3 && y < h * 0.7) {
+                                        setIsFullScreen(prev => !prev);
+                                        return; // STOP! Don't trigger a page turn!
+                                    }
+                                    
+                                    let direction = 0;
+                                    
+                                    if (pagingDirectionRef.current === 'horizontal') {
+                                        if (x > w * 0.5) direction = 1;
+                                        else direction = -1;
+                                    } else {
+                                        if (y < h * 0.5) direction = 1;
+                                        else direction = -1;
+                                    }
+                                    
+                                    if (pagingWebViewRef.current) {
+                                        pagingWebViewRef.current.injectJavaScript(`
+                                            (function() {
+                                                const pageWidth = window.innerWidth;
+                                            const content = document.querySelector('.content');
+                                            if (!content) return;
+                                            
+                                            if (${direction} === 1) {
+                                                const lastEl = content.lastElementChild;
+                                                if (lastEl) {
+                                                    const rect = lastEl.getBoundingClientRect();
+                                                    if (rect.right <= window.innerWidth + 5) {
+                                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'next_chapter' }));
+                                                        return;
+                                                    }
+                                                }
+                                            } else if (${direction} === -1) {
+                                                const currentPos = window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
+                                                if (currentPos <= 5) {
+                                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
                                                     return;
                                                 }
                                             }
-                                        } else if (${direction} === -1) {
+                                            
                                             const currentPos = window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
-                                            if (currentPos <= 5) {
-                                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prev_chapter' }));
-                                                return;
-                                            }
-                                        }
-                                        
-                                        const currentPos = window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || document.body.scrollLeft || 0;
-                                        const currentPage = Math.round(currentPos / pageWidth);
-                                        const newPage = currentPage + ${direction};
-                                        const newLeft = newPage * pageWidth;
-                                        
-                                        window.scrollTo({ left: newLeft, behavior: 'smooth' });
-                                        
-                                        // Backup assignment if scrollTo fails
-                                        setTimeout(() => {
-                                            document.documentElement.scrollLeft = newLeft;
-                                            document.body.scrollLeft = newLeft;
-                                            reportPage();
-                                        }, 300);
-                                    })();
-                                    true;
-                                `);
-                                }
-                            } else if (data.type === 'page') {
-                                setPageInfo({ current: data.current, total: data.total });
-                                if (data.anchorIndex !== undefined) {
-                                    setCurrentSentenceIndex(data.anchorIndex);
-                                }
-                            } else if (data.type === 'prev_chapter') {
-                                if (chapterIndexRef.current > 0) {
-                                    shouldStartAtLastPageRef.current = true;
-                                    playIdRef.current += 1;
-                                    Speech.stop();
-                                    isSpeechPausedRef.current = false;
+                                            const currentPage = Math.round(currentPos / pageWidth);
+                                            const newPage = currentPage + ${direction};
+                                            const newLeft = newPage * pageWidth;
+                                            
+                                            window.scrollTo({ left: newLeft, behavior: 'smooth' });
+                                            
+                                            // Backup assignment if scrollTo fails
+                                            setTimeout(() => {
+                                                document.documentElement.scrollLeft = newLeft;
+                                                document.body.scrollLeft = newLeft;
+                                                reportPage();
+                                            }, 300);
+                                        })();
+                                        true;
+                                    `);
+                                    }
+                                } else if (data.type === 'page') {
+                                    setPageInfo({ current: data.current, total: data.total });
+                                    if (data.anchorIndex !== undefined) {
+                                        setCurrentSentenceIndex(data.anchorIndex);
+                                    }
+                                } else if (data.type === 'prev_chapter') {
+                                    if (chapterIndexRef.current > 0) {
+                                        shouldStartAtLastPageRef.current = true;
+                                        playIdRef.current += 1;
+                                        Speech.stop();
+                                        isSpeechPausedRef.current = false;
+                                        const n = novelRef.current || novel;
+                                        loadChapter(n, chapterIndexRef.current - 1, 0);
+                                    } else {
+                                        Alert.alert('提示', '已經是第一章，無法再往前了');
+                                    }
+                                } else if (data.type === 'next_chapter') {
                                     const n = novelRef.current || novel;
-                                    loadChapter(n, chapterIndexRef.current - 1, 0);
-                                } else {
-                                    Alert.alert('提示', '已經是第一章，無法再往前了');
+                                    const totalChapters = n ? (n.chapters ? n.chapters.length : (n.chapterCount || 0)) : 0;
+                                    if (n && chapterIndexRef.current < totalChapters - 1) {
+                                        playIdRef.current += 1;
+                                        Speech.stop();
+                                        isSpeechPausedRef.current = false;
+                                        loadChapter(n, chapterIndexRef.current + 1, 0);
+                                    } else {
+                                        Alert.alert('提示', '已經是最後一章了');
+                                    }
                                 }
-                            } else if (data.type === 'next_chapter') {
-                                const n = novelRef.current || novel;
-                                const totalChapters = n ? (n.chapters ? n.chapters.length : (n.chapterCount || 0)) : 0;
-                                if (n && chapterIndexRef.current < totalChapters - 1) {
-                                    playIdRef.current += 1;
-                                    Speech.stop();
-                                    isSpeechPausedRef.current = false;
-                                    loadChapter(n, chapterIndexRef.current + 1, 0);
-                                } else {
-                                    Alert.alert('提示', '已經是最後一章了');
-                                }
-                            }
+                            } catch (err) {}
                         }}
                     />
                 </View>

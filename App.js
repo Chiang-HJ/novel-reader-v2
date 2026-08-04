@@ -106,7 +106,9 @@ function AppContent() {
   return (
     // This View is the single root. Both Navigator and WebViewHost live as siblings inside it.
     <View style={{ flex: 1 }}>
-      <RootNavigator />
+      <ErrorBoundary>
+        <RootNavigator />
+      </ErrorBoundary>
       {/* WebView for download engine - rendered as sibling to navigator, NOT inside Provider */}
       <DownloadWebViewHost />
       <ComicDownloadWebViewHost />

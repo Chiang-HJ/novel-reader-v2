@@ -2,54 +2,51 @@ export const domain = 'wyblogs.eu.org';
 export const name = 'wyblogs';
 
 export const parseSearchHtml = (html) => {
-    return []; // Search is not implemented yet
+    return [];
+};
+
+const extractBalancedTag = (html, startPattern, tag = 'div') => {
+    const match = html.match(startPattern);
+    if (!match) return null;
+    const startIndex = match.index + match[0].length;
+    let depth = 1;
+    const tagRegex = new RegExp(`</?${tag}\\b[^>]*>`, 'gi');
+    tagRegex.lastIndex = startIndex;
+    let tagMatch;
+    while ((tagMatch = tagRegex.exec(html)) !== null) {
+        if (tagMatch[0].startsWith('</')) {
+            depth--;
+            if (depth === 0) {
+                return html.substring(startIndex, tagMatch.index);
+            }
+        } else {
+            depth++;
+        }
+    }
+    return html.substring(startIndex);
 };
 
 export const parseInfo = (html, url = '') => {
     let titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     let title = titleMatch ? titleMatch[1].replace('- sexy gay wyblogs', '').trim() : '未知書名';
 
-    let content = '';
-    const lowerHtml = html.toLowerCase();
-    const articleStart = lowerHtml.indexOf('<article');
-    const postBodyStart = lowerHtml.indexOf('post-body');
-    const postContentStart = lowerHtml.indexOf('post-content');
-    const entryContentStart = lowerHtml.indexOf('entry-content');
-    
-    let startIndex = -1;
-    let endStr = '';
-
-    if (articleStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', articleStart) + 1;
-        endStr = '</article>';
-    } else if (postBodyStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', postBodyStart) + 1;
-        endStr = '</div>';
-    } else if (postContentStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', postContentStart) + 1;
-        endStr = '</div>';
-    } else if (entryContentStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', entryContentStart) + 1;
-        endStr = '</div>';
+    let content = extractBalancedTag(html, /<article[^>]*>/i, 'article');
+    if (!content) {
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*post-body[^"]*"[^>]*>/i, 'div');
     }
-
-    if (startIndex !== -1 && startIndex !== 0) {
-        const endIndex = lowerHtml.indexOf(endStr, startIndex);
-        if (endIndex !== -1) {
-            content = html.substring(startIndex, endIndex);
-        }
+    if (!content) {
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*post-content[^"]*"[^>]*>/i, 'div');
+    }
+    if (!content) {
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*entry-content[^"]*"[^>]*>/i, 'div');
+    }
+    if (!content) {
+        content = html;
     }
 
     let chapters = [];
 
-    if (!content) {
-        // If we can't find the wrapper tags, it might mean the WebView already extracted the innerHTML,
-        // or the structure changed. Fallback to using the entire HTML string.
-        content = html;
-    }
-
     if (content) {
-        // Strip lists to remove "Related Posts" links that might contain false chapter headings
         let cleanContent = content.replace(/<ul[\s\S]*?<\/ul>/gi, '')
                                   .replace(/<ol[\s\S]*?<\/ol>/gi, '')
                                   .replace(/<br\s*\/?>/gi, '\n')
@@ -59,7 +56,7 @@ export const parseInfo = (html, url = '') => {
                                   .replace(/<[^>]+>/g, '')
                                   .trim();
         
-        if (!cleanContent) return null; // If it's completely empty after cleaning, it's invalid
+        if (!cleanContent) return null;
 
         const headingRegex = /(第[零一二三四五六七八九十百千万0-9]+章[^\n]*)/g;
         const parts = cleanContent.split(headingRegex);
@@ -84,7 +81,6 @@ export const parseInfo = (html, url = '') => {
     }
 
     const cleanUrl = (url || '').split('?')[0].split('#')[0];
-    const urlParts = cleanUrl.split('/').filter(Boolean);
     return {
         id: url.replace(/[^a-zA-Z0-9]/g, '_'),
         url: cleanUrl,
@@ -95,39 +91,18 @@ export const parseInfo = (html, url = '') => {
 };
 
 export const parseChapter = (html, url = '') => {
-    let content = '';
-    const lowerHtml = html.toLowerCase();
-    const articleStart = lowerHtml.indexOf('<article');
-    const postBodyStart = lowerHtml.indexOf('post-body');
-    const postContentStart = lowerHtml.indexOf('post-content');
-    const entryContentStart = lowerHtml.indexOf('entry-content');
-    
-    let startIndex = -1;
-    let endStr = '';
-
-    if (articleStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', articleStart) + 1;
-        endStr = '</article>';
-    } else if (postBodyStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', postBodyStart) + 1;
-        endStr = '</div>';
-    } else if (postContentStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', postContentStart) + 1;
-        endStr = '</div>';
-    } else if (entryContentStart !== -1) {
-        startIndex = lowerHtml.indexOf('>', entryContentStart) + 1;
-        endStr = '</div>';
-    }
-
-    if (startIndex !== -1 && startIndex !== 0) {
-        const endIndex = lowerHtml.indexOf(endStr, startIndex);
-        if (endIndex !== -1) {
-            content = html.substring(startIndex, endIndex);
-        }
-    }
-
+    let content = extractBalancedTag(html, /<article[^>]*>/i, 'article');
     if (!content) {
-        content = html; // Fallback
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*post-body[^"]*"[^>]*>/i, 'div');
+    }
+    if (!content) {
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*post-content[^"]*"[^>]*>/i, 'div');
+    }
+    if (!content) {
+        content = extractBalancedTag(html, /<div[^>]*class="[^"]*entry-content[^"]*"[^>]*>/i, 'div');
+    }
+    if (!content) {
+        content = html;
     }
     
     // 清理廣告與不必要的標籤

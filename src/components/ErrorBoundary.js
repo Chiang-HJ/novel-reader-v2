@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default class ErrorBoundary extends React.Component {
@@ -16,25 +16,47 @@ export default class ErrorBoundary extends React.Component {
         this.setState({ error, info });
     }
 
+    handleReset = () => {
+        this.setState({ hasError: false, error: null, info: null });
+    };
+
     render() {
         if (this.state.hasError) {
             return (
-                <SafeAreaView style={{ flex: 1, backgroundColor: '#b00020', padding: 20 }}>
-                    <ScrollView>
-                        <Text style={{ fontSize: 22, color: 'white', fontWeight: 'bold' }}>發生錯誤</Text>
-                        <Text style={{ fontSize: 14, color: 'white', marginTop: 8 }}>請截圖以下訊息回報：</Text>
-                        <Text style={{ color: '#FFD700', marginTop: 16, fontFamily: 'monospace', fontSize: 12 }}>
-                            {this.state.error ? this.state.error.toString() : 'Unknown Error'}
-                        </Text>
-                        <Text style={{ color: '#ffcccc', marginTop: 8, fontFamily: 'monospace', fontSize: 10 }}>
-                            {this.state.info ? this.state.info.componentStack : ''}
-                        </Text>
+                <SafeAreaView style={styles.container}>
+                    <ScrollView contentContainerStyle={styles.scrollContent}>
+                        <Text style={styles.title}>⚠️ 應用程式發生未預期的錯誤</Text>
+                        <Text style={styles.subtitle}>已自動保護背景下載與書架資料，請嘗試以下救援選項：</Text>
+                        
+                        <View style={styles.errorBox}>
+                            <Text style={styles.errorText}>
+                                {this.state.error ? this.state.error.toString() : '未知錯誤'}
+                            </Text>
+                            {this.state.info && this.state.info.componentStack ? (
+                                <Text style={styles.stackText}>
+                                    {this.state.info.componentStack.trim().split('\n').slice(0, 5).join('\n')}
+                                </Text>
+                            ) : null}
+                        </View>
+                        
                         <TouchableOpacity
-                            style={{ marginTop: 30, padding: 14, backgroundColor: 'white', borderRadius: 8 }}
-                            onPress={() => this.setState({ hasError: false, error: null, info: null })}
+                            style={styles.buttonPrimary}
+                            onPress={this.handleReset}
                         >
-                            <Text style={{ textAlign: 'center', color: '#b00020', fontWeight: 'bold' }}>重新嘗試</Text>
+                            <Text style={styles.buttonPrimaryText}>🔄 重新嘗試載入本頁</Text>
                         </TouchableOpacity>
+
+                        {this.props.onReset ? (
+                            <TouchableOpacity
+                                style={styles.buttonSecondary}
+                                onPress={() => {
+                                    this.handleReset();
+                                    this.props.onReset();
+                                }}
+                            >
+                                <Text style={styles.buttonSecondaryText}>🏠 返回首頁</Text>
+                            </TouchableOpacity>
+                        ) : null}
                     </ScrollView>
                 </SafeAreaView>
             );
@@ -42,3 +64,71 @@ export default class ErrorBoundary extends React.Component {
         return this.props.children;
     }
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#1a1a1a',
+        padding: 20
+    },
+    scrollContent: {
+        paddingVertical: 20
+    },
+    title: {
+        fontSize: 20,
+        color: '#ff4d4f',
+        fontWeight: 'bold',
+        marginBottom: 8
+    },
+    subtitle: {
+        fontSize: 14,
+        color: '#bfbfbf',
+        marginBottom: 16,
+        lineHeight: 20
+    },
+    errorBox: {
+        backgroundColor: '#2a2a2a',
+        borderRadius: 8,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: '#434343',
+        marginBottom: 24
+    },
+    errorText: {
+        color: '#ffa39e',
+        fontFamily: 'monospace',
+        fontSize: 13,
+        fontWeight: '600'
+    },
+    stackText: {
+        color: '#8c8c8c',
+        fontFamily: 'monospace',
+        fontSize: 11,
+        marginTop: 8
+    },
+    buttonPrimary: {
+        backgroundColor: '#1890ff',
+        paddingVertical: 14,
+        borderRadius: 8,
+        marginBottom: 12,
+        alignItems: 'center'
+    },
+    buttonPrimaryText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16
+    },
+    buttonSecondary: {
+        backgroundColor: '#333',
+        paddingVertical: 14,
+        borderRadius: 8,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#555'
+    },
+    buttonSecondaryText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16
+    }
+});

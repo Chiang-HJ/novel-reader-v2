@@ -8,13 +8,13 @@ const getNovelKey = (id) => `@novel_meta_${id}`;
 
 // Concurrency Mutex
 let storageMutex = Promise.resolve();
-const lockStorage = async (task) => {
+export const lockStorage = async (task) => {
     let release;
     const next = new Promise(resolve => release = resolve);
     const prev = storageMutex;
-    storageMutex = storageMutex.then(() => next);
+    storageMutex = prev.catch(() => {}).then(() => next);
     try {
-        await prev;
+        await prev.catch(() => {});
         return await task();
     } finally {
         release();
@@ -121,6 +121,35 @@ export const moveNovelToFolder = async (novelId, folderId) => {
     await updateNovelMetadata(novelId, { folderId });
 };
 
+export const batchMoveNovels = async (novelIds, folderId) => {
+    return lockStorage(async () => {
+        const idSet = new Set(novelIds);
+        const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
+        let currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        
+        currentList = currentList.map(n => {
+            if (idSet.has(n.id)) {
+                return { ...n, folderId };
+            }
+            return n;
+        });
+        
+        await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
+        
+        // Also update individual full meta
+        for (const id of novelIds) {
+            try {
+                const fullStr = await AsyncStorage.getItem(getNovelKey(id));
+                if (fullStr) {
+                    const full = JSON.parse(fullStr);
+                    full.folderId = folderId;
+                    await AsyncStorage.setItem(getNovelKey(id), JSON.stringify(full));
+                }
+            } catch (e) {}
+        }
+    });
+};
+
 export const toggleNovelVisibility = async (novelId) => {
     const list = await getBookshelf();
     const novel = list.find(n => n.id === novelId);
@@ -134,31 +163,53 @@ export const updateReadingProgress = async (novelId, progressIndex, progressSent
 };
 
 export const deleteNovel = async (novelId) => {
+    return batchDeleteNovels([novelId]);
+};
+
+export const batchDeleteNovels = async (novelIds) => {
     return lockStorage(async () => {
-        // Remove from list
+        const idSet = new Set(novelIds);
+        
+        // Remove from list in one pass
         const currentListStr = await AsyncStorage.getItem(NOVELS_KEY);
         let currentList = currentListStr ? JSON.parse(currentListStr) : [];
-        currentList = currentList.filter(n => n.id !== novelId);
+        currentList = currentList.filter(n => !idSet.has(n.id));
         await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
 
-        // Remove full metadata
-        await AsyncStorage.removeItem(getNovelKey(novelId));
-
-        // Delete files
-        const folderPath = `${FileSystem.documentDirectory}novels/${novelId}/`;
-        try {
-            const info = await FileSystem.getInfoAsync(folderPath);
-            if (info.exists) {
-                await FileSystem.deleteAsync(folderPath, { idempotent: true });
-            }
-        } catch (e) {
-
+        // Remove full metadata and files for each
+        for (const novelId of novelIds) {
+            try {
+                await AsyncStorage.removeItem(getNovelKey(novelId));
+                const folderPath = `${FileSystem.documentDirectory}novels/${novelId}/`;
+                const info = await FileSystem.getInfoAsync(folderPath);
+                if (info.exists) {
+                    await FileSystem.deleteAsync(folderPath, { idempotent: true });
+                }
+            } catch (e) {}
         }
     });
 };
 
-
 export const getNovelById = getNovelMetadata;
+
+const getDirectorySizeRecursive = async (dirUri) => {
+    let size = 0;
+    try {
+        const dirInfo = await FileSystem.getInfoAsync(dirUri);
+        if (!dirInfo.exists) return 0;
+        const files = await FileSystem.readDirectoryAsync(dirUri);
+        for (const file of files) {
+            const fileUri = `${dirUri}${file}${file.endsWith('/') ? '' : '/'}`;
+            const fileInfo = await FileSystem.getInfoAsync(`${dirUri}${file}`);
+            if (fileInfo.isDirectory) {
+                size += await getDirectorySizeRecursive(fileUri);
+            } else {
+                size += fileInfo.size || 0;
+            }
+        }
+    } catch (e) {}
+    return size;
+};
 
 export const getStorageUsage = async () => {
     try {
@@ -166,19 +217,15 @@ export const getStorageUsage = async () => {
         const vaultDir = `${FileSystem.documentDirectory}vault_media/`;
         let totalBytes = 0;
 
-        for (const dir of [novelDir, vaultDir]) {
-            const info = await FileSystem.getInfoAsync(dir);
-            if (info.exists) {
-                totalBytes += info.size || 0;
-            }
-        }
+        totalBytes += await getDirectorySizeRecursive(novelDir);
+        totalBytes += await getDirectorySizeRecursive(vaultDir);
 
         if (totalBytes < 1024) return `${totalBytes} B`;
         if (totalBytes < 1024 * 1024) return `${(totalBytes / 1024).toFixed(1)} KB`;
         if (totalBytes < 1024 * 1024 * 1024) return `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
         return `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     } catch (e) {
-        return '?��?計�?';
+        return '計算失敗';
     }
 };
 

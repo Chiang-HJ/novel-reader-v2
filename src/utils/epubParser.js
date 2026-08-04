@@ -1,18 +1,22 @@
 import * as FileSystem from 'expo-file-system/legacy';
-export async function parseEpub(uri) {
+
+export async function parseEpub(uri, onProgress) {
     try {
         const JSZip = require('jszip');
         const { XMLParser } = require('fast-xml-parser');
         
+        if (onProgress) onProgress(0, 1, '正在讀取 EPUB 檔案...');
+
         // Read file as base64
         const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
         
+        if (onProgress) onProgress(0, 1, '正在解壓縮 EPUB 結構...');
         // Load zip
         const zip = await JSZip.loadAsync(base64, { base64: true });
         
         // Find container.xml to locate OPF
         if (!zip.file("META-INF/container.xml")) {
-            throw new Error("Invalid EPUB: missing container.xml");
+            throw new Error("無效的 EPUB 檔案：找不到 META-INF/container.xml");
         }
         
         const containerXml = await zip.file("META-INF/container.xml").async("string");
@@ -25,7 +29,7 @@ export async function parseEpub(uri) {
             : rootfiles?.["@_full-path"];
             
         if (!opfPath) {
-            throw new Error("Invalid EPUB: cannot find OPF path in container.xml");
+            throw new Error("無效的 EPUB 檔案：無法在 container.xml 找到 OPF 路徑");
         }
         
         const basePath = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
@@ -35,29 +39,38 @@ export async function parseEpub(uri) {
         const opfObj = parser.parse(opfXml);
         
         const metadata = opfObj?.package?.metadata;
-        const title = metadata?.["dc:title"] || "Unknown Title";
-        const author = metadata?.["dc:creator"] || "Unknown Author";
+        const title = metadata?.["dc:title"] || "未命名書籍";
+        const author = metadata?.["dc:creator"] || "未知作者";
         
-        // If author is an array, take the first or join
-        const authorStr = Array.isArray(author) ? author.map(a => a['#text'] || a).join(', ') : (author?.['#text'] || author || "Unknown Author");
-        const titleStr = typeof title === 'object' ? (title['#text'] || "Unknown Title") : title;
-        
-        const manifestItems = Array.isArray(opfObj?.package?.manifest?.item) 
-            ? opfObj.package.manifest.item 
-            : [opfObj?.package?.manifest?.item];
+        const authorStr = Array.isArray(author) 
+            ? author.map(a => (typeof a === 'object' ? a['#text'] : a)).filter(Boolean).join(', ') 
+            : (typeof author === 'object' ? (author?.['#text'] || "未知作者") : author);
             
-        const spineItemrefs = Array.isArray(opfObj?.package?.spine?.itemref)
-            ? opfObj.package.spine.itemref
-            : [opfObj?.package?.spine?.itemref];
+        const titleStr = typeof title === 'object' ? (title['#text'] || "未命名書籍") : title;
+        
+        const manifestRaw = opfObj?.package?.manifest?.item;
+        const manifestItems = Array.isArray(manifestRaw) ? manifestRaw : (manifestRaw ? [manifestRaw] : []);
+        
+        // Build O(1) Manifest Map for fast lookup
+        const manifestMap = new Map();
+        for (const m of manifestItems) {
+            if (m && m["@_id"]) {
+                manifestMap.set(m["@_id"], m);
+            }
+        }
+            
+        const spineRaw = opfObj?.package?.spine?.itemref;
+        const spineItemrefs = Array.isArray(spineRaw) ? spineRaw : (spineRaw ? [spineRaw] : []);
+        const totalSpine = spineItemrefs.length;
             
         // Build chapters from spine
         const chapters = [];
         
-        for (let i = 0; i < spineItemrefs.length; i++) {
+        for (let i = 0; i < totalSpine; i++) {
             const itemref = spineItemrefs[i];
             if (!itemref) continue;
             const idref = itemref["@_idref"];
-            const item = manifestItems.find(m => m["@_id"] === idref);
+            const item = manifestMap.get(idref);
             if (!item) continue;
             
             const href = item["@_href"];
@@ -69,19 +82,18 @@ export async function parseEpub(uri) {
             const htmlContent = await file.async("string");
             
             // Extract title from HTML if possible, otherwise generic
-            let chapTitle = `章節 ${i + 1}`;
+            let chapTitle = `第 ${i + 1} 章`;
             const titleMatch = htmlContent.match(/<title[^>]*>([^<]+)<\/title>/i);
             if (titleMatch && titleMatch[1].trim()) {
                 chapTitle = titleMatch[1].trim();
             } else {
-                const h1Match = htmlContent.match(/<h[1-2][^>]*>([^<]+)<\/h[1-2]>/i);
+                const h1Match = htmlContent.match(/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i);
                 if (h1Match && h1Match[1].trim()) {
                     chapTitle = h1Match[1].trim();
                 }
             }
             
-            // Strip HTML tags
-            // Replace <br> and </p> with newlines, then strip tags
+            // Strip HTML tags and normalize whitespace
             let text = htmlContent
                 .replace(/<(br|p|\/p|div|\/div|li|\/li|h[1-6]|\/h[1-6])[^>]*>/gi, '\n')
                 .replace(/<[^>]+>/g, '')
@@ -89,6 +101,8 @@ export async function parseEpub(uri) {
                 .replace(/&lt;/g, '<')
                 .replace(/&gt;/g, '>')
                 .replace(/&amp;/g, '&')
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'")
                 .replace(/\n\s*\n/g, '\n\n')
                 .trim();
                 
@@ -97,6 +111,12 @@ export async function parseEpub(uri) {
                     title: chapTitle,
                     text: text
                 });
+            }
+
+            if (onProgress && (i % 25 === 0 || i === totalSpine - 1)) {
+                onProgress(i + 1, totalSpine, `正在解析章節 (${i + 1}/${totalSpine})...`);
+                // Yield to event loop
+                await new Promise(r => setTimeout(r, 0));
             }
         }
         
@@ -107,7 +127,6 @@ export async function parseEpub(uri) {
         };
         
     } catch (error) {
-
         throw error;
     }
 }

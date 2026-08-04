@@ -18,6 +18,7 @@ export const TwitterDownloadProvider = ({ children }) => {
     const [vaultMediaUpdated, setVaultMediaUpdated] = useState(Date.now());
 
     const activeTaskRef = useRef(null);
+    const watchdogTimerRef = useRef(null);
 
     useEffect(() => {
         if (twitterQueue.length > 0 && !activeTaskRef.current) {
@@ -40,9 +41,21 @@ export const TwitterDownloadProvider = ({ children }) => {
         setActiveTwitterTask(task);
         setIsDownloadingTwitter(true);
         setTwitterProgressText('準備下載...');
+
+        if (watchdogTimerRef.current) clearTimeout(watchdogTimerRef.current);
+        watchdogTimerRef.current = setTimeout(() => {
+            if (activeTaskRef.current?.id === task.id) {
+                Alert.alert('下載逾時', '擷取推文逾時 (45秒)，請確認網路或手動重試。');
+                completeTask();
+            }
+        }, 45000);
     };
 
     const completeTask = () => {
+        if (watchdogTimerRef.current) {
+            clearTimeout(watchdogTimerRef.current);
+            watchdogTimerRef.current = null;
+        }
         setTwitterQueue(prev => prev.slice(1));
         activeTaskRef.current = null;
         setActiveTwitterTask(null);

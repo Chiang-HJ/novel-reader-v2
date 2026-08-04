@@ -34,13 +34,11 @@ export const parseSearchHtml = (html) => {
         });
         return results;
     } catch (e) {
-
         return [];
     }
 };
 
 export const parseInfo = (html, url) => {
-    // Example regex for info page
     const titleMatch = html.match(/<meta property="og:novel:book_name" content="([^"]+)"/);
     const title = titleMatch ? titleMatch[1] : '未知書名';
     
@@ -48,10 +46,18 @@ export const parseInfo = (html, url) => {
     const cover = imgMatch ? imgMatch[1] : null;
     
     const chapters = [];
+    
+    // Find the chapter directory container if present (e.g. #list, .list, or body)
+    let searchScope = html;
+    const listIndex = html.indexOf('id="list"') !== -1 ? html.indexOf('id="list"') : html.indexOf('class="list"');
+    if (listIndex !== -1) {
+        searchScope = html.substring(listIndex);
+    }
+
     const linkRegex = /<a[^>]+href=["']?([^"'\s>]+)["']?[^>]*>([\s\S]*?)<\/a>/gi;
     let match;
     const seen = new Set();
-    while ((match = linkRegex.exec(html)) !== null) {
+    while ((match = linkRegex.exec(searchScope)) !== null) {
         let href = match[1].trim();
         let text = match[2].replace(/<[^>]+>/g, '').trim();
         
@@ -75,13 +81,39 @@ export const parseInfo = (html, url) => {
     };
 };
 
+const extractBalancedTag = (html, startPattern, tag = 'div') => {
+    const match = html.match(startPattern);
+    if (!match) return null;
+    const startIndex = match.index + match[0].length;
+    let depth = 1;
+    const tagRegex = new RegExp(`</?${tag}\\b[^>]*>`, 'gi');
+    tagRegex.lastIndex = startIndex;
+    let tagMatch;
+    while ((tagMatch = tagRegex.exec(html)) !== null) {
+        if (tagMatch[0].startsWith('</')) {
+            depth--;
+            if (depth === 0) {
+                return html.substring(startIndex, tagMatch.index);
+            }
+        } else {
+            depth++;
+        }
+    }
+    return html.substring(startIndex);
+};
+
 export const parseChapter = (html) => {
-    const contentMatch = html.match(/<div id="content"[^>]*>([\s\S]*?)<\/div>/);
-    if (!contentMatch) return '';
+    let content = extractBalancedTag(html, /<div id="content"[^>]*>/i, 'div');
+    if (!content) {
+        // Fallback to match if tag isn't balanced
+        const match = html.match(/<div id="content"[^>]*>([\s\S]*?)(?:<div class="page_chapter"|<div class="bottem"|<\/body>)/i);
+        content = match ? match[1] : html;
+    }
     
-    let content = contentMatch[1];
     content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
+    content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
     content = content.replace(/<br\s*\/?>/gi, '\n');
+    content = content.replace(/<\/p>/gi, '\n');
     content = content.replace(/<[^>]+>/g, '');
     content = content.replace(/&nbsp;/g, ' ');
     content = content.replace(/[\r\n]+/g, '\n');
