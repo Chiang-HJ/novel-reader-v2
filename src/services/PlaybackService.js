@@ -10,6 +10,10 @@
 import TrackPlayer, { Event, State } from '../utils/safeTrackPlayer';
 export default async function() {
 
+    TrackPlayer.addEventListener(Event.RemotePlay, async () => {
+        await TrackPlayer.play();
+    });
+
     TrackPlayer.addEventListener(Event.RemotePause, async () => {
         await TrackPlayer.pause();
     });

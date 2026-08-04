@@ -52,6 +52,7 @@ export default function VaultScreen({ navigation }) {
     // Storage Management state
     const [storageItems, setStorageItems] = useState([]);
     const [isScanningStorage, setIsScanningStorage] = useState(false);
+    const [scanProgressText, setScanProgressText] = useState('');
     const [isStorageSelectionMode, setIsStorageSelectionMode] = useState(false);
     const [selectedStorageItems, setSelectedStorageItems] = useState(new Set());
     const [isStorageInspectorVisible, setIsStorageInspectorVisible] = useState(false);
@@ -168,6 +169,8 @@ export default function VaultScreen({ navigation }) {
 
                 const newMedia = [...mediaList];
                 const assets = result.assets || [result];
+                let successCount = 0;
+                let failCount = 0;
 
                 for (let i = 0; i < assets.length; i++) {
                     const asset = assets[i];
@@ -209,14 +212,19 @@ export default function VaultScreen({ navigation }) {
                             createdAt: Date.now(),
                             tags: []
                         });
+                        successCount++;
                     } catch (err) {
-
+                        failCount++;
                     }
                 }
 
                 await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
                 setMediaList(newMedia);
-                Alert.alert('匯入完畢', `成功處理 ${assets.length} 個檔案！`);
+                if (failCount > 0) {
+                    Alert.alert('匯入完成', `成功匯入 ${successCount} 個檔案，${failCount} 個檔案失敗。`);
+                } else {
+                    Alert.alert('匯入完畢', `成功匯入 ${successCount} 個檔案！`);
+                }
             } finally {
                 setIsProcessing(false);
             }
@@ -253,6 +261,7 @@ export default function VaultScreen({ navigation }) {
 
     const scanStorage = async () => {
         setIsScanningStorage(true);
+        setScanProgressText('正在準備掃描...');
         try {
             const items = [];
             const allNovels = await getBookshelf();
@@ -261,7 +270,9 @@ export default function VaultScreen({ navigation }) {
             const novelsDirInfo = await FileSystem.getInfoAsync(novelsDir);
             if (novelsDirInfo.exists) {
                 const folders = await FileSystem.readDirectoryAsync(novelsDir);
-                for (const folder of folders) {
+                for (let i = 0; i < folders.length; i++) {
+                    const folder = folders[i];
+                    setScanProgressText(`正在掃描書籍資料 (${i + 1}/${folders.length})...`);
                     const size = await calculateFolderSize(novelsDir + folder);
                     const matchedNovel = allNovels.find(n => n.id === folder);
                     items.push({
@@ -273,6 +284,9 @@ export default function VaultScreen({ navigation }) {
                         isOrphan: !matchedNovel,
                         size: size
                     });
+                    if (i % 5 === 0) {
+                        await new Promise(r => setTimeout(r, 0));
+                    }
                 }
             }
             
@@ -280,7 +294,9 @@ export default function VaultScreen({ navigation }) {
             const mediaDirInfo = await FileSystem.getInfoAsync(mediaDir);
             if (mediaDirInfo.exists) {
                 const files = await FileSystem.readDirectoryAsync(mediaDir);
-                for (const file of files) {
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    setScanProgressText(`正在掃描媒體資料 (${i + 1}/${files.length})...`);
                     const size = await calculateFolderSize(mediaDir + file);
                     const matchedMedia = mediaList.find(m => 
                         m.id === file || 
@@ -296,6 +312,9 @@ export default function VaultScreen({ navigation }) {
                         isOrphan: !matchedMedia,
                         size: size
                     });
+                    if (i % 10 === 0) {
+                        await new Promise(r => setTimeout(r, 0));
+                    }
                 }
             }
             
@@ -305,6 +324,7 @@ export default function VaultScreen({ navigation }) {
 
         } finally {
             setIsScanningStorage(false);
+            setScanProgressText('');
         }
     };
 
@@ -724,14 +744,16 @@ export default function VaultScreen({ navigation }) {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await FileSystem.deleteAsync(item.uri);
-                            if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri);
-                        } catch (e) {}
-                        const newList = mediaList.filter(m => m.id !== item.id);
-                        await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newList));
-                        setMediaList(newList);
-                        if (selectedMedia?.id === item.id) {
-                            setSelectedMedia(null);
+                            await FileSystem.deleteAsync(item.uri, { idempotent: true });
+                            if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri, { idempotent: true });
+                            const newList = mediaList.filter(m => m.id !== item.id);
+                            await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newList));
+                            setMediaList(newList);
+                            if (selectedMedia?.id === item.id) {
+                                setSelectedMedia(null);
+                            }
+                        } catch (e) {
+                            Alert.alert('刪除失敗', '無法刪除此檔案：' + e.message);
                         }
                     }
                 }
@@ -820,9 +842,11 @@ export default function VaultScreen({ navigation }) {
             {activeTab === 'storage' ? (
                 <View style={{ flex: 1 }}>
                     {isScanningStorage ? (
-                        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
                             <ActivityIndicator size="large" color={colors.primary} />
-                            <Text style={{ color: colors.textSecondary, marginTop: 16 }}>正在掃描儲存空間...</Text>
+                            <Text style={{ color: colors.textSecondary, marginTop: 16, textAlign: 'center' }}>
+                                {scanProgressText || '正在掃描儲存空間...'}
+                            </Text>
                         </View>
                     ) : (
                         <FlatList

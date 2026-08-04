@@ -96,7 +96,14 @@ const DescrambleWebView = forwardRef((props, ref) => {
                 }
                 
                 const jobId = jobIdCounter.current++;
-                pendingJobs.current[jobId] = { resolve, reject };
+                const timer = setTimeout(() => {
+                    if (pendingJobs.current[jobId]) {
+                        delete pendingJobs.current[jobId];
+                        reject(new Error(`Descramble timeout for jobId ${jobId}`));
+                    }
+                }, 10000);
+
+                pendingJobs.current[jobId] = { resolve, reject, timer };
                 
                 const message = JSON.stringify({
                     type: 'DESCRAMBLE',
@@ -119,6 +126,7 @@ const DescrambleWebView = forwardRef((props, ref) => {
             } else if (data.type === 'DESCRAMBLE_RESULT') {
                 const job = pendingJobs.current[data.jobId];
                 if (job) {
+                    if (job.timer) clearTimeout(job.timer);
                     // Remove the "data:image/jpeg;base64," prefix if it exists, to match React Native FileSystem expectations
                     const cleanBase64 = data.base64.replace(/^data:image\/\w+;base64,/, '');
                     job.resolve(cleanBase64);
@@ -127,6 +135,7 @@ const DescrambleWebView = forwardRef((props, ref) => {
             } else if (data.type === 'DESCRAMBLE_ERROR') {
                 const job = pendingJobs.current[data.jobId];
                 if (job) {
+                    if (job.timer) clearTimeout(job.timer);
                     job.reject(new Error(data.error));
                     delete pendingJobs.current[data.jobId];
                 }

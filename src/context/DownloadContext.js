@@ -595,7 +595,7 @@ export const DownloadProvider = ({ children }) => {
                 setScrapeUrl(chapterUrl);
 
                 const navHtml = await new Promise((resolve) => {
-                    const timer = setTimeout(() => resolve(''), 9000);
+                    const timer = setTimeout(() => resolve(''), 30000);
                     manualCaptchaResolveRef.current = (h, reportedUrl) => {
                         // Ensure the reported HTML is actually from the requested chapter URL
                         if (reportedUrl && chapterUrl) {

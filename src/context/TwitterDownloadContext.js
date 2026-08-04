@@ -103,43 +103,47 @@ export const TwitterDownloadProvider = ({ children }) => {
                 }
 
                 for (let i = 0; i < urls.length; i++) {
-                    const fileUrl = urls[i];
-                    const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
-                    const ext = isImage ? '.jpg' : '.mp4';
-                    const type = isImage ? 'image' : 'video';
+                    try {
+                        const fileUrl = urls[i];
+                        const isImage = fileUrl.toLowerCase().includes('.jpg') || fileUrl.toLowerCase().includes('.jpeg') || fileUrl.toLowerCase().includes('.png');
+                        const ext = isImage ? '.jpg' : '.mp4';
+                        const type = isImage ? 'image' : 'video';
 
-                    const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
-                    const fileName = uniqueId + '_twitter' + ext;
-                    const destUri = vaultDir + fileName;
+                        const uniqueId = Date.now().toString() + '_' + Math.random().toString(36).substring(7);
+                        const fileName = uniqueId + '_twitter' + ext;
+                        const destUri = vaultDir + fileName;
 
-                    const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => { 
-                        setTwitterProgressText(`下載中 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`); 
-                    });
-                    const downloadResult = await downloadResumable.downloadAsync();
-                    if (downloadResult.status !== 200) continue;
+                        const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => { 
+                            setTwitterProgressText(`下載中 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`); 
+                        });
+                        const downloadResult = await downloadResumable.downloadAsync();
+                        if (!downloadResult || downloadResult.status !== 200) continue;
 
-                    let thumbnailUri = null;
-                    if (type === 'video') {
-                        try {
-                            const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
-                            const tFileName = 'thumb_' + uniqueId + '.jpg';
-                            const newTUri = vaultDir + tFileName;
-                            await FileSystem.copyAsync({ from: tUri, to: newTUri });
-                            thumbnailUri = newTUri;
-                        } catch (e) {}
+                        let thumbnailUri = null;
+                        if (type === 'video') {
+                            try {
+                                const { uri: tUri } = await VideoThumbnails.getThumbnailAsync(destUri, { time: 1000 });
+                                const tFileName = 'thumb_' + uniqueId + '.jpg';
+                                const newTUri = vaultDir + tFileName;
+                                await FileSystem.copyAsync({ from: tUri, to: newTUri });
+                                thumbnailUri = newTUri;
+                            } catch (e) {}
+                        }
+
+                        const newItem = {
+                            id: uniqueId,
+                            uri: destUri,
+                            thumbnailUri,
+                            type: type,
+                            createdAt: Date.now(),
+                            tags: ['twitter'],
+                            title: urls.length > 1 ? `Twitter 檔案 (${i+1}/${urls.length})` : 'Twitter 檔案',
+                            description: textContent
+                        };
+                        newlyAddedMedia.push(newItem);
+                    } catch (itemErr) {
+                        // Continue to next media item
                     }
-
-                    const newItem = {
-                        id: uniqueId,
-                        uri: destUri,
-                        thumbnailUri,
-                        type: type,
-                        createdAt: Date.now(),
-                        tags: ['twitter'],
-                        title: urls.length > 1 ? `Twitter 檔案 (${i+1}/${urls.length})` : 'Twitter 檔案',
-                        description: textContent
-                    };
-                    newlyAddedMedia.push(newItem);
                 }
 
                 if (newlyAddedMedia.length > 0) {

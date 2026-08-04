@@ -220,9 +220,9 @@ export const ComicDownloadProvider = ({ children }) => {
             const timer = setTimeout(() => {
                 if (chapterHtmlResolveRef.current) {
                     chapterHtmlResolveRef.current = null;
-                    reject(new Error('網頁載入逾時 (35秒)，可能受驗證阻擋'));
+                    reject(new Error('網頁載入逾時 (65秒)，可能受驗證阻擋'));
                 }
-            }, 35000);
+            }, 65000);
             setScrapeMode(mode);
             setScrapeId(prev => prev + 1);
             chapterHtmlResolveRef.current = {

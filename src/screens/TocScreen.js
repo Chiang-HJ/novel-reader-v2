@@ -25,6 +25,7 @@ export default function TocScreen({ route, navigation }) {
     const [splitExampleStr, setSplitExampleStr] = useState('1.');
     const [splitMode, setSplitMode] = useState('regex');
     const [splitLength, setSplitLength] = useState('5000');
+    const [splitProgress, setSplitProgress] = useState(null);
 
     const refreshNovel = async () => {
         const n = await getNovelById(novel.id);
@@ -133,12 +134,17 @@ export default function TocScreen({ route, navigation }) {
 
     const executeSplit = async () => {
         setIsProcessing(true);
+        setSplitProgress({ percent: 0, stage: '準備中...' });
         try {
             let oldText = '';
             let targetChapterTitle = '';
 
             if (splitTarget === 'novel') {
-                oldText = await getAllChapterText(novel.id);
+                setSplitProgress({ percent: 0, stage: '正在讀取所有章節內容...' });
+                oldText = await getAllChapterText(novel.id, (cur, tot) => {
+                    const pct = Math.round((cur / tot) * 30);
+                    setSplitProgress({ percent: pct, stage: `讀取章節內文 (${cur}/${tot})...` });
+                });
                 targetChapterTitle = novel.title;
             } else {
                 const index = selectedChapterIndex;
@@ -148,6 +154,7 @@ export default function TocScreen({ route, navigation }) {
                 if (!oldTextData) {
                     Alert.alert('錯誤', '無法讀取章節內容，請先下載此章節。');
                     setIsProcessing(false);
+                    setSplitProgress(null);
                     return;
                 }
                 oldText = typeof oldTextData === 'string' ? oldTextData : (oldTextData.text || '');
@@ -156,6 +163,8 @@ export default function TocScreen({ route, navigation }) {
             let newChaptersData = [];
 
             if (splitMode === 'regex' || splitMode === 'example') {
+                setSplitProgress({ percent: 40, stage: '正在匹配章節規則...' });
+                await new Promise(r => setTimeout(r, 10));
                 try {
                     newChaptersData = splitTextIntoChapters(
                         oldText, 
@@ -166,6 +175,7 @@ export default function TocScreen({ route, navigation }) {
                 } catch (e) {
                     Alert.alert('規則錯誤', e.message);
                     setIsProcessing(false);
+                    setSplitProgress(null);
                     return;
                 }
             } else {
@@ -173,9 +183,11 @@ export default function TocScreen({ route, navigation }) {
                 if (isNaN(targetLen) || targetLen < 100) {
                     Alert.alert('字數錯誤', '請輸入正確的字數 (最少 100 字)。');
                     setIsProcessing(false);
+                    setSplitProgress(null);
                     return;
                 }
                 
+                setSplitProgress({ percent: 40, stage: '正在進行段落字數分割...' });
                 const paragraphs = oldText.split('\n');
                 let currentChunk = '';
                 let partIndex = 1;
@@ -230,6 +242,12 @@ export default function TocScreen({ route, navigation }) {
                             currentChunk += p + '\n';
                         }
                     }
+
+                    if (i % 200 === 0) {
+                        const pct = 40 + Math.round((i / paragraphs.length) * 30);
+                        setSplitProgress({ percent: pct, stage: `正在分割段落 (${Math.round((i / paragraphs.length) * 100)}%)...` });
+                        await new Promise(r => setTimeout(r, 0));
+                    }
                 }
                 if (currentChunk.trim().length > 0) {
                     newChaptersData.push({ title: `${targetChapterTitle} (Part ${partIndex})`, text: currentChunk.trim() });
@@ -238,12 +256,18 @@ export default function TocScreen({ route, navigation }) {
 
             if (newChaptersData.length === 0) {
                 setIsProcessing(false);
+                setSplitProgress(null);
                 return;
             }
 
             if (splitTarget === 'novel') {
-                await replaceNovelChapters(novel.id, newChaptersData);
+                setSplitProgress({ percent: 70, stage: '正在寫入新章節資料...' });
+                await replaceNovelChapters(novel.id, newChaptersData, (cur, tot) => {
+                    const pct = 70 + Math.round((cur / tot) * 30);
+                    setSplitProgress({ percent: pct, stage: `儲存章節中 (${cur}/${tot})...` });
+                });
             } else {
+                setSplitProgress({ percent: 80, stage: '正在更新章節資料...' });
                 await splitChapterData(novel.id, selectedChapterIndex, newChaptersData);
             }
             
@@ -255,6 +279,7 @@ export default function TocScreen({ route, navigation }) {
             Alert.alert('錯誤', e.message);
         } finally {
             setIsProcessing(false);
+            setSplitProgress(null);
         }
     };
 
@@ -415,6 +440,17 @@ export default function TocScreen({ route, navigation }) {
                                     onChangeText={setSplitLength}
                                 />
                             </>
+                        )}
+                        
+                        {isProcessing && splitProgress && (
+                            <View style={{ marginTop: 15, marginBottom: 5 }}>
+                                <Text style={{ color: colors.primary, fontSize: 13, textAlign: 'center', marginBottom: 6, fontWeight: '600' }}>
+                                    {splitProgress.stage || '處理中...'}
+                                </Text>
+                                <View style={{ height: 6, backgroundColor: colors.border, borderRadius: 3, overflow: 'hidden' }}>
+                                    <View style={{ width: `${Math.min(100, Math.max(0, splitProgress.percent || 0))}%`, height: '100%', backgroundColor: colors.primary }} />
+                                </View>
+                            </View>
                         )}
                         
                         <TouchableOpacity 

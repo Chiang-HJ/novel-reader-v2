@@ -471,7 +471,7 @@ export const addChapterData = async (novelId, insertIndex, title, text) => {
     });
 };
 
-export const replaceNovelChapters = async (novelId, newChaptersData) => {
+export const replaceNovelChapters = async (novelId, newChaptersData, onProgress = null) => {
     return lockStorage(async () => {
         const fullNovel = await getNovelMetadata(novelId);
         if (!fullNovel) throw new Error('Novel not found');
@@ -491,6 +491,9 @@ export const replaceNovelChapters = async (novelId, newChaptersData) => {
                     await FileSystem.deleteAsync(oldPath, { idempotent: true });
                 }
             } catch (e) {}
+            if (i % 50 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
         }
         
         // 2. Write new chapter files
@@ -509,6 +512,13 @@ export const replaceNovelChapters = async (novelId, newChaptersData) => {
                 title: newChaptersData[i].title,
                 url: newChaptersData[i].url !== undefined ? newChaptersData[i].url : i
             });
+
+            if (onProgress && (i % 10 === 0 || i === newChaptersData.length - 1)) {
+                onProgress(i + 1, newChaptersData.length);
+            }
+            if (i % 25 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
         }
         
         // 3. Update metadata
@@ -537,7 +547,7 @@ export const replaceNovelChapters = async (novelId, newChaptersData) => {
     });
 };
 
-export const getAllChapterText = async (novelId) => {
+export const getAllChapterText = async (novelId, onProgress = null) => {
     return lockStorage(async () => {
         const fullNovel = await getNovelMetadata(novelId);
         if (!fullNovel) throw new Error('Novel not found');
@@ -560,6 +570,13 @@ export const getAllChapterText = async (novelId) => {
                     fullText += `\n\n${parsed.title}\n\n${parsed.text}`;
                 }
             } catch (e) {}
+
+            if (onProgress && (i % 20 === 0 || i === fullNovel.chapters.length - 1)) {
+                onProgress(i + 1, fullNovel.chapters.length);
+            }
+            if (i % 25 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
         }
         return fullText;
     });

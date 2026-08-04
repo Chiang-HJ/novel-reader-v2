@@ -33,6 +33,7 @@ export default function ReaderScreen({ route, navigation }) {
     const [sentences, setSentences] = useState([]);
     const [errorLog, setErrorLog] = useState(null);
     const [scrapeUrl, setScrapeUrl] = useState(null);
+    const [isScraping, setIsScraping] = useState(false);
     
     const [isPlaying, setIsPlaying] = useState(false);
     const isPlayingRef = useRef(false);
@@ -483,6 +484,7 @@ export default function ReaderScreen({ route, navigation }) {
                 const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
                 if (url && String(url).startsWith('http')) {
                     // Start scraping via WebView
+                    setIsScraping(true);
                     setScrapeUrl(url);
                     return; // Wait for onWebViewMessage
                 } else {
@@ -496,7 +498,7 @@ export default function ReaderScreen({ route, navigation }) {
             updateLockScreenMeta(n, data.title || n.chapters?.[idx]?.title || `第 ${idx+1} 章`);
             applyChapterData(data, n.id, idx, sentenceIdx);
         } catch (e) {
-            setErrorLog(`讀取章節失敗: ${e.message}\n${e.stack}`);
+            setErrorLog(`讀取章節失敗: ${e.message}`);
         }
     };
 
@@ -556,6 +558,7 @@ export default function ReaderScreen({ route, navigation }) {
         try {
             const parsed = JSON.parse(dataStr);
             if (parsed.error) {
+                setIsScraping(false);
                 setErrorLog(`抓取章節錯誤: ${parsed.error}`);
                 setScrapeUrl(null);
                 return;
@@ -573,6 +576,7 @@ export default function ReaderScreen({ route, navigation }) {
             }
 
             if (!text) {
+                setIsScraping(false);
                 setErrorLog(`無法解析該章節內容，請稍候重試`);
                 setScrapeUrl(null);
                 return;
@@ -583,9 +587,11 @@ export default function ReaderScreen({ route, navigation }) {
             // Save local
             await saveChapterText(n.id, currentIdx, title, text);
             
+            setIsScraping(false);
             setScrapeUrl(null);
             applyChapterData({ title, text }, n.id, currentIdx, 0);
         } catch(e) {
+            setIsScraping(false);
             setErrorLog(`處理章節資料錯誤: ${e.message}`);
             setScrapeUrl(null);
         }
@@ -781,6 +787,32 @@ export default function ReaderScreen({ route, navigation }) {
             loadChapter(n, chapterIndexRef.current - 1, 0);
         }
     };
+
+    useTrackPlayerEvents([
+        Event.RemotePlay,
+        Event.RemotePause,
+        Event.RemoteNext,
+        Event.RemotePrevious,
+        Event.RemoteDuck
+    ], (event) => {
+        if (event.type === Event.RemotePlay) {
+            if (!isPlayingRef.current) {
+                togglePlay();
+            }
+        } else if (event.type === Event.RemotePause) {
+            if (isPlayingRef.current) {
+                togglePlay();
+            }
+        } else if (event.type === Event.RemoteNext) {
+            skipNext();
+        } else if (event.type === Event.RemotePrevious) {
+            skipPrev();
+        } else if (event.type === Event.RemoteDuck) {
+            if (event.paused && isPlayingRef.current) {
+                togglePlay();
+            }
+        }
+    });
 
     const pagedHtmlSource = React.useMemo(() => {
         if (!chapterData || sentences.length === 0) return { html: '' };
@@ -1088,6 +1120,26 @@ export default function ReaderScreen({ route, navigation }) {
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
+            {isScraping && (
+                <View style={{ position: 'absolute', top: 60, left: 20, right: 20, zIndex: 9999, backgroundColor: isDark ? '#2a2d32' : '#ffffff', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.primary, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 6, elevation: 5 }}>
+                    <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 12 }} />
+                    <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>正在為您重新下載本章節內容...</Text>
+                </View>
+            )}
+            {errorLog && (
+                <View style={{ position: 'absolute', top: 70, left: 20, right: 20, zIndex: 9999, padding: 16, backgroundColor: isDark ? '#3d1a1a' : '#fff1f0', borderRadius: 10, borderWidth: 1, borderColor: '#ff4d4f', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, elevation: 5 }}>
+                    <Text style={{ color: '#ff4d4f', fontWeight: 'bold', fontSize: 15, marginBottom: 6 }}>章節讀取失敗</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, marginBottom: 12 }}>{errorLog}</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'flex-end' }}>
+                        <TouchableOpacity style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }} onPress={() => setErrorLog(null)}>
+                            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>關閉</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={{ paddingVertical: 6, paddingHorizontal: 14, borderRadius: 6, backgroundColor: colors.primary }} onPress={() => { setErrorLog(null); loadChapter(novelRef.current || novel, chapterIndexRef.current); }}>
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>重試</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
             {isAudioOnlyMode ? (
                 <View style={[styles.textContainer, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
                     <Feather name="headphones" size={80} color="#fff" style={{ opacity: 0.3, marginBottom: 30 }} />
