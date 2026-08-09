@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
 import { parseChapterText, parseNovelInfo } from '../utils/scraper';
-import { saveNovelToBookshelf, saveChapterText, getBookshelf, updateNovelMetadata } from '../utils/storage';
+import { saveNovelToBookshelf, saveChapterText, getBookshelf, updateNovelMetadata, getNovelMetadata } from '../utils/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { parseEpub } from '../utils/epubParser';
 import { convertS2T } from '../utils/opencc';
@@ -435,8 +435,9 @@ export const DownloadProvider = ({ children }) => {
 
         setProgressText(`已取得《${novelInfo.title}》目錄，共 ${novelInfo.chapters.length} 章，準備下載...`);
 
+        const existingFull = await getNovelMetadata(novelInfo.id);
         const existingList = await getBookshelf();
-        const existing = existingList.find(n => n.id === novelInfo.id);
+        const existing = existingFull || existingList.find(n => n.id === novelInfo.id);
         
         if (task.startChapter === undefined) {
             setProgressText(`請選擇《${novelInfo.title}》的下載章節範圍...`);
@@ -633,7 +634,15 @@ export const DownloadProvider = ({ children }) => {
             setProgressText(`下載進度: ${completedCount}/${totalToDownload} 章 (${ch.title})`);
 
             if (completedCount % 5 === 0 || completedCount === totalToDownload) {
-                const currentDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+                let currentDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+                if (isOverwriting && initialDownloadedCount > currentDownloaded) {
+                    currentDownloaded = initialDownloadedCount;
+                }
+                // Cap at finalChapters.length just in case
+                if (currentDownloaded > finalChapters.length) {
+                    currentDownloaded = finalChapters.length;
+                }
+                
                 await updateNovelMetadata(novelInfo.id, { 
                     downloadedChapters: currentDownloaded,
                     chapterCount: finalChapters.length
@@ -660,7 +669,13 @@ export const DownloadProvider = ({ children }) => {
             return;
         }
 
-        const finalDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+        let finalDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+        if (isOverwriting && initialDownloadedCount > finalDownloaded) {
+            finalDownloaded = initialDownloadedCount;
+        }
+        if (finalDownloaded > finalChapters.length) {
+            finalDownloaded = finalChapters.length;
+        }
         await updateNovelMetadata(novelInfo.id, {
             chapters: finalChapters,
             chapterCount: finalChapters.length,

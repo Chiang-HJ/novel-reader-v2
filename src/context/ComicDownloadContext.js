@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { saveNovelToBookshelf, saveComicChapterData, saveComicImage } from '../utils/storage';
+import { saveNovelToBookshelf, saveComicChapterData, saveComicImage, getNovelMetadata } from '../utils/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { getScramblePieces } from '../utils/comicUtils';
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
@@ -69,6 +69,9 @@ export const ComicDownloadProvider = ({ children }) => {
         try {
             // Step 1: Save basic metadata to bookshelf (Vault)
             const novelId = 'comic_18comic_' + task.id;
+            const existingNovel = await getNovelMetadata(novelId);
+            const initialDownloadedCount = existingNovel ? (existingNovel.downloadedChapters || 0) : 0;
+            
             const novelData = {
                 id: novelId,
                 title: task.title,
@@ -79,7 +82,7 @@ export const ComicDownloadProvider = ({ children }) => {
                 isHidden: true,
                 isDescrambled: true,
                 chapters: [],
-                downloadedChapters: 0,
+                downloadedChapters: initialDownloadedCount,
                 chapterCount: 0
             };
             
@@ -115,9 +118,11 @@ export const ComicDownloadProvider = ({ children }) => {
             setBookshelfUpdated(Date.now());
             
             // Step 2: Download each chapter
-            let downloadedCount = 0;
+            let downloadedCount = initialDownloadedCount;
             for (let i = 0; i < chapters.length; i++) {
                 if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
+                if (i < downloadedCount) continue;
+                
                 const chapter = chapters[i];
                 
                 setProgressText('正在下載: ' + chapter.title + ' (' + (i + 1) + '/' + chapters.length + ')');
