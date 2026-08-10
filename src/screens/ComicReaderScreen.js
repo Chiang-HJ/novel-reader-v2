@@ -170,8 +170,8 @@ export default function ComicReaderScreen({ route, navigation }) {
                     }
                 }
             } else {
-                if (flatListRef.current) {
-                    const responder = flatListRef.current.getScrollResponder();
+                if (scrollViewRef.current) {
+                    const responder = scrollViewRef.current.getScrollResponder();
                     if (responder && responder.scrollResponderZoomTo) {
                         const Z_c = currentZoom.current || 1;
                         if (Z_c > 1.1) {
@@ -394,6 +394,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                     initialNumToRender={2}
                     maxToRenderPerBatch={2}
                     windowSize={3}
+                    maximumZoomScale={zoomRatio}
+                    minimumZoomScale={1}
+                    bouncesZoom={true}
                 />
             )}
 

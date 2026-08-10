@@ -503,54 +503,72 @@ export default function ReaderScreen({ route, navigation }) {
     };
 
     const applyChapterData = (data, nid, idx, sentenceIdx) => {
+        // First set the data immediately so the UI can show loading or the basic text
         setChapterData(data);
-        const rawText = data.text || '無內容';
-        const textContent = rawText;
         
-        const parts = textContent.match(/[^。！？\n]+[。！？\n]*/g) || [textContent];
-        let newSents = [];
-        parts.forEach(p => {
-            let text = p.trim();
-            while (text.length > 0) {
-                if (text.length <= 300) {
-                    newSents.push(text);
-                    break;
+        // Use setTimeout to yield to the main thread so the UI doesn't freeze
+        setTimeout(() => {
+            const rawText = data.text || '無內容';
+            
+            // Fast splitting logic instead of heavy regex
+            let newSents = [];
+            let currentStr = '';
+            for (let i = 0; i < rawText.length; i++) {
+                const char = rawText[i];
+                currentStr += char;
+                if (char === '。' || char === '！' || char === '？' || char === '\n') {
+                    if (currentStr.trim().length > 0) {
+                        // Chunk it if it's too long
+                        let text = currentStr.trim();
+                        while (text.length > 0) {
+                            if (text.length <= 300) {
+                                newSents.push(text);
+                                break;
+                            }
+                            let sliceIdx = 300;
+                            let lastComma = Math.max(
+                                text.lastIndexOf('，', 300),
+                                text.lastIndexOf(',', 300),
+                                text.lastIndexOf('；', 300),
+                                text.lastIndexOf(';', 300),
+                                text.lastIndexOf('、', 300)
+                            );
+                            if (lastComma > 0) {
+                                sliceIdx = lastComma + 1;
+                            }
+                            newSents.push(text.substring(0, sliceIdx).trim());
+                            text = text.substring(sliceIdx).trim();
+                        }
+                    }
+                    currentStr = '';
                 }
-                let sliceIdx = 300;
-                let lastComma = Math.max(
-                    text.lastIndexOf('，', 300),
-                    text.lastIndexOf(',', 300),
-                    text.lastIndexOf('；', 300),
-                    text.lastIndexOf(';', 300),
-                    text.lastIndexOf('、', 300)
-                );
-                if (lastComma > 0) {
-                    sliceIdx = lastComma + 1;
-                }
-                newSents.push(text.substring(0, sliceIdx).trim());
-                text = text.substring(sliceIdx).trim();
             }
-        });
-        newSents = newSents.filter(p => p.length > 0);
-        setSentences(newSents);
-        setCurrentSentenceIndex(sentenceIdx);
-        
-        updateReadingProgress(nid, idx, sentenceIdx);
-        
-        if (isPlayingRef.current) {
-            playIdRef.current += 1;
-            const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(0, newSents, currentPlayId), 500);
-        }
-        
-        // If paging mode is active, tell WebView to highlight the first sentence
-        if (isPagingModeRef.current && pagingWebViewRef.current) {
-            pagingWebViewRef.current.injectJavaScript(`
-                highlightSentence(${sentenceIdx});
-                true;
-            `);
-        }
+            if (currentStr.trim().length > 0) {
+                newSents.push(currentStr.trim());
+            }
+
+            setSentences(newSents);
+            setCurrentSentenceIndex(sentenceIdx);
+            
+            updateReadingProgress(nid, idx, sentenceIdx);
+            
+            if (isPlayingRef.current) {
+                playIdRef.current += 1;
+                const currentPlayId = playIdRef.current;
+                setTimeout(() => playFromIndex(0, newSents, currentPlayId), 500);
+            }
+            
+            // If paging mode is active, tell WebView to highlight the first sentence
+            if (isPagingModeRef.current && pagingWebViewRef.current) {
+                pagingWebViewRef.current.injectJavaScript(`
+                    highlightSentence(${sentenceIdx});
+                    true;
+                `);
+            }
+        }, 10);
     };
+        
+
 
     const onWebViewMessage = async (event) => {
         const dataStr = event.nativeEvent.data;

@@ -32,6 +32,15 @@ export default function DownloadWebViewHost() {
             function check() {
                 try {
                     if (window.location.href === 'about:blank' || !document.documentElement) return;
+
+                    // Inject CSS to hide heavy elements and save CPU/Battery
+                    if (!document.getElementById('nr-anti-heat')) {
+                        var s = document.createElement('style');
+                        s.id = 'nr-anti-heat';
+                        s.innerHTML = 'img, video, iframe, canvas, div[class*="ad"] { display: none !important; }';
+                        document.head.appendChild(s);
+                    }
+
                     var title = document.title || '';
                     var html = document.documentElement.outerHTML || '';
                     var lower = (title + ' ' + html).toLowerCase();
