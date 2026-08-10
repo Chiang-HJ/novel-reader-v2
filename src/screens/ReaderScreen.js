@@ -1152,8 +1152,23 @@ export default function ReaderScreen({ route, navigation }) {
                         <TouchableOpacity style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }} onPress={() => setErrorLog(null)}>
                             <Text style={{ color: colors.textSecondary, fontSize: 13 }}>關閉</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={{ paddingVertical: 6, paddingHorizontal: 14, borderRadius: 6, backgroundColor: '#ff4444' }} onPress={() => { 
+                            setErrorLog(null); 
+                            const n = novelRef.current || novel;
+                            const idx = chapterIndexRef.current;
+                            const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
+                            if (url && String(url).startsWith('http')) {
+                                setChapterData(null);
+                                setIsScraping(true);
+                                setScrapeUrl(url);
+                            } else {
+                                Alert.alert('提示', '找不到原始網址，無法重新下載');
+                            }
+                        }}>
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>強制重新下載</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity style={{ paddingVertical: 6, paddingHorizontal: 14, borderRadius: 6, backgroundColor: colors.primary }} onPress={() => { setErrorLog(null); loadChapter(novelRef.current || novel, chapterIndexRef.current); }}>
-                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>重試</Text>
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>重試讀取</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1818,6 +1833,26 @@ export default function ReaderScreen({ route, navigation }) {
                                 <Feather name="book-open" size={20} color={colors.text} />
                                 <Text style={{ color: colors.text, fontSize: 16, marginLeft: 15, flex: 1 }}>設定文字過濾與發音校正</Text>
                                 <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderTopWidth: 1, borderTopColor: colors.border }}
+                                onPress={() => {
+                                    const n = novelRef.current || novel;
+                                    const idx = chapterIndexRef.current;
+                                    const url = n.chapters && n.chapters[idx] ? n.chapters[idx].url : null;
+                                    if (url && String(url).startsWith('http')) {
+                                        setShowSettingsModal(false);
+                                        setChapterData(null);
+                                        setIsScraping(true);
+                                        setScrapeUrl(url);
+                                    } else {
+                                        Alert.alert('提示', '找不到此章節的原始網址，無法重新下載。');
+                                    }
+                                }}
+                            >
+                                <Feather name="download-cloud" size={20} color={'#ff4444'} />
+                                <Text style={{ color: '#ff4444', fontSize: 16, marginLeft: 15, flex: 1, fontWeight: 'bold' }}>強制重新下載本章節</Text>
                             </TouchableOpacity>
 
                             <View style={{height: 40}} />
