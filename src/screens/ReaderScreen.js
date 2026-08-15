@@ -513,10 +513,18 @@ export default function ReaderScreen({ route, navigation }) {
             // Fast splitting logic instead of heavy regex
             let newSents = [];
             let currentStr = '';
+            const closingQuotes = new Set(['”', '"', "'", '’', '」', '』', ')', '）', ']', '］', '}', '｝', '》', '>']);
+
             for (let i = 0; i < rawText.length; i++) {
                 const char = rawText[i];
                 currentStr += char;
                 if (char === '。' || char === '！' || char === '？' || char === '\n') {
+                    // Peek ahead to grab any trailing quotes/brackets
+                    while (i + 1 < rawText.length && closingQuotes.has(rawText[i + 1])) {
+                        currentStr += rawText[i + 1];
+                        i++;
+                    }
+
                     if (currentStr.trim().length > 0) {
                         // Chunk it if it's too long
                         let text = currentStr.trim();
@@ -952,7 +960,10 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             }
 
+            let ignoreScrollEvent = false;
+
             function handleScroll() {
+              if (ignoreScrollEvent) return;
               window.clearTimeout(isScrolling);
               isScrolling = setTimeout(() => {
                 updateAnchor();
@@ -974,7 +985,9 @@ export default function ReaderScreen({ route, navigation }) {
                 document.querySelectorAll('p').forEach(p => p.classList.remove('active'));
                 const el = document.getElementById('s' + index);
                 if(el) {
+                    ignoreScrollEvent = true;
                     el.classList.add('active');
+                    anchorIndex = index;
                     
                     const rect = el.getBoundingClientRect();
                     const currentPos = getScrollPos();
@@ -986,7 +999,8 @@ export default function ReaderScreen({ route, navigation }) {
                     document.documentElement.scrollLeft = newLeft;
                     document.body.scrollLeft = newLeft;
                     
-                    setTimeout(reportPage, 50);
+                    reportPage();
+                    setTimeout(() => { ignoreScrollEvent = false; }, 300);
                 }
             }
             
@@ -1342,7 +1356,7 @@ export default function ReaderScreen({ route, navigation }) {
                 </View>
             ) : (
                 <FlatList
-                    style={[styles.textContainer, isFullScreen && { paddingTop: Math.max(0, safeTopRef.current - 20) }]}
+                    style={[styles.textContainer, { paddingTop: Math.max(0, safeTopRef.current - 20) }]}
                     ref={scrollViewRef}
                     data={sentences}
                     keyExtractor={(item, index) => index.toString()}
@@ -1401,7 +1415,7 @@ export default function ReaderScreen({ route, navigation }) {
                 />
             )}
 
-            <StatusBar style={isDark ? "light" : "dark"} hidden={isFullScreen} />
+            <StatusBar style={isDark ? "light" : "dark"} hidden={isFullScreen} translucent={true} backgroundColor="transparent" />
 
             {isFullScreen && (
                 <View style={{

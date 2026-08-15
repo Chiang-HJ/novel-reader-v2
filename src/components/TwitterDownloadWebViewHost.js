@@ -25,10 +25,10 @@ const TwitterDownloadWebViewHost = () => {
                     </View>
                     <WebView 
                         key={twitterUrl + "_direct"}
-                        source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
+                        source={{ uri: 'https://twitsave.com/' }}
                         injectedJavaScript={`
                             setTimeout(function() {
-                                var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
+                                var input = document.querySelector('input[name="url"]') || document.querySelector('input[type="text"]');
                                 var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
                                 if (input && btn && !input.value) {
                                     var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -40,23 +40,17 @@ const TwitterDownloadWebViewHost = () => {
                                     input.dispatchEvent(new Event('input', { bubbles: true }));
                                     
                                     setInterval(function() {
-                                        var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
+                                        var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
                                         var validLinks = [];
-                                        var seenIds = {};
                                         for (var i = 0; i < resLinks.length; i++) {
                                             var href = resLinks[i].href;
-                                            if (href && href.startsWith('http') && !href.includes('snapany.com')) {
-                                                var match = href.match(/(?:ext_tw_video|amplify_video|tweet_video|vid)\/([^\/]+)/);
-                                                var vidId = match ? match[1] : href;
-                                                if (!seenIds[vidId]) {
-                                                    seenIds[vidId] = true;
-                                                    validLinks.push(href);
-                                                }
+                                            if (href && href.startsWith('http') && !validLinks.includes(href)) {
+                                                validLinks.push(href);
                                             }
                                         }
                                         if (validLinks.length > 0 && !window.didExtractTwitter) {
                                             window.didExtractTwitter = true;
-                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: validLinks }));
+                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
                                         }
                                     }, 1000);
                                 }
@@ -76,10 +70,10 @@ const TwitterDownloadWebViewHost = () => {
         <View style={{ position: 'absolute', top: 0, left: 0, width: 10, height: 10, overflow: 'hidden', opacity: 0 }} pointerEvents="none">
             <WebView 
                 key={twitterUrl + "_auto"}
-                source={{ uri: 'https://snapany.com/zh-Hant/twitter' }}
+                source={{ uri: 'https://twitsave.com/' }}
                 injectedJavaScript={`
                     setTimeout(function() {
-                        var input = document.querySelector('input[type="url"]') || document.querySelector('input[name="url"]') || document.querySelector('input');
+                        var input = document.querySelector('input[name="url"]') || document.querySelector('input[type="text"]');
                         var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
                         if (input && btn) {
                             var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -96,32 +90,26 @@ const TwitterDownloadWebViewHost = () => {
                                 var tries = 0;
                                 var check = setInterval(function() {
                                     tries++;
-                                    var resLinks = document.querySelectorAll('a[href*=".mp4"], a[download]');
+                                    var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
                                     var validLinks = [];
-                                    var seenIds = {};
                                     for (var i = 0; i < resLinks.length; i++) {
                                         var href = resLinks[i].href;
-                                        if (href && href.startsWith('http') && !href.includes('snapany.com')) {
-                                            var match = href.match(/(?:ext_tw_video|amplify_video|tweet_video|vid)\/([^\/]+)/);
-                                            var vidId = match ? match[1] : href;
-                                            if (!seenIds[vidId]) {
-                                                seenIds[vidId] = true;
-                                                validLinks.push(href);
-                                            }
+                                        if (href && href.startsWith('http')) {
+                                            validLinks.push(href);
                                         }
                                     }
                                     
                                     if (validLinks.length > 0) {
                                         clearInterval(check);
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: validLinks }));
-                                    } else if (tries > 20) {
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
+                                    } else if (tries > 25) {
                                         clearInterval(check);
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for SnapAny result' }));
+                                        window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for twitsave result' }));
                                     }
                                 }, 1000);
                             }, 500);
                         } else {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'SnapAny form not found' }));
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Twitsave form not found' }));
                         }
                     }, 2000);
                     true;
