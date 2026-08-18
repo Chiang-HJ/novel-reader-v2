@@ -4,11 +4,13 @@ import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
 import { splitTextIntoChapters } from '../utils/parserUtils';
+import { useDownload } from '../context/DownloadContext';
 import { Feather } from '@expo/vector-icons';
 
 export default function TocScreen({ route, navigation }) {
     const { colors, isDark } = useTheme();
     const [novel, setNovel] = useState(route.params.novel);
+    const { retryChapterDownload } = useDownload();
     
     const [searchQuery, setSearchQuery] = useState('');
     const [sortAscending, setSortAscending] = useState(true);
@@ -66,9 +68,10 @@ export default function TocScreen({ route, navigation }) {
     useLayoutEffect(() => {
         navigation.setOptions({
             headerRight: () => (
-                <TouchableOpacity style={styles.modalOption} onPress={() => {
+                <TouchableOpacity onPress={() => {
                     setIsOptionsModalVisible(false);
-                    setSplitTarget('chapter');
+                    setSplitTarget('novel');
+                    setSelectedChapterIndex(null);
                     setIsSplitModalVisible(true);
                 }}
                     style={{ paddingRight: 15 }}
@@ -310,6 +313,53 @@ export default function TocScreen({ route, navigation }) {
         }
     };
 
+    const handleRetryFailedChapters = async () => {
+        setIsProcessing(true);
+        setSplitProgress({ percent: 0, stage: '正在掃描失敗章節...' });
+        let failedCount = 0;
+        let fixedCount = 0;
+
+        for (let i = 0; i < novel.chapters.length; i++) {
+            const textData = await getChapterText(novel.id, i);
+            const text = typeof textData === 'string' ? textData : (textData?.text || '');
+            if (!text || text.includes('【章節下載失敗：網路連線逾時】')) {
+                failedCount++;
+                setSplitProgress({ percent: Math.round((i/novel.chapters.length)*100), stage: `正在重試: ${novel.chapters[i].title}` });
+                const success = await retryChapterDownload(novel.id, i, novel.chapters[i].url, novel.chapters[i].title);
+                if (success) {
+                    fixedCount++;
+                }
+            }
+        }
+        
+        setIsProcessing(false);
+        setSplitProgress(null);
+        
+        if (failedCount === 0) {
+            Alert.alert('提示', '沒有發現下載失敗的章節。');
+        } else {
+            Alert.alert('修復完畢', `共發現 ${failedCount} 個失敗章節，成功修復 ${fixedCount} 個。`);
+        }
+    };
+
+    const handleRetrySingleChapter = async () => {
+        if (selectedChapterIndex === null) return;
+        setIsOptionsModalVisible(false);
+        setIsProcessing(true);
+        setSplitProgress({ percent: 50, stage: `正在重試: ${novel.chapters[selectedChapterIndex].title}` });
+        
+        const success = await retryChapterDownload(novel.id, selectedChapterIndex, novel.chapters[selectedChapterIndex].url, novel.chapters[selectedChapterIndex].title);
+        
+        setIsProcessing(false);
+        setSplitProgress(null);
+        
+        if (success) {
+            Alert.alert('成功', '章節重新下載成功！');
+        } else {
+            Alert.alert('失敗', '章節重新下載失敗，請稍後再試。');
+        }
+    };
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FlatList 
@@ -341,11 +391,19 @@ export default function TocScreen({ route, navigation }) {
                                 <Text style={styles.toolbarBtnText}>整本重分割</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
+                                style={[styles.toolbarBtn, { backgroundColor: '#FF9500', flex: 1 }]}
+                                onPress={handleRetryFailedChapters}
+                                disabled={isProcessing}
+                            >
+                                <Feather name="refresh-cw" size={18} color="#fff" style={{ marginRight: 8 }} />
+                                <Text style={styles.toolbarBtnText}>修復失敗</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
                                 style={[styles.toolbarBtn, { backgroundColor: colors.surface, flex: 1, borderWidth: 1, borderColor: colors.border }]}
                                 onPress={() => setSortAscending(!sortAscending)}
                             >
                                 <Feather name={sortAscending ? "arrow-down" : "arrow-up"} size={18} color={colors.text} style={{ marginRight: 8 }} />
-                                <Text style={[styles.toolbarBtnText, { color: colors.text }]}>{sortAscending ? '正序排列' : '倒序排列'}</Text>
+                                <Text style={[styles.toolbarBtnText, { color: colors.text }]}>{sortAscending ? '正序' : '倒序'}</Text>
                             </TouchableOpacity>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', borderRadius: 8, paddingHorizontal: 12, height: 40 }}>
@@ -420,9 +478,13 @@ export default function TocScreen({ route, navigation }) {
                             <Text style={{ color: colors.text, fontSize: 16 }}>分割此章節</Text>
                         </TouchableOpacity>
                         
-                        <TouchableOpacity style={styles.optionBtn} onPress={handleDeleteChapter}>
-                            <Feather name="trash-2" size={20} color="#FF3B30" style={styles.optionIcon} />
-                            <Text style={{ color: "#FF3B30", fontSize: 16 }}>刪除此章節</Text>
+                        <TouchableOpacity style={[styles.modalOption, { borderBottomColor: colors.border }]} onPress={handleRetrySingleChapter}>
+                            <Feather name="refresh-cw" size={20} color="#FF9500" />
+                            <Text style={[styles.modalOptionText, { color: '#FF9500' }]}>重新下載此章節</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.modalOption, { borderBottomColor: colors.border }]} onPress={handleDeleteChapter}>
+                            <Feather name="trash-2" size={20} color={colors.danger} />
+                            <Text style={[styles.modalOptionText, { color: colors.danger }]}>刪除此章節</Text>
                         </TouchableOpacity>
                     </View>
                 </TouchableOpacity>

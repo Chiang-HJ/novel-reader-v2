@@ -575,8 +575,22 @@ export const getAllChapterText = async (novelId, onProgress = null) => {
                         content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
                     }
                     const parsed = JSON.parse(content);
+                    
+                    let titleToInject = parsed.title;
+                    if (titleToInject.match(/\s*\(Part \d+\)$/)) {
+                        if (titleToInject.match(/\s*\(Part [2-9]\d*\)$/)) {
+                            titleToInject = ''; // Don't inject title for Part 2 and beyond
+                        } else {
+                            titleToInject = titleToInject.replace(/\s*\(Part 1\)$/, ''); // Only inject base title for Part 1
+                        }
+                    }
+                    
                     // Add chapter title back into the text to ensure it can be re-split if it matches the regex
-                    fullText += `\n\n${parsed.title}\n\n${parsed.text}`;
+                    if (titleToInject) {
+                        fullText += `\n\n${titleToInject}\n\n${parsed.text}`;
+                    } else {
+                        fullText += `\n\n${parsed.text}`;
+                    }
                 }
             } catch (e) {}
 

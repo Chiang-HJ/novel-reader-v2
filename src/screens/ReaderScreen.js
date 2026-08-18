@@ -191,12 +191,21 @@ export default function ReaderScreen({ route, navigation }) {
         const subscription = AppState.addEventListener('change', nextAppState => {
             if (nextAppState === 'active') {
                 if (isPagingModeRef.current && pagingWebViewRef.current) {
-                    pagingWebViewRef.current.injectJavaScript(`
-                        if (typeof highlightSentence === 'function') {
-                            highlightSentence(${currentSentenceIndexRef.current});
-                        }
-                        true;
-                    `);
+                    if (isPlayingRef.current && !isSpeechPausedRef.current) {
+                        pagingWebViewRef.current.injectJavaScript(`
+                            if (typeof highlightSentence === 'function') {
+                                highlightSentence(${currentSentenceIndexRef.current});
+                            }
+                            true;
+                        `);
+                    } else {
+                        pagingWebViewRef.current.injectJavaScript(`
+                            if (typeof restoreAnchor === 'function') {
+                                restoreAnchor();
+                            }
+                            true;
+                        `);
+                    }
                 }
             }
         });
@@ -903,6 +912,15 @@ export default function ReaderScreen({ route, navigation }) {
             let anchorIndex = 0;
 
             function updateAnchor() {
+                // First check if the current anchor is still visible
+                const currentEl = document.getElementById('s' + anchorIndex);
+                if (currentEl) {
+                    const rect = currentEl.getBoundingClientRect();
+                    if (rect.right > 10 && rect.left < window.innerWidth) {
+                        return; // Current anchor is still visible, do not overwrite
+                    }
+                }
+
                 const ps = document.querySelectorAll('p');
                 for (let i = 0; i < ps.length; i++) {
                     const rect = ps[i].getBoundingClientRect();

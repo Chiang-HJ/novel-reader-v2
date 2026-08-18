@@ -21,40 +21,74 @@ const TwitterDownloadWebViewHost = () => {
                         </TouchableOpacity>
                     </View>
                     <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: '#aaa', flex: 1 }}>請手動貼上網址並點擊解析，一旦影片載入，系統將自動背景下載。</Text>
+                        <Text style={{ color: '#aaa', flex: 1 }}>如遇敏感內容，請先登入推特帳號。影片載入後，系統將自動擷取高畫質下載連結。</Text>
                     </View>
                     <WebView 
                         key={twitterUrl + "_direct"}
-                        source={{ uri: 'https://twitsave.com/' }}
+                        source={{ uri: twitterUrl }}
                         injectedJavaScript={`
-                            setTimeout(function() {
-                                var input = document.querySelector('input[name="url"]') || document.querySelector('input[type="text"]');
-                                var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
-                                if (input && btn && !input.value) {
-                                    var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                    if (nativeInputValueSetter) {
-                                        nativeInputValueSetter.call(input, '${twitterUrl}');
-                                    } else {
-                                        input.value = '${twitterUrl}';
-                                    }
-                                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                                    
-                                    setInterval(function() {
-                                        var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
-                                        var validLinks = [];
-                                        for (var i = 0; i < resLinks.length; i++) {
-                                            var href = resLinks[i].href;
-                                            if (href && href.startsWith('http') && !validLinks.includes(href)) {
-                                                validLinks.push(href);
+                            (function() {
+                                if (window.didInjectTwitterSniffer) return;
+                                window.didInjectTwitterSniffer = true;
+                                
+                                var originalFetch = window.fetch;
+                                window.fetch = function() {
+                                    var p = originalFetch.apply(this, arguments);
+                                    p.then(function(res) {
+                                        var url = res.url || '';
+                                        if (url.indexOf('TweetDetail') !== -1 || url.indexOf('TweetResultByRestId') !== -1) {
+                                            res.clone().json().then(function(data) {
+                                                try {
+                                                    var mediaList = [];
+                                                    JSON.stringify(data, function(key, value) {
+                                                        if (key === 'video_info' && value && value.variants) {
+                                                            mediaList.push(value);
+                                                        }
+                                                        return value;
+                                                    });
+                                                    
+                                                    if (mediaList.length > 0) {
+                                                        var variants = mediaList[0].variants;
+                                                        var mp4s = variants.filter(function(v) { return v.content_type === 'video/mp4'; });
+                                                        mp4s.sort(function(a,b) { return (b.bitrate || 0) - (a.bitrate || 0); });
+                                                        if (mp4s.length > 0 && !window.didExtractTwitter) {
+                                                            window.didExtractTwitter = true;
+                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [mp4s[0].url] }));
+                                                        }
+                                                    }
+                                                } catch(e) {}
+                                            }).catch(function(){});
+                                        }
+                                        
+                                        if (url.indexOf('video.twimg.com') !== -1 && url.indexOf('.mp4') !== -1) {
+                                            if (!window.didExtractTwitter) {
+                                                window.didExtractTwitter = true;
+                                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [url] }));
                                             }
                                         }
-                                        if (validLinks.length > 0 && !window.didExtractTwitter) {
-                                            window.didExtractTwitter = true;
-                                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
+                                        return res;
+                                    });
+                                    return p;
+                                };
+                                
+                                var originalXHR = window.XMLHttpRequest;
+                                function newXHR() {
+                                    var realXHR = new originalXHR();
+                                    realXHR.addEventListener("readystatechange", function() {
+                                        if(realXHR.readyState === 4 && realXHR.status === 200){
+                                            var url = realXHR.responseURL || '';
+                                            if (url.indexOf('video.twimg.com') !== -1 && url.indexOf('.mp4') !== -1) {
+                                                if (!window.didExtractTwitter) {
+                                                    window.didExtractTwitter = true;
+                                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [url] }));
+                                                }
+                                            }
                                         }
-                                    }, 1000);
+                                    }, false);
+                                    return realXHR;
                                 }
-                            }, 2000);
+                                window.XMLHttpRequest = newXHR;
+                            })();
                             true;
                         `}
                         onMessage={handleWebViewMessage}
@@ -73,43 +107,58 @@ const TwitterDownloadWebViewHost = () => {
                 source={{ uri: 'https://twitsave.com/' }}
                 injectedJavaScript={`
                     setTimeout(function() {
+                        var isInfoPage = window.location.pathname.indexOf('/info') !== -1;
                         var input = document.querySelector('input[name="url"]') || document.querySelector('input[type="text"]');
                         var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
-                        if (input && btn) {
-                            var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                            if (nativeInputValueSetter) {
-                                nativeInputValueSetter.call(input, '${twitterUrl}');
-                            } else {
-                                input.value = '${twitterUrl}';
-                            }
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                            
-                            setTimeout(function() {
-                                btn.click();
+                        
+                        if (!isInfoPage) {
+                            // We are on the home page, fill the form and submit
+                            if (input && btn) {
+                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                if (nativeInputValueSetter) {
+                                    nativeInputValueSetter.call(input, '${twitterUrl}');
+                                } else {
+                                    input.value = '${twitterUrl}';
+                                }
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
                                 
-                                var tries = 0;
-                                var check = setInterval(function() {
-                                    tries++;
-                                    var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
-                                    var validLinks = [];
-                                    for (var i = 0; i < resLinks.length; i++) {
-                                        var href = resLinks[i].href;
-                                        if (href && href.startsWith('http')) {
-                                            validLinks.push(href);
-                                        }
-                                    }
-                                    
-                                    if (validLinks.length > 0) {
-                                        clearInterval(check);
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
-                                    } else if (tries > 25) {
-                                        clearInterval(check);
-                                        window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for twitsave result' }));
-                                    }
-                                }, 1000);
-                            }, 500);
+                                setTimeout(function() {
+                                    btn.click();
+                                }, 500);
+                            } else {
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Twitsave form not found' }));
+                            }
                         } else {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Twitsave form not found' }));
+                            // We are on the result page, wait for the download links
+                            var tries = 0;
+                            var check = setInterval(function() {
+                                tries++;
+                                
+                                // Check for error message
+                                var errorText = document.body.innerText;
+                                if (errorText.indexOf('could not find any video') !== -1 || errorText.indexOf('private account') !== -1) {
+                                    clearInterval(check);
+                                    window.ReactNativeWebView.postMessage('ERROR_NO_VIDEO');
+                                    return;
+                                }
+
+                                var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
+                                var validLinks = [];
+                                for (var i = 0; i < resLinks.length; i++) {
+                                    var href = resLinks[i].href;
+                                    if (href && href.startsWith('http')) {
+                                        validLinks.push(href);
+                                    }
+                                }
+                                
+                                if (validLinks.length > 0) {
+                                    clearInterval(check);
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
+                                } else if (tries > 25) {
+                                    clearInterval(check);
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for twitsave result' }));
+                                }
+                            }, 1000);
                         }
                     }, 2000);
                     true;

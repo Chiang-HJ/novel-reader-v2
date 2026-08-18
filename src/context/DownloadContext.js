@@ -136,7 +136,6 @@ export const DownloadProvider = ({ children }) => {
     const retryChapterDownload = async (novelId, originalIndex, chapterUrl, chapterTitle) => {
         if (!novelId || !chapterUrl) return;
         
-        // This is a direct isolated fetch that bypasses the queue system
         try {
             const domain = getDomain(chapterUrl);
             const isSessionMode = domainSessionModeRef.current.get(domain) === 'webview' || domain.includes('czbooks.net');
@@ -162,6 +161,37 @@ export const DownloadProvider = ({ children }) => {
                     if (!isBlockedOrJunk(parsed, html)) text = parsed;
                 }
             }
+
+            // Strategy C: Rare fallback to full WebView navigation
+            if (!text) {
+                scrapeModeRef.current = 'chapter';
+                setScrapeMode('chapter');
+                setScrapeUrl(chapterUrl);
+
+                const navHtml = await new Promise((resolve) => {
+                    const timer = setTimeout(() => resolve(''), 30000);
+                    manualCaptchaResolveRef.current = (h, reportedUrl) => {
+                        if (reportedUrl && chapterUrl) {
+                            const cleanReported = reportedUrl.split('?')[0].split('#')[0].toLowerCase();
+                            const cleanTarget = chapterUrl.split('?')[0].split('#')[0].toLowerCase();
+                            if (!cleanReported.includes(cleanTarget) && !cleanTarget.includes(cleanReported)) {
+                                return;
+                            }
+                        }
+                        clearTimeout(timer);
+                        manualCaptchaResolveRef.current = null;
+                        resolve(h);
+                    };
+                });
+
+                setIsCaptchaBlocked(false);
+                if (navHtml) {
+                    const parsed = parseChapterText(navHtml, chapterUrl);
+                    if (!isBlockedOrJunk(parsed, navHtml)) text = parsed;
+                }
+                
+                setScrapeUrl(null); // Clear webview after single retry
+            }
             
             if (text && !isBlockedOrJunk(text, '')) {
                 await saveChapterText(novelId, originalIndex, chapterTitle, text);
@@ -169,6 +199,7 @@ export const DownloadProvider = ({ children }) => {
             }
             return false;
         } catch (e) {
+            setScrapeUrl(null);
             return false;
         }
     };
