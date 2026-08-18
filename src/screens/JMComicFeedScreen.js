@@ -374,10 +374,6 @@ export default function JMComicFeedScreen({ navigation, route }) {
                     />
                 </View>
             )}
-
-                </View>
-            )}
-
             <View style={{ position: 'absolute', bottom: 20, left: 0, right: 0 }}>
                 <DownloadProgress 
                     queue={queue} 
