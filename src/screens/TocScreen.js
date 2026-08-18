@@ -10,6 +10,31 @@ export default function TocScreen({ route, navigation }) {
     const { colors, isDark } = useTheme();
     const [novel, setNovel] = useState(route.params.novel);
     
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortAscending, setSortAscending] = useState(true);
+
+    const filteredAndSortedChapters = React.useMemo(() => {
+        if (!novel.chapters) return [];
+        let result = novel.chapters.map((ch, index) => ({ ...ch, originalIndex: index }));
+        
+        if (searchQuery.trim()) {
+            const lowerQuery = searchQuery.toLowerCase();
+            result = result.filter(ch => ch.title && ch.title.toLowerCase().includes(lowerQuery));
+        }
+        
+        if (!sortAscending) {
+            result.reverse();
+        }
+        
+        return result;
+    }, [novel.chapters, searchQuery, sortAscending]);
+
+    const initialScrollIndex = React.useMemo(() => {
+        if (novel.progressIndex === undefined || novel.progressIndex === null) return 0;
+        const idx = filteredAndSortedChapters.findIndex(ch => ch.originalIndex === novel.progressIndex);
+        return idx >= 0 ? idx : 0;
+    }, []); // Only compute once on mount so it doesn't jump during search/sort
+
     const [selectedChapterIndex, setSelectedChapterIndex] = useState(null);
     const [isOptionsModalVisible, setIsOptionsModalVisible] = useState(false);
     
@@ -54,10 +79,10 @@ export default function TocScreen({ route, navigation }) {
         });
     }, [navigation, colors]);
 
-    const handleLongPress = (index) => {
+    const handleLongPress = useCallback((index) => {
         setSelectedChapterIndex(index);
         setIsOptionsModalVisible(true);
-    };
+    }, []);
 
     const openChapterSplitModal = () => {
         setSplitTarget('chapter');
@@ -71,7 +96,8 @@ export default function TocScreen({ route, navigation }) {
         setIsSplitModalVisible(true);
     };
 
-    const handleDeleteChapter = () => {
+    const handleDeleteChapter = useCallback(() => {
+        if (selectedChapterIndex === null) return;
         Alert.alert('刪除章節', `確定要刪除「${novel.chapters[selectedChapterIndex].title}」嗎？\n刪除後後面的章節編號會自動遞補。`, [
             { text: '取消', style: 'cancel' },
             { 
@@ -86,9 +112,10 @@ export default function TocScreen({ route, navigation }) {
                 }
             }
         ]);
-    };
+    }, [novel.chapters, novel.id, selectedChapterIndex]);
 
-    const openEditModal = async (mode) => {
+    const openEditModal = useCallback(async (mode) => {
+        if (selectedChapterIndex === null) return;
         setEditMode(mode);
         setIsOptionsModalVisible(false);
         setIsProcessing(true);
@@ -104,7 +131,7 @@ export default function TocScreen({ route, navigation }) {
         
         setIsProcessing(false);
         setIsEditModalVisible(true);
-    };
+    }, [novel.chapters, novel.id, selectedChapterIndex]);
 
     const handleSaveChapter = async () => {
         if (!editTitle.trim()) {
@@ -286,8 +313,15 @@ export default function TocScreen({ route, navigation }) {
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FlatList 
-                data={novel.chapters}
-                keyExtractor={(item, index) => index.toString()}
+                data={filteredAndSortedChapters}
+                keyExtractor={(item) => item.originalIndex.toString()}
+                initialScrollIndex={filteredAndSortedChapters.length > 0 && initialScrollIndex < filteredAndSortedChapters.length ? initialScrollIndex : undefined}
+                onScrollToIndexFailed={(info) => {
+                    const wait = new Promise(resolve => setTimeout(resolve, 500));
+                    wait.then(() => {
+                        // FlatList might not be ready, ignore failures
+                    });
+                }}
                 initialNumToRender={15}
                 maxToRenderPerBatch={10}
                 windowSize={5}
@@ -296,19 +330,44 @@ export default function TocScreen({ route, navigation }) {
                     {length: 50, offset: 50 * index, index}
                 )}
                 ListHeaderComponent={
-                    <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
-                        <TouchableOpacity
-                            style={[styles.toolbarBtn, { backgroundColor: colors.primary }]}
-                            onPress={openNovelSplitModal}
-                            disabled={isProcessing}
-                        >
-                            <Feather name="scissors" size={18} color="#fff" style={{ marginRight: 8 }} />
-                            <Text style={styles.toolbarBtnText}>整本重分割</Text>
-                        </TouchableOpacity>
+                    <View style={[styles.toolbar, { borderBottomColor: colors.border, flexDirection: 'column', gap: 12 }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                            <TouchableOpacity
+                                style={[styles.toolbarBtn, { backgroundColor: colors.primary, flex: 1 }]}
+                                onPress={openNovelSplitModal}
+                                disabled={isProcessing}
+                            >
+                                <Feather name="scissors" size={18} color="#fff" style={{ marginRight: 8 }} />
+                                <Text style={styles.toolbarBtnText}>整本重分割</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.toolbarBtn, { backgroundColor: colors.surface, flex: 1, borderWidth: 1, borderColor: colors.border }]}
+                                onPress={() => setSortAscending(!sortAscending)}
+                            >
+                                <Feather name={sortAscending ? "arrow-down" : "arrow-up"} size={18} color={colors.text} style={{ marginRight: 8 }} />
+                                <Text style={[styles.toolbarBtnText, { color: colors.text }]}>{sortAscending ? '正序排列' : '倒序排列'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', borderRadius: 8, paddingHorizontal: 12, height: 40 }}>
+                            <Feather name="search" size={18} color={colors.textSecondary} style={{ marginRight: 8 }} />
+                            <TextInput
+                                style={{ flex: 1, color: colors.text, height: '100%' }}
+                                placeholder="搜尋章節名稱..."
+                                placeholderTextColor={colors.textSecondary}
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                            />
+                            {searchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                    <Feather name="x-circle" size={18} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </View>
                 }
-                renderItem={({ item, index }) => {
-                    const isCurrent = novel.progressIndex === index;
+                renderItem={useCallback(({ item }) => {
+                    const originalIndex = item.originalIndex;
+                    const isCurrent = novel.progressIndex === originalIndex;
                     return (
                         <TouchableOpacity 
                             style={[
@@ -317,20 +376,20 @@ export default function TocScreen({ route, navigation }) {
                                 isCurrent && { backgroundColor: colors.highlight }
                             ]}
                             onPress={() => {
-                                navigation.navigate('Reader', { novelId: novel.id, initialChapterIndex: index });
+                                navigation.navigate('Reader', { novelId: novel.id, initialChapterIndex: originalIndex });
                             }}
-                            onLongPress={() => handleLongPress(index)}
+                            onLongPress={() => handleLongPress(originalIndex)}
                         >
                             <Text style={[
                                 styles.title,
                                 { color: isCurrent ? colors.primary : colors.text },
                                 isCurrent && { fontWeight: 'bold' }
-                            ]}>
+                            ]} numberOfLines={1}>
                                 {item.title}
                             </Text>
                         </TouchableOpacity>
                     );
-                }}
+                }, [colors, novel.id, novel.progressIndex, navigation, handleLongPress])}
             />
 
             {/* Options Modal */}

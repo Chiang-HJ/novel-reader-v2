@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, TextInput, Platform } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -7,6 +7,17 @@ import { getWyblogsArticles, refreshWyblogsFeed, fetchWyblogsArticleContent } fr
 import { saveNovelToBookshelf, saveChapterText, getBookshelf } from '../utils/storage';
 import { convertS2T } from '../utils/opencc';
 import { splitTextIntoChapters } from '../utils/parserUtils';
+
+const formatLastUpdated = (ts) => {
+    if (!ts) return '';
+    try {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return '';
+        return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    } catch {
+        return '';
+    }
+};
 
 export default function WyblogsFeedScreen({ navigation }) {
     const { colors, isDark } = useTheme();
@@ -29,74 +40,109 @@ export default function WyblogsFeedScreen({ navigation }) {
     // Search
     const [searchQuery, setSearchQuery] = useState('');
 
+    const isMountedRef = useRef(true);
+
     useEffect(() => {
+        isMountedRef.current = true;
         loadFeed();
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
+
+    const loadDownloadedIds = useCallback(async () => {
+        try {
+            const list = await getBookshelf();
+            if (!Array.isArray(list)) return;
+            const wyblogsIds = list
+                .filter(n => n?.id && typeof n.id === 'string' && n.id.startsWith('blog_wyblogs_'))
+                .map(n => n.id.replace('blog_wyblogs_', ''));
+            if (isMountedRef.current) {
+                setDownloadedIds(new Set(wyblogsIds));
+            }
+        } catch (e) {
+            console.warn('Failed to load downloaded wyblogs ids:', e);
+        }
     }, []);
 
     useFocusEffect(
         useCallback(() => {
             loadDownloadedIds();
-        }, [])
+        }, [loadDownloadedIds])
     );
 
-    const loadDownloadedIds = async () => {
-        try {
-            const list = await getBookshelf();
-            const wyblogsIds = list
-                .filter(n => n.id.startsWith('blog_wyblogs_'))
-                .map(n => n.id.replace('blog_wyblogs_', ''));
-            setDownloadedIds(new Set(wyblogsIds));
-        } catch (e) {}
-    };
-
-    const loadFeed = async () => {
-        try {
-            setIsLoading(true);
-            setFetchProgress(0);
-            setFetchText('準備獲取小說目錄...');
-            const result = await getWyblogsArticles((loaded, total) => {
-                setFetchProgress(loaded / total);
-                setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
+    const extractCategories = useCallback((articleList) => {
+        const catSet = new Set();
+        (articleList || []).forEach(a => {
+            (a?.categories || []).forEach(c => {
+                if (c) catSet.add(c);
             });
-            setArticles(result.articles);
-            setLastUpdated(result.lastUpdated);
-            extractCategories(result.articles);
-        } catch (e) {
-            Alert.alert('載入失敗', '無法載入小說目錄：' + e.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        });
+        const sorted = [...catSet].sort();
+        setAllCategories(sorted);
+    }, []);
 
-    const handleRefresh = async () => {
+    const loadFeed = useCallback(async () => {
+        try {
+            if (isMountedRef.current) {
+                setIsLoading(true);
+                setFetchProgress(0);
+                setFetchText('準備獲取小說目錄...');
+            }
+            const result = await getWyblogsArticles((loaded, total) => {
+                if (isMountedRef.current && total > 0) {
+                    setFetchProgress(loaded / total);
+                    setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
+                }
+            });
+            if (isMountedRef.current && result) {
+                const articleList = Array.isArray(result.articles) ? result.articles : [];
+                setArticles(articleList);
+                setLastUpdated(result.lastUpdated || null);
+                extractCategories(articleList);
+            }
+        } catch (e) {
+            if (isMountedRef.current) {
+                Alert.alert('載入失敗', '無法載入小說目錄：' + (e?.message || '未知錯誤'));
+            }
+        } finally {
+            if (isMountedRef.current) {
+                setIsLoading(false);
+            }
+        }
+    }, [extractCategories]);
+
+    const handleRefresh = useCallback(async () => {
         try {
             setIsRefreshing(true);
             setFetchProgress(0);
             setFetchText('準備更新小說目錄...');
             const freshArticles = await refreshWyblogsFeed((loaded, total) => {
-                setFetchProgress(loaded / total);
-                setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
+                if (isMountedRef.current && total > 0) {
+                    setFetchProgress(loaded / total);
+                    setFetchText(`正在獲取第 ${loaded} / ${total} 頁...`);
+                }
             });
-            setArticles(freshArticles);
-            setLastUpdated(Date.now());
-            extractCategories(freshArticles);
-            Alert.alert('更新完成', `已載入 ${freshArticles.length} 篇小說`);
+            if (isMountedRef.current) {
+                const safeArticles = Array.isArray(freshArticles) ? freshArticles : [];
+                setArticles(safeArticles);
+                setLastUpdated(Date.now());
+                extractCategories(safeArticles);
+                Alert.alert('更新完成', `已載入 ${safeArticles.length} 篇小說`);
+            }
         } catch (e) {
-            Alert.alert('更新失敗', '無法連線至 wyblogs：' + e.message);
+            if (isMountedRef.current) {
+                Alert.alert('更新失敗', '無法連線至 wyblogs：' + (e?.message || '未知錯誤'));
+            }
         } finally {
-            setIsRefreshing(false);
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
         }
-    };
+    }, [extractCategories]);
 
-    const extractCategories = (articleList) => {
-        const catSet = new Set();
-        articleList.forEach(a => a.categories.forEach(c => catSet.add(c)));
-        const sorted = [...catSet].sort();
-        setAllCategories(sorted);
-    };
-
-    const handleDownload = async (article) => {
-        if (downloadingId) return;
+    const handleDownload = useCallback(async (article) => {
+        if (!article?.id || downloadingId) return;
         setDownloadingId(article.id);
 
         try {
@@ -104,7 +150,7 @@ export default function WyblogsFeedScreen({ navigation }) {
             text = convertS2T(text);
 
             const novelId = 'blog_wyblogs_' + article.id;
-            const chapterTitle = convertS2T(article.title);
+            const chapterTitle = convertS2T(article.title || '無標題');
 
             let newChaptersData = [];
             try {
@@ -122,8 +168,8 @@ export default function WyblogsFeedScreen({ navigation }) {
                 title: chapterTitle,
                 author: 'wyblogs',
                 cover: '',
-                url: article.url,
-                chapters: newChaptersData.map(c => ({ title: c.title, url: article.url })),
+                url: article.url || '',
+                chapters: (newChaptersData || []).map(c => ({ title: c.title, url: article.url || '' })),
                 chapterCount: newChaptersData.length,
                 downloadedChapters: newChaptersData.length,
                 folderId: 'vault',
@@ -132,25 +178,30 @@ export default function WyblogsFeedScreen({ navigation }) {
 
             await saveNovelToBookshelf(novelInfo);
 
-            const newSet = new Set(downloadedIds);
-            newSet.add(article.id);
-            setDownloadedIds(newSet);
+            setDownloadedIds(prev => {
+                const next = new Set(prev);
+                next.add(article.id);
+                return next;
+            });
 
             Alert.alert('下載完成', `《${chapterTitle}》已加入金庫！`);
         } catch (e) {
-            Alert.alert('下載失敗', e.message);
+            Alert.alert('下載失敗', e?.message || '未知錯誤');
         } finally {
-            setDownloadingId(null);
+            if (isMountedRef.current) {
+                setDownloadingId(null);
+            }
         }
-    };
+    }, [downloadingId]);
 
-    const handleArticlePress = (article) => {
+    const handleArticlePress = useCallback((article) => {
+        if (!article?.id) return;
         if (downloadedIds.has(article.id)) {
             const novelId = 'blog_wyblogs_' + article.id;
-            navigation.navigate('Reader', { novelId, title: article.title });
+            navigation.navigate('Reader', { novelId, title: article.title || '' });
         } else {
             Alert.alert(
-                convertS2T(article.title),
+                convertS2T(article.title || '小說'),
                 '要下載這篇小說嗎？',
                 [
                     { text: '取消', style: 'cancel' },
@@ -158,26 +209,29 @@ export default function WyblogsFeedScreen({ navigation }) {
                 ]
             );
         }
-    };
+    }, [downloadedIds, navigation, handleDownload]);
 
-    const filteredArticles = articles.filter(a => {
-        if (selectedCategory && !a.categories.includes(selectedCategory)) return false;
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            return a.title.toLowerCase().includes(q);
-        }
-        return true;
-    });
+    const filteredArticles = useMemo(() => {
+        const q = searchQuery ? searchQuery.trim().toLowerCase() : '';
+        return articles.filter(a => {
+            if (selectedCategory && (!Array.isArray(a?.categories) || !a.categories.includes(selectedCategory))) {
+                return false;
+            }
+            if (q) {
+                const titleStr = (a?.title || '').toLowerCase();
+                return titleStr.includes(q);
+            }
+            return true;
+        });
+    }, [articles, selectedCategory, searchQuery]);
 
-    const formatLastUpdated = (ts) => {
-        if (!ts) return '';
-        const d = new Date(ts);
-        return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    };
+    const keyExtractor = useCallback(item => item?.id || String(Math.random()), []);
 
-    const renderArticle = ({ item }) => {
+    const renderArticle = useCallback(({ item }) => {
+        if (!item) return null;
         const isDownloaded = downloadedIds.has(item.id);
         const isDownloading = downloadingId === item.id;
+        const categories = Array.isArray(item.categories) ? item.categories : [];
 
         return (
             <TouchableOpacity
@@ -188,16 +242,16 @@ export default function WyblogsFeedScreen({ navigation }) {
                 <View style={styles.articleContent}>
                     <View style={{ flex: 1 }}>
                         <Text style={[styles.articleTitle, { color: colors.text }]} numberOfLines={2}>
-                            {convertS2T(item.title)}
+                            {convertS2T(item.title || '(無標題)')}
                         </Text>
                         <View style={styles.tagsRow}>
-                            {item.categories.slice(0, 3).map((cat, idx) => (
+                            {categories.slice(0, 3).map((cat, idx) => (
                                 <View key={idx} style={[styles.tagBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
                                     <Text style={[styles.tagText, { color: colors.primary }]}>{cat}</Text>
                                 </View>
                             ))}
-                            {item.categories.length > 3 && (
-                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{item.categories.length - 3}</Text>
+                            {categories.length > 3 && (
+                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{categories.length - 3}</Text>
                             )}
                         </View>
                     </View>
@@ -220,7 +274,7 @@ export default function WyblogsFeedScreen({ navigation }) {
                 </View>
             </TouchableOpacity>
         );
-    };
+    }, [colors, isDark, downloadedIds, downloadingId, handleArticlePress, handleDownload]);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -319,9 +373,13 @@ export default function WyblogsFeedScreen({ navigation }) {
             ) : (
                 <FlatList
                     data={filteredArticles}
-                    keyExtractor={item => item.id}
+                    keyExtractor={keyExtractor}
                     renderItem={renderArticle}
                     contentContainerStyle={{ paddingBottom: 40, paddingTop: 8 }}
+                    maxToRenderPerBatch={10}
+                    windowSize={7}
+                    initialNumToRender={10}
+                    removeClippedSubviews={Platform.OS === 'android'}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <Feather name="inbox" size={48} color={colors.textSecondary} style={{ marginBottom: 16 }} />

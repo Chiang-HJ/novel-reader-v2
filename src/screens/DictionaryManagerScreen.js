@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, TextInput, Alert, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { Feather } from '@expo/vector-icons';
@@ -19,71 +19,119 @@ export default function DictionaryManagerScreen({ navigation }) {
     const [editReplacement, setEditReplacement] = useState('');
     const [editIsRegex, setEditIsRegex] = useState(false);
 
-    useEffect(() => {
-        loadData();
+    const isMountedRef = useRef(true);
+
+    const loadData = useCallback(async () => {
+        try {
+            const data = await getDictionaries();
+            if (isMountedRef.current && data) {
+                setTextFilters(Array.isArray(data.textFilters) ? data.textFilters : []);
+                setPronunciationDict(Array.isArray(data.pronunciationDict) ? data.pronunciationDict : []);
+            }
+        } catch (e) {
+            console.warn('Failed to load dictionaries:', e);
+            if (isMountedRef.current) {
+                setTextFilters([]);
+                setPronunciationDict([]);
+            }
+        }
     }, []);
 
-    const loadData = async () => {
-        const { textFilters, pronunciationDict } = await getDictionaries();
-        setTextFilters(textFilters);
-        setPronunciationDict(pronunciationDict);
-    };
+    useEffect(() => {
+        isMountedRef.current = true;
+        loadData();
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, [loadData]);
 
-    const handleDelete = (id, type) => {
-        if (type === 'text') {
-            const newFilters = textFilters.filter(item => item.id !== id);
-            setTextFilters(newFilters);
-            saveTextFilters(newFilters);
-        } else {
-            const newDict = pronunciationDict.filter(item => item.id !== id);
-            setPronunciationDict(newDict);
-            savePronunciationDict(newDict);
+    const handleDelete = useCallback(async (id, type) => {
+        try {
+            if (type === 'text') {
+                const newFilters = textFilters.filter(item => item.id !== id);
+                setTextFilters(newFilters);
+                await saveTextFilters(newFilters);
+            } else {
+                const newDict = pronunciationDict.filter(item => item.id !== id);
+                setPronunciationDict(newDict);
+                await savePronunciationDict(newDict);
+            }
+        } catch (e) {
+            Alert.alert('刪除失敗', e?.message || '未知錯誤');
         }
-    };
+    }, [textFilters, pronunciationDict]);
 
-    const handleSave = () => {
-        if (!editTarget.trim()) {
+    const handleSave = useCallback(async () => {
+        const trimmedTarget = editTarget.trim();
+        if (!trimmedTarget) {
             Alert.alert('錯誤', '請輸入要尋找的目標文字');
             return;
         }
 
-        const newItem = {
-            id: Date.now().toString(),
-            target: editTarget.trim(),
-            replacement: editReplacement.trim(),
-            isRegex: editIsRegex
-        };
-
-        if (activeTab === 0) {
-            const newFilters = [newItem, ...textFilters];
-            setTextFilters(newFilters);
-            saveTextFilters(newFilters);
-        } else {
-            const newDict = [newItem, ...pronunciationDict];
-            setPronunciationDict(newDict);
-            savePronunciationDict(newDict);
+        if (activeTab === 0 && editIsRegex) {
+            try {
+                new RegExp(trimmedTarget);
+            } catch (e) {
+                Alert.alert('正則表達式錯誤', '請檢查正則表達式語法是否正確');
+                return;
+            }
         }
 
-        setShowModal(false);
+        const newItem = {
+            id: Date.now().toString(),
+            target: trimmedTarget,
+            replacement: editReplacement.trim(),
+            isRegex: activeTab === 0 ? editIsRegex : false
+        };
+
+        try {
+            if (activeTab === 0) {
+                const newFilters = [newItem, ...textFilters];
+                setTextFilters(newFilters);
+                await saveTextFilters(newFilters);
+            } else {
+                const newDict = [newItem, ...pronunciationDict];
+                setPronunciationDict(newDict);
+                await savePronunciationDict(newDict);
+            }
+
+            setShowModal(false);
+            setEditTarget('');
+            setEditReplacement('');
+            setEditIsRegex(false);
+        } catch (e) {
+            Alert.alert('儲存失敗', e?.message || '未知錯誤');
+        }
+    }, [editTarget, editReplacement, editIsRegex, activeTab, textFilters, pronunciationDict]);
+
+    const keyExtractor = useCallback(item => item?.id || String(Math.random()), []);
+
+    const renderItem = useCallback(({ item }) => {
+        if (!item) return null;
+        return (
+            <View style={[styles.listItem, { backgroundColor: colors.surface, borderLeftColor: colors.primary }]}>
+                <View style={styles.itemContent}>
+                    <Text style={[styles.targetText, { color: colors.text }]} numberOfLines={3}>
+                        {item.isRegex ? `[正則] ${item.target || ''}` : (item.target || '')}
+                    </Text>
+                    <Feather name="arrow-right" size={16} color="#888" style={{ marginHorizontal: 8 }} />
+                    <Text style={[styles.replacementText, { color: item.replacement ? colors.primary : '#888' }]}>
+                        {item.replacement || '(刪除)'}
+                    </Text>
+                </View>
+                <TouchableOpacity onPress={() => handleDelete(item.id, activeTab === 0 ? 'text' : 'voice')} style={styles.deleteBtn}>
+                    <Feather name="trash-2" size={20} color="#ff4444" />
+                </TouchableOpacity>
+            </View>
+        );
+    }, [colors, activeTab, handleDelete]);
+
+    const handleOpenAddModal = useCallback(() => {
         setEditTarget('');
         setEditReplacement('');
         setEditIsRegex(false);
-    };
-
-    const renderItem = ({ item }) => (
-        <View style={[styles.listItem, { backgroundColor: colors.surface, borderLeftColor: colors.primary }]}>
-            <View style={styles.itemContent}>
-                <Text style={[styles.targetText, { color: colors.text }]} numberOfLines={3}>{item.isRegex ? `[正則] ${item.target}` : item.target}</Text>
-                <Feather name="arrow-right" size={16} color="#888" style={{ marginHorizontal: 8 }} />
-                <Text style={[styles.replacementText, { color: item.replacement ? colors.primary : '#888' }]}>
-                    {item.replacement || '(刪除)'}
-                </Text>
-            </View>
-            <TouchableOpacity onPress={() => handleDelete(item.id, activeTab === 0 ? 'text' : 'voice')} style={styles.deleteBtn}>
-                <Feather name="trash-2" size={20} color="#ff4444" />
-            </TouchableOpacity>
-        </View>
-    );
+        setShowModal(true);
+    }, []);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -93,7 +141,7 @@ export default function DictionaryManagerScreen({ navigation }) {
                     <Feather name="arrow-left" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <Text style={[styles.headerTitle, { color: colors.text }]}>字典管理</Text>
-                <TouchableOpacity onPress={() => { setEditTarget(''); setEditReplacement(''); setEditIsRegex(false); setShowModal(true); }} style={styles.iconBtn}>
+                <TouchableOpacity onPress={handleOpenAddModal} style={styles.iconBtn}>
                     <Feather name="plus" size={24} color={colors.primary} />
                 </TouchableOpacity>
             </View>
@@ -125,14 +173,17 @@ export default function DictionaryManagerScreen({ navigation }) {
             {/* List */}
             <FlatList
                 data={activeTab === 0 ? textFilters : pronunciationDict}
-                keyExtractor={item => item.id}
+                keyExtractor={keyExtractor}
                 renderItem={renderItem}
                 contentContainerStyle={{ padding: 15, paddingBottom: 100 }}
+                maxToRenderPerBatch={15}
+                windowSize={7}
+                initialNumToRender={12}
                 ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#888', marginTop: 50 }}>目前沒有設定規則</Text>}
             />
 
             {/* Add Modal */}
-            <Modal visible={showModal} animationType="fade" transparent={true}>
+            <Modal visible={showModal} animationType="fade" transparent={true} onRequestClose={() => setShowModal(false)}>
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <BlurView intensity={20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%', alignItems: 'center' }}>
@@ -156,7 +207,7 @@ export default function DictionaryManagerScreen({ navigation }) {
                                     {activeTab === 0 && (
                                         <TouchableOpacity 
                                             style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}
-                                            onPress={() => setEditIsRegex(!editIsRegex)}
+                                            onPress={() => setEditIsRegex(prev => !prev)}
                                         >
                                             <Feather name={editIsRegex ? 'check-square' : 'square'} size={20} color={colors.primary} />
                                             <Text style={{ color: colors.text, marginLeft: 8 }}>使用正規表達式 (Regex) - 支援模糊刪除</Text>

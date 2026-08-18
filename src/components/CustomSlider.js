@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import { View, PanResponder } from 'react-native';
 
-const CustomSlider = ({
+const CustomSlider = memo(({
     minimumValue = 0,
     maximumValue = 1,
     step = 0,
@@ -17,6 +17,7 @@ const CustomSlider = ({
     const containerWidthRef = useRef(0);
     const [isSliding, setIsSliding] = useState(false);
     const [localValue, setLocalValue] = useState(value);
+    const localValueRef = useRef(value);
     
     // Store all dynamic props in a ref to avoid stale closures in PanResponder
     const propsRef = useRef({ minimumValue, maximumValue, step, onValueChange, onSlidingComplete });
@@ -30,22 +31,34 @@ const CustomSlider = ({
     useEffect(() => {
         if (!isSliding) {
             setLocalValue(value);
+            localValueRef.current = value;
         }
     }, [value, isSliding]);
 
     // Update localValue safely
     const updateValue = (newValue) => {
         const p = propsRef.current;
-        if (isNaN(newValue) || !isFinite(newValue)) newValue = p.minimumValue;
-        if (newValue < p.minimumValue) newValue = p.minimumValue;
-        if (newValue > p.maximumValue) newValue = p.maximumValue;
+        let val = newValue;
+        if (isNaN(val) || !isFinite(val)) val = p.minimumValue;
+        if (val < p.minimumValue) val = p.minimumValue;
+        if (val > p.maximumValue) val = p.maximumValue;
         if (p.step > 0) {
-            newValue = Math.round((newValue - p.minimumValue) / p.step) * p.step + p.minimumValue;
+            val = Math.round((val - p.minimumValue) / p.step) * p.step + p.minimumValue;
         }
-        setLocalValue(newValue);
-        if (p.onValueChange) p.onValueChange(newValue);
-        return newValue;
+        setLocalValue(val);
+        localValueRef.current = val;
+        if (p.onValueChange) {
+            try {
+                p.onValueChange(val);
+            } catch (e) {
+                console.error('Error in onValueChange callback:', e);
+            }
+        }
+        return val;
     };
+
+    const updateValueRef = useRef(updateValue);
+    updateValueRef.current = updateValue;
 
     const panResponder = useRef(
         PanResponder.create({
@@ -58,22 +71,22 @@ const CustomSlider = ({
                 setIsSliding(true);
                 const currentWidth = containerWidthRef.current;
                 const p = propsRef.current;
-                if (currentWidth > 0) {
+                if (currentWidth > 0 && p.maximumValue > p.minimumValue) {
                     const x = evt.nativeEvent.locationX;
                     const newValue = p.minimumValue + (x / currentWidth) * (p.maximumValue - p.minimumValue);
-                    const finalValue = updateValue(newValue);
+                    const finalValue = updateValueRef.current(newValue);
                     startValueRef.current = finalValue;
                 } else {
-                    startValueRef.current = localValue;
+                    startValueRef.current = localValueRef.current;
                 }
             },
             onPanResponderMove: (evt, gestureState) => {
                 const currentWidth = containerWidthRef.current;
                 const p = propsRef.current;
-                if (currentWidth > 0) {
+                if (currentWidth > 0 && p.maximumValue > p.minimumValue) {
                     const dx = gestureState.dx;
                     const valDelta = (dx / currentWidth) * (p.maximumValue - p.minimumValue);
-                    updateValue(startValueRef.current + valDelta);
+                    updateValueRef.current(startValueRef.current + valDelta);
                 }
             },
             onPanResponderRelease: (evt, gestureState) => {
@@ -81,22 +94,37 @@ const CustomSlider = ({
                 const p = propsRef.current;
                 
                 const currentWidth = containerWidthRef.current;
-                let finalValue = startValueRef.current;
-                if (currentWidth > 0) {
+                let finalValue = localValueRef.current;
+                if (currentWidth > 0 && p.maximumValue > p.minimumValue) {
                     const dx = gestureState.dx;
                     const valDelta = (dx / currentWidth) * (p.maximumValue - p.minimumValue);
-                    finalValue = updateValue(startValueRef.current + valDelta);
+                    finalValue = updateValueRef.current(startValueRef.current + valDelta);
                 }
-                if (p.onSlidingComplete) p.onSlidingComplete(finalValue);
+                if (p.onSlidingComplete) {
+                    try {
+                        p.onSlidingComplete(finalValue);
+                    } catch (e) {
+                        console.error('Error in onSlidingComplete callback:', e);
+                    }
+                }
             },
             onPanResponderTerminate: () => {
                 setIsSliding(false);
+                const p = propsRef.current;
+                if (p.onSlidingComplete) {
+                    try {
+                        p.onSlidingComplete(localValueRef.current);
+                    } catch (e) {
+                        console.error('Error in onSlidingComplete terminate callback:', e);
+                    }
+                }
             }
         })
     ).current;
 
-    let percent = containerWidth && maximumValue > minimumValue 
-        ? ((localValue - minimumValue) / (maximumValue - minimumValue)) * 100 
+    const range = maximumValue - minimumValue;
+    let percent = containerWidth && range > 0
+        ? ((localValue - minimumValue) / range) * 100 
         : 0;
     if (isNaN(percent) || !isFinite(percent)) percent = 0;
     const clampedPercent = Math.max(0, Math.min(100, percent));
@@ -154,6 +182,6 @@ const CustomSlider = ({
             />
         </View>
     );
-};
+});
 
 export default CustomSlider;

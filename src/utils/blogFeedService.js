@@ -3,10 +3,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BLOG_FEED_URL = 'https://yuluji.blogspot.com/feeds/posts/summary?alt=json';
 const BLOG_CACHE_KEY = '@blog_feed_cache';
 const MAX_RESULTS = 500;
+const FETCH_TIMEOUT_MS = 15000;
+
+/**
+ * Helper to perform fetch with timeout
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response;
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            throw new Error('網路請求逾時，請檢查網路連線');
+        }
+        throw e;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
 
 /**
  * Fetch all articles from the Blogger JSON Feed API with automatic pagination.
- * Returns an array of article objects: { id, title, tags, publishedAt, url }
+ * Returns an array of article objects: { id, title, tags, publishedAt, url, summary }
  */
 export async function fetchAllArticles(onProgress) {
     let allArticles = [];
@@ -15,26 +35,30 @@ export async function fetchAllArticles(onProgress) {
 
     while (startIndex <= totalResults) {
         const url = `${BLOG_FEED_URL}&max-results=${MAX_RESULTS}&start-index=${startIndex}`;
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
 
         // Get total count on first request
         if (totalResults === Infinity) {
-            totalResults = parseInt(data.feed?.openSearch$totalResults?.$t || '0', 10);
+            const rawTotal = parseInt(data?.feed?.openSearch$totalResults?.$t || '0', 10);
+            totalResults = isNaN(rawTotal) || rawTotal <= 0 ? 0 : rawTotal;
         }
 
-        const entries = data.feed?.entry || [];
+        const entries = data?.feed?.entry || [];
         if (entries.length === 0) break;
 
         for (const entry of entries) {
-            allArticles.push(parseEntry(entry));
+            const parsed = parseEntry(entry);
+            if (parsed && parsed.id) {
+                allArticles.push(parsed);
+            }
         }
 
         startIndex += entries.length;
 
-        if (onProgress && totalResults !== Infinity) {
+        if (onProgress && totalResults > 0) {
             onProgress(Math.min(startIndex - 1, totalResults), totalResults);
         }
     }
@@ -46,14 +70,19 @@ export async function fetchAllArticles(onProgress) {
  * Parse a single Blogger feed entry into our article format.
  */
 function parseEntry(entry) {
+    if (!entry) return null;
     const title = entry.title?.$t || '(無標題)';
-    const tags = (entry.category || []).map(c => c.term);
+    const tags = Array.isArray(entry.category) 
+        ? entry.category.map(c => c?.term || '').filter(Boolean) 
+        : [];
     const publishedAt = entry.published?.$t || '';
-    const linkObj = (entry.link || []).find(l => l.rel === 'alternate');
+    const linkObj = Array.isArray(entry.link) 
+        ? entry.link.find(l => l?.rel === 'alternate') 
+        : null;
     const url = linkObj?.href || '';
     const summary = entry.summary?.$t || '';
     const rawId = entry.id?.$t || '';
-    const postId = rawId.split('.post-')[1] || rawId;
+    const postId = rawId.includes('.post-') ? rawId.split('.post-')[1] : rawId;
 
     return { id: postId, title, tags, publishedAt, url, summary };
 }
@@ -63,32 +92,38 @@ function parseEntry(entry) {
  * Uses Blogger's published-min parameter.
  */
 async function fetchNewArticlesSince(sinceDate, onProgress) {
-    const isoDate = new Date(sinceDate).toISOString();
+    const d = new Date(sinceDate);
+    if (isNaN(d.getTime())) return [];
+    const isoDate = d.toISOString();
     let newArticles = [];
     let startIndex = 1;
     let totalResults = Infinity;
 
     while (startIndex <= totalResults) {
         const url = `${BLOG_FEED_URL}&max-results=${MAX_RESULTS}&start-index=${startIndex}&published-min=${encodeURIComponent(isoDate)}`;
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
 
         if (totalResults === Infinity) {
-            totalResults = parseInt(data.feed?.openSearch$totalResults?.$t || '0', 10);
+            const rawTotal = parseInt(data?.feed?.openSearch$totalResults?.$t || '0', 10);
+            totalResults = isNaN(rawTotal) || rawTotal <= 0 ? 0 : rawTotal;
         }
 
-        const entries = data.feed?.entry || [];
+        const entries = data?.feed?.entry || [];
         if (entries.length === 0) break;
 
         for (const entry of entries) {
-            newArticles.push(parseEntry(entry));
+            const parsed = parseEntry(entry);
+            if (parsed && parsed.id) {
+                newArticles.push(parsed);
+            }
         }
 
         startIndex += entries.length;
 
-        if (onProgress && totalResults !== Infinity) {
+        if (onProgress && totalResults > 0) {
             onProgress(Math.min(startIndex - 1, totalResults), totalResults);
         }
     }
@@ -103,9 +138,14 @@ async function fetchNewArticlesSince(sinceDate, onProgress) {
 export async function getCachedFeed() {
     try {
         const cached = await AsyncStorage.getItem(BLOG_CACHE_KEY);
-        if (cached) return JSON.parse(cached);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && Array.isArray(parsed.articles)) {
+                return parsed;
+            }
+        }
     } catch (e) {
-
+        console.warn('Failed to get cached feed:', e);
     }
     return null;
 }
@@ -117,11 +157,11 @@ export async function saveFeedToCache(articles) {
     try {
         const cacheData = {
             lastUpdated: Date.now(),
-            articles,
+            articles: Array.isArray(articles) ? articles : [],
         };
         await AsyncStorage.setItem(BLOG_CACHE_KEY, JSON.stringify(cacheData));
     } catch (e) {
-
+        console.warn('Failed to save feed to cache:', e);
     }
 }
 
@@ -129,7 +169,7 @@ export async function saveFeedToCache(articles) {
  * Check if the cache is stale (older than 7 days).
  */
 export function isCacheStale(lastUpdated) {
-    if (!lastUpdated) return true;
+    if (!lastUpdated || typeof lastUpdated !== 'number') return true;
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
     return (Date.now() - lastUpdated) > SEVEN_DAYS_MS;
 }
@@ -141,11 +181,12 @@ export function isCacheStale(lastUpdated) {
 export async function refreshFeed(onProgress) {
     const cached = await getCachedFeed();
 
-    if (cached && cached.articles && cached.articles.length > 0) {
+    if (cached && Array.isArray(cached.articles) && cached.articles.length > 0) {
         // Find the newest article's publish date from cache
         const newestDate = cached.articles.reduce((latest, a) => {
+            if (!a?.publishedAt) return latest;
             const d = new Date(a.publishedAt).getTime();
-            return d > latest ? d : latest;
+            return !isNaN(d) && d > latest ? d : latest;
         }, 0);
 
         if (newestDate > 0) {
@@ -155,7 +196,7 @@ export async function refreshFeed(onProgress) {
             if (newArticles.length > 0) {
                 // Merge: add new articles, deduplicate by id
                 const existingIds = new Set(cached.articles.map(a => a.id));
-                const uniqueNew = newArticles.filter(a => !existingIds.has(a.id));
+                const uniqueNew = newArticles.filter(a => a?.id && !existingIds.has(a.id));
                 const merged = [...uniqueNew, ...cached.articles];
                 await saveFeedToCache(merged);
                 return merged;
@@ -201,7 +242,11 @@ export async function getArticles(onProgress) {
  * then strip HTML tags and return clean text.
  */
 export async function fetchArticleContent(articleUrl) {
-    const response = await fetch(articleUrl);
+    if (!articleUrl) {
+        throw new Error('未提供文章網址');
+    }
+
+    const response = await fetchWithTimeout(articleUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const html = await response.text();
@@ -271,6 +316,7 @@ export async function fetchArticleContent(articleUrl) {
     text = text.replace(/&gt;/g, '>');
     text = text.replace(/&quot;/g, '"');
     text = text.replace(/&#39;/g, "'");
+    text = text.replace(/&#x([0-9a-fA-F]+);/gi, (m, h) => String.fromCharCode(parseInt(h, 16)));
     text = text.replace(/&#(\d+);/g, (m, code) => String.fromCharCode(code));
     // Clean up whitespace
     text = text.replace(/\n{3,}/g, '\n\n');

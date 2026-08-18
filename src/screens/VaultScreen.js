@@ -11,7 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
-import { WebView } from 'react-native-webview';
+
 import NovelListItem from '../components/home/NovelListItem';
 import { useTwitterDownload } from '../context/TwitterDownloadContext';
 
@@ -88,6 +88,13 @@ export default function VaultScreen({ navigation }) {
     useEffect(() => {
         isSelectionModeRef.current = isSelectionMode;
     }, [isSelectionMode]);
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+        return () => {
+            if (autoScrollTimerRef.current) clearInterval(autoScrollTimerRef.current);
+        };
+    }, []);
 
     useEffect(() => {
         const unsubscribe = navigation.addListener('focus', () => {
@@ -233,7 +240,8 @@ export default function VaultScreen({ navigation }) {
 
     // --- Storage Management Logic ---
 
-    const calculateFolderSize = async (uri) => {
+    const calculateFolderSize = async (uri, depth = 0) => {
+        if (depth > 10) return 0; // Prevent infinite recursion
         try {
             const info = await FileSystem.getInfoAsync(uri);
             if (!info.exists) return 0;
@@ -242,7 +250,7 @@ export default function VaultScreen({ navigation }) {
             const children = await FileSystem.readDirectoryAsync(uri);
             let totalSize = 0;
             for (const child of children) {
-                totalSize += await calculateFolderSize(uri + '/' + child);
+                totalSize += await calculateFolderSize(uri + '/' + child, depth + 1);
             }
             return totalSize;
         } catch (e) {
@@ -761,7 +769,7 @@ export default function VaultScreen({ navigation }) {
         );
     };
 
-    const getFilteredBookshelf = () => {
+    const filteredBookshelf = useMemo(() => {
         let list = [...bookshelf];
         if (novelFilter === 'novel') {
             list = list.filter(item => item.type !== 'comic');
@@ -772,7 +780,7 @@ export default function VaultScreen({ navigation }) {
             list = list.filter(item => item.title && item.title.toLowerCase().includes(novelSearch.toLowerCase()));
         }
         return list;
-    };
+    }, [bookshelf, novelFilter, novelSearch]);
 
     const handleEditNovel = async () => {
         if (!selectedNovel) return;
@@ -852,6 +860,10 @@ export default function VaultScreen({ navigation }) {
                         <FlatList
                             data={storageItems}
                             keyExtractor={item => item.id}
+                            removeClippedSubviews={true}
+                            initialNumToRender={10}
+                            maxToRenderPerBatch={5}
+                            windowSize={5}
                             contentContainerStyle={{ padding: 16 }}
                             ListHeaderComponent={
                                 <View style={{ marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -959,8 +971,12 @@ export default function VaultScreen({ navigation }) {
             ) : activeTab === 'novels' ? (
                 <View style={{ flex: 1 }}>
                     <FlatList 
-                        data={getFilteredBookshelf()}
+                        data={filteredBookshelf}
                         keyExtractor={item => item.id}
+                        removeClippedSubviews={true}
+                        initialNumToRender={10}
+                        maxToRenderPerBatch={5}
+                        windowSize={5}
                         contentContainerStyle={{ paddingBottom: isNovelSelectionMode ? 100 : 20 }}
                         ListHeaderComponent={
                             <View style={{ paddingHorizontal: 16, marginTop: 12, marginBottom: 16 }}>

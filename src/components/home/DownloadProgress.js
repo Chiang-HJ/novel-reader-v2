@@ -1,8 +1,11 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Modal, FlatList } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
-export default function DownloadProgress({ queue, activeTask, progressText, cancelDownload, colors }) {
+export default function DownloadProgress({ queue, activeTask, progressText, cancelDownload, colors, activeTaskProgress, retryChapterDownload, novelId }) {
+    const [isModalVisible, setIsModalVisible] = useState(false);
+    const [retryingIndex, setRetryingIndex] = useState(null);
+
     if (!activeTask && queue.length === 0) return null;
 
     return (
@@ -30,6 +33,14 @@ export default function DownloadProgress({ queue, activeTask, progressText, canc
                         <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
                         <Text style={{ color: colors.primary, fontSize: 12, flex: 1 }}>{progressText}</Text>
                     </View>
+                    {activeTaskProgress && activeTaskProgress.length > 0 && (
+                        <TouchableOpacity 
+                            style={{ marginTop: 8, padding: 6, backgroundColor: colors.background, borderRadius: 6, alignItems: 'center' }}
+                            onPress={() => setIsModalVisible(true)}
+                        >
+                            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>檢視下載詳情</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             )}
             {queue.slice(activeTask ? 1 : 0).map((q) => (
@@ -51,6 +62,78 @@ export default function DownloadProgress({ queue, activeTask, progressText, canc
                     已啟動背景保活與防休眠，鎖定螢幕或切換 App 仍會持續下載。
                 </Text>
             </View>
+
+            <Modal visible={isModalVisible} transparent={true} animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                            <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold' }}>章節下載進度</Text>
+                            <TouchableOpacity onPress={() => setIsModalVisible(false)} style={{ padding: 5 }}>
+                                <Feather name="x" size={24} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <FlatList
+                            data={activeTaskProgress || []}
+                            keyExtractor={(item) => item.index.toString()}
+                            renderItem={({ item }) => {
+                                let iconName = "clock";
+                                let iconColor = colors.textSecondary;
+                                if (item.status === 'downloading') {
+                                    iconColor = colors.primary;
+                                } else if (item.status === 'success') {
+                                    iconName = "check-circle";
+                                    iconColor = "#34C759";
+                                } else if (item.status === 'error') {
+                                    iconName = "alert-circle";
+                                    iconColor = "#FF3B30";
+                                }
+
+                                const isRetrying = retryingIndex === item.index;
+
+                                return (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                                        {item.status === 'downloading' ? (
+                                            <ActivityIndicator size="small" color={colors.primary} style={{ width: 20, marginRight: 10 }} />
+                                        ) : (
+                                            <Feather name={iconName} size={20} color={iconColor} style={{ width: 20, marginRight: 10 }} />
+                                        )}
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ color: colors.text, fontSize: 14 }} numberOfLines={1}>{item.title}</Text>
+                                            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                                                {item.status === 'pending' && '等待下載...'}
+                                                {item.status === 'downloading' && '下載中...'}
+                                                {item.status === 'success' && '下載成功'}
+                                                {item.status === 'error' && '下載失敗'}
+                                            </Text>
+                                        </View>
+                                        {item.status === 'error' && retryChapterDownload && (
+                                            <TouchableOpacity 
+                                                style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.background, borderRadius: 15, borderWidth: 1, borderColor: colors.border }}
+                                                onPress={async () => {
+                                                    setRetryingIndex(item.index);
+                                                    const success = await retryChapterDownload(novelId, item.index, item.url, item.title);
+                                                    if (success) {
+                                                        item.status = 'success';
+                                                    }
+                                                    setRetryingIndex(null);
+                                                }}
+                                                disabled={isRetrying}
+                                            >
+                                                {isRetrying ? (
+                                                    <ActivityIndicator size="small" color={colors.primary} />
+                                                ) : (
+                                                    <Text style={{ color: colors.text, fontSize: 12 }}>重試</Text>
+                                                )}
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                );
+                            }}
+                        />
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -66,4 +149,16 @@ const styles = StyleSheet.create({
         shadowRadius: 12,
         elevation: 3,
     },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end'
+    },
+    modalContent: {
+        height: '80%',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        paddingBottom: 40
+    }
 });

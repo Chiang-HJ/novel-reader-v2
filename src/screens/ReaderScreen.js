@@ -40,7 +40,12 @@ export default function ReaderScreen({ route, navigation }) {
     const [rate, setRate] = useState(1.0);
     const [pitch, setPitch] = useState(1.0);
     const [brightness, setBrightness] = useState(0.5);
-    const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+    const [currentSentenceIndex, setCurrentSentenceIndexState] = useState(0);
+    const currentSentenceIndexRef = useRef(0);
+    const setCurrentSentenceIndex = useCallback((val) => {
+        currentSentenceIndexRef.current = val;
+        setCurrentSentenceIndexState(val);
+    }, []);
     const [smartPauseEnabled, setSmartPauseEnabled] = useState(true);
 
     useEffect(() => {
@@ -57,7 +62,7 @@ export default function ReaderScreen({ route, navigation }) {
         setBrightness(val);
         try {
             await Brightness.setBrightnessAsync(val);
-        } catch(e) {}
+        } catch(e) { console.warn('Failed to set brightness:', e); }
     };
 
     // Save exact sentence progress whenever it changes (e.g. from manual paging or TTS)
@@ -188,7 +193,7 @@ export default function ReaderScreen({ route, navigation }) {
                 if (isPagingModeRef.current && pagingWebViewRef.current) {
                     pagingWebViewRef.current.injectJavaScript(`
                         if (typeof highlightSentence === 'function') {
-                            highlightSentence(${currentSentenceIndex});
+                            highlightSentence(${currentSentenceIndexRef.current});
                         }
                         true;
                     `);
@@ -196,7 +201,7 @@ export default function ReaderScreen({ route, navigation }) {
             }
         });
         return () => subscription.remove();
-    }, [currentSentenceIndex]);
+    }, []);
     
     
 
@@ -214,7 +219,7 @@ export default function ReaderScreen({ route, navigation }) {
     });
 
     useEffect(() => {
-        navigation.setOptions({ headerShown: !isFullScreen });
+        navigation.setOptions({ headerShown: false });
         if (isFullScreen) {
             const timer = setInterval(() => {
                 const now = new Date();
@@ -298,7 +303,7 @@ export default function ReaderScreen({ route, navigation }) {
                 const savedLetterSpacing = await AsyncStorage.getItem('novel_reader_letterSpacing');
                 if (savedLetterSpacing) setLetterSpacing(parseFloat(savedLetterSpacing));
             } catch (e) {
-
+                console.warn('Failed to load settings:', e);
             }
         };
 
@@ -349,13 +354,7 @@ export default function ReaderScreen({ route, navigation }) {
     }, [initialChapterIndex]);
 
     useEffect(() => {
-        if (novel && chapterData) {
-            let title = novel.title;
-            if (isPagingMode && pageInfo) {
-                title += ` (${pageInfo.current}/${pageInfo.total})`;
-            }
-            navigation.setOptions({ title });
-        }
+        // Native header is permanently hidden, so we don't set title here anymore.
     }, [novel, chapterData, isPagingMode, pageInfo]);
 
     const loadVoices = async () => {
@@ -382,7 +381,7 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             }
         } catch(e) {
-
+            console.warn('Failed to load voices:', e);
         }
     };
 
@@ -403,7 +402,7 @@ export default function ReaderScreen({ route, navigation }) {
             );
             silentSoundRef.current = sound;
         } catch (e) {
-
+            console.warn('Failed to setup audio:', e);
         }
     };
 
@@ -814,6 +813,8 @@ export default function ReaderScreen({ route, navigation }) {
         }
     };
 
+    const toggleFullScreen = useCallback(() => setIsFullScreen(prev => !prev), []);
+
     useTrackPlayerEvents([
         Event.RemotePlay,
         Event.RemotePause,
@@ -1055,7 +1056,7 @@ export default function ReaderScreen({ route, navigation }) {
         </body>
         </html>
         ` };
-    }, [chapterData, sentences, colors, isDark, fontSize, lineHeight, letterSpacing]);
+    }, [chapterData?.title, sentences, colors.background, colors.text, colors.highlight, fontSize, lineHeight, letterSpacing]);
 
     useEffect(() => {
         if (!isPagingMode && scrollViewRef.current && sentences.length > 0) {
@@ -1070,28 +1071,21 @@ export default function ReaderScreen({ route, navigation }) {
 
     useEffect(() => {
         if (pagingWebViewRef.current) {
-            const topPad = isFullScreen ? Math.max(20, safeTopRef.current + 10) : 20;
-            const botPad = isFullScreen ? Math.max(40, insets.bottom + 30) : 80;
+            const topPad = Math.max(20, safeTopRef.current + 10);
+            const botPad = Math.max(40, insets.bottom + 30);
             
             pagingWebViewRef.current.injectJavaScript(`
                 (function() {
                     const content = document.querySelector('.content');
                     if (!content) return;
                     
-                    if (typeof updateAnchor === 'function') updateAnchor();
-                    
                     content.style.paddingTop = '${topPad}px';
                     content.style.paddingBottom = '${botPad}px';
-                    
-                    if (typeof restoreAnchor === 'function') {
-                        // Allow browser to apply padding reflow first
-                        setTimeout(restoreAnchor, 10);
-                    }
                 })();
                 true;
             `);
         }
-    }, [isFullScreen, insets.bottom]);
+    }, [insets.bottom]);
 
     if (errorLog) {
         return (
@@ -1324,7 +1318,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     }
                                 } else if (data.type === 'page') {
                                     setPageInfo({ current: data.current, total: data.total });
-                                    if (data.anchorIndex !== undefined) {
+                                    if (data.anchorIndex !== undefined && data.anchorIndex !== currentSentenceIndexRef.current) {
                                         setCurrentSentenceIndex(data.anchorIndex);
                                     }
                                 } else if (data.type === 'prev_chapter') {
@@ -1363,12 +1357,12 @@ export default function ReaderScreen({ route, navigation }) {
                     initialNumToRender={20}
                     maxToRenderPerBatch={10}
                     ListHeaderComponent={() => (
-                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                        <TouchableOpacity activeOpacity={1} onPress={toggleFullScreen}>
                             <Text style={[styles.title, { color: colors.text }]}>{chapterData.title}</Text>
                         </TouchableOpacity>
                     )}
                     renderItem={({ item: sent, index: i }) => (
-                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                        <TouchableOpacity activeOpacity={1} onPress={toggleFullScreen}>
                             <Text 
                                 style={[
                                     styles.text,
@@ -1387,7 +1381,7 @@ export default function ReaderScreen({ route, navigation }) {
                         </TouchableOpacity>
                     )}
                     ListFooterComponent={() => (
-                        <TouchableOpacity activeOpacity={1} onPress={() => setIsFullScreen(prev => !prev)}>
+                        <TouchableOpacity activeOpacity={1} onPress={toggleFullScreen}>
                             <View style={{height: 120}} />
                         </TouchableOpacity>
                     )}
@@ -1435,6 +1429,19 @@ export default function ReaderScreen({ route, navigation }) {
                         第 {chapterIndex + 1} 章 {isPagingMode && pageInfo ? `(${pageInfo.current}/${pageInfo.total})` : `(${sentences.length > 0 ? Math.round((currentSentenceIndex + 1) / sentences.length * 100) : 0}%)`}
                     </Text>
                 </View>
+            )}
+
+            {!isFullScreen && (
+                <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={[styles.header, { borderBottomColor: colors.border, paddingTop: Math.max(insets.top, 10) }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingBottom: 10, justifyContent: 'space-between' }}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
+                            <Feather name="arrow-left" size={24} color={colors.text} />
+                        </TouchableOpacity>
+                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: 'bold', flex: 1, marginHorizontal: 10 }} numberOfLines={1}>
+                            {novel?.title} {isPagingMode && pageInfo ? `(${pageInfo.current}/${pageInfo.total})` : ''}
+                        </Text>
+                    </View>
+                </BlurView>
             )}
 
             {!isFullScreen && (
@@ -1883,7 +1890,8 @@ const styles = StyleSheet.create({
     textContainer: { flex: 1, padding: 0 },
     title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, padding: 16 },
     text: { fontSize: 18, lineHeight: 32, marginBottom: 8, paddingHorizontal: 16 },
-    controls: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: 1, paddingTop: 16 },
+    header: { position: 'absolute', top: 0, left: 0, right: 0, borderBottomWidth: 1, zIndex: 100 },
+    controls: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopWidth: 1, paddingTop: 16, zIndex: 100 },
     btn: { alignItems: 'center', width: 48 },
     iconBtn: { padding: 8 },
     btnText: { fontSize: 12, marginTop: 4 },

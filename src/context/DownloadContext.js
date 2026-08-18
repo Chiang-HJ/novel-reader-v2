@@ -46,6 +46,7 @@ export const DownloadProvider = ({ children }) => {
     const [progressText, setProgressText] = useState('');
     const [downloadingNovelId, setDownloadingNovelId] = useState(null);
     const [bookshelfUpdated, setBookshelfUpdated] = useState(Date.now());
+    const [activeTaskProgress, setActiveTaskProgress] = useState(null);
     
     // For custom chapter selection
     const [pendingSelection, setPendingSelection] = useState(null);
@@ -81,7 +82,16 @@ export const DownloadProvider = ({ children }) => {
         if (queue.length > 0 && !activeTaskRef.current && !downloadingNovelId) {
             processNextTask(queue[0]);
         }
+        return () => saveQueueToStorage.cancel();
     }, [queue, downloadingNovelId]);
+
+    React.useEffect(() => {
+        return () => {
+            if (initialFetchTimerRef.current) clearTimeout(initialFetchTimerRef.current);
+            pendingRequestsRef.current.forEach(resolve => resolve(''));
+            pendingRequestsRef.current.clear();
+        };
+    }, []);
 
     const startDownload = (url) => {
         if (!url || typeof url !== 'string' || !url.trim()) {
@@ -117,8 +127,49 @@ export const DownloadProvider = ({ children }) => {
             setDownloadingNovelId(null);
             setActiveTask(null);
             activeTaskRef.current = null;
+            setActiveTaskProgress(null);
             setProgressText('');
             cachedHtmlRef.current = null;
+        }
+    };
+
+    const retryChapterDownload = async (novelId, originalIndex, chapterUrl, chapterTitle) => {
+        if (!novelId || !chapterUrl) return;
+        
+        // This is a direct isolated fetch that bypasses the queue system
+        try {
+            const domain = getDomain(chapterUrl);
+            const isSessionMode = domainSessionModeRef.current.get(domain) === 'webview' || domain.includes('czbooks.net');
+            
+            let text = '';
+            let html = null;
+            
+            if (!isSessionMode) {
+                html = await fetchChapterHtmlDirect(chapterUrl);
+                if (html) {
+                    const parsed = parseChapterText(html, chapterUrl);
+                    if (!isBlockedOrJunk(parsed, html)) text = parsed;
+                    else domainSessionModeRef.current.set(domain, 'webview');
+                } else {
+                    domainSessionModeRef.current.set(domain, 'webview');
+                }
+            }
+            
+            if (!text) {
+                html = await fetchChapterHtmlViaWebView(chapterUrl);
+                if (html) {
+                    const parsed = parseChapterText(html, chapterUrl);
+                    if (!isBlockedOrJunk(parsed, html)) text = parsed;
+                }
+            }
+            
+            if (text && !isBlockedOrJunk(text, '')) {
+                await saveChapterText(novelId, originalIndex, chapterTitle, text);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
         }
     };
 
@@ -513,6 +564,14 @@ export const DownloadProvider = ({ children }) => {
             ? existing.chapters.length 
             : (isOverwriting ? (existing.downloadedChapters || 0) : 0);
 
+        const progressArray = selectedSourceChapters.map((ch, idx) => ({
+            index: isAppending ? existing.chapters.length + idx : (isOverwriting ? startIndex + idx : idx),
+            title: ch.title,
+            url: ch.url,
+            status: 'pending'
+        }));
+        setActiveTaskProgress(progressArray);
+
         await saveNovelToBookshelf({
             ...novelInfo,
             chapters: finalChapters,
@@ -537,6 +596,13 @@ export const DownloadProvider = ({ children }) => {
 
             let html = null;
             let text = '';
+
+            setActiveTaskProgress(prev => {
+                if (!prev) return prev;
+                const next = [...prev];
+                if (next[i]) next[i] = { ...next[i], status: 'downloading' };
+                return next;
+            });
 
             setProgressText(`[第 ${i + 1}/${totalToDownload} 章] 正在下載: ${ch.title}`);
 
@@ -623,12 +689,21 @@ export const DownloadProvider = ({ children }) => {
 
             if (cancelFlagRef.current.has(task?.url)) break;
 
-            if (!text || isBlockedOrJunk(text, '')) {
+            const isFailed = !text || isBlockedOrJunk(text, '');
+            if (isFailed) {
                 text = '【章節下載失敗：網路連線逾時】';
             }
 
             // Save chapter text directly to disk
             await saveChapterText(novelInfo.id, localFileIdx, ch.title, text);
+
+            setActiveTaskProgress(prev => {
+                if (!prev) return prev;
+                const next = [...prev];
+                if (next[i]) next[i] = { ...next[i], status: isFailed ? 'error' : 'success' };
+                return next;
+            });
+
             completedCount++;
 
             setProgressText(`下載進度: ${completedCount}/${totalToDownload} 章 (${ch.title})`);
@@ -780,8 +855,10 @@ export const DownloadProvider = ({ children }) => {
                 cancelDownload,
                 onWebViewMessage,
                 pendingSelection,
+                activeTaskProgress,
                 resumeDownload,
                 cancelSelection,
+                retryChapterDownload,
             }}
         >
             {children}

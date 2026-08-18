@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 
@@ -9,8 +9,27 @@ import { saveNovelToBookshelf, saveChapterText, getBookshelf } from '../utils/st
 import { convertS2T } from '../utils/opencc';
 import { splitTextIntoChapters } from '../utils/parserUtils';
 
+const formatDate = (isoStr) => {
+    if (!isoStr) return '';
+    try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return '';
+        return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+    } catch {
+        return '';
+    }
+};
 
-
+const formatLastUpdated = (ts) => {
+    if (!ts) return '';
+    try {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return '';
+        return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    } catch {
+        return '';
+    }
+};
 
 export default function BlogFeedScreen({ navigation }) {
     const { colors, isDark } = useTheme();
@@ -30,80 +49,117 @@ export default function BlogFeedScreen({ navigation }) {
     const [allTags, setAllTags] = useState([]);
     const [selectedTag, setSelectedTag] = useState(null);
 
+    const isMountedRef = useRef(true);
+
     useEffect(() => {
+        isMountedRef.current = true;
         loadFeed();
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
+
+    const loadDownloadedIds = useCallback(async () => {
+        try {
+            const list = await getBookshelf();
+            if (!Array.isArray(list)) return;
+            const yulujiIds = list
+                .filter(n => n?.id && typeof n.id === 'string' && n.id.startsWith('blog_yuluji_'))
+                .map(n => n.id.replace('blog_yuluji_', ''));
+            if (isMountedRef.current) {
+                setDownloadedIds(new Set(yulujiIds));
+            }
+        } catch (e) {
+            console.warn('Failed to load downloaded ids:', e);
+        }
     }, []);
 
     useFocusEffect(
         useCallback(() => {
             loadDownloadedIds();
-        }, [])
+        }, [loadDownloadedIds])
     );
 
-    const loadDownloadedIds = async () => {
-        try {
-            const list = await getBookshelf();
-            const yulujiIds = list
-                .filter(n => n.id.startsWith('blog_yuluji_'))
-                .map(n => n.id.replace('blog_yuluji_', ''));
-            setDownloadedIds(new Set(yulujiIds));
-        } catch (e) {}
-    };
+    const saveDownloadedId = useCallback((id) => {
+        setDownloadedIds(prev => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+        });
+    }, []);
 
-    const saveDownloadedId = async (id) => {
-        const newSet = new Set(downloadedIds);
-        newSet.add(id);
-        setDownloadedIds(newSet);
-    };
-
-    const loadFeed = async () => {
-        try {
-            setIsLoading(true);
-            setFetchProgress(0);
-            setFetchText('準備獲取文章...');
-            const result = await getArticles((loaded, total) => {
-                setFetchProgress(loaded / total);
-                setFetchText(`正在獲取 ${loaded} / ${total}...`);
+    const extractTags = useCallback((articleList) => {
+        const tagSet = new Set();
+        (articleList || []).forEach(a => {
+            (a?.tags || []).forEach(t => {
+                if (t) tagSet.add(t);
             });
-            setArticles(result.articles);
-            setLastUpdated(result.lastUpdated);
-            extractTags(result.articles);
-        } catch (e) {
-            Alert.alert('載入失敗', '無法載入文章列表：' + e.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        });
+        const sorted = [...tagSet].sort();
+        setAllTags(sorted);
+    }, []);
 
-    const handleRefresh = async () => {
+    const loadFeed = useCallback(async () => {
+        try {
+            if (isMountedRef.current) {
+                setIsLoading(true);
+                setFetchProgress(0);
+                setFetchText('準備獲取文章...');
+            }
+            const result = await getArticles((loaded, total) => {
+                if (isMountedRef.current && total > 0) {
+                    setFetchProgress(loaded / total);
+                    setFetchText(`正在獲取 ${loaded} / ${total}...`);
+                }
+            });
+            if (isMountedRef.current && result) {
+                const articleList = Array.isArray(result.articles) ? result.articles : [];
+                setArticles(articleList);
+                setLastUpdated(result.lastUpdated || null);
+                extractTags(articleList);
+            }
+        } catch (e) {
+            if (isMountedRef.current) {
+                Alert.alert('載入失敗', '無法載入文章列表：' + (e?.message || '未知錯誤'));
+            }
+        } finally {
+            if (isMountedRef.current) {
+                setIsLoading(false);
+            }
+        }
+    }, [extractTags]);
+
+    const handleRefresh = useCallback(async () => {
         try {
             setIsRefreshing(true);
             setFetchProgress(0);
             setFetchText('準備獲取文章...');
             const freshArticles = await refreshFeed((loaded, total) => {
-                setFetchProgress(loaded / total);
-                setFetchText(`正在獲取 ${loaded} / ${total}...`);
+                if (isMountedRef.current && total > 0) {
+                    setFetchProgress(loaded / total);
+                    setFetchText(`正在獲取 ${loaded} / ${total}...`);
+                }
             });
-            setArticles(freshArticles);
-            setLastUpdated(Date.now());
-            extractTags(freshArticles);
-            Alert.alert('更新完成', `已載入 ${freshArticles.length} 篇文章`);
+            if (isMountedRef.current) {
+                const safeArticles = Array.isArray(freshArticles) ? freshArticles : [];
+                setArticles(safeArticles);
+                setLastUpdated(Date.now());
+                extractTags(safeArticles);
+                Alert.alert('更新完成', `已載入 ${safeArticles.length} 篇文章`);
+            }
         } catch (e) {
-            Alert.alert('更新失敗', '無法連線至語錄集：' + e.message);
+            if (isMountedRef.current) {
+                Alert.alert('更新失敗', '無法連線至語錄集：' + (e?.message || '未知錯誤'));
+            }
         } finally {
-            setIsRefreshing(false);
+            if (isMountedRef.current) {
+                setIsRefreshing(false);
+            }
         }
-    };
+    }, [extractTags]);
 
-    const extractTags = (articleList) => {
-        const tagSet = new Set();
-        articleList.forEach(a => a.tags.forEach(t => tagSet.add(t)));
-        const sorted = [...tagSet].sort();
-        setAllTags(sorted);
-    };
-
-    const handleDownload = async (article) => {
-        if (downloadingId) return;
+    const handleDownload = useCallback(async (article) => {
+        if (!article?.id || downloadingId) return;
         setDownloadingId(article.id);
 
         try {
@@ -112,7 +168,7 @@ export default function BlogFeedScreen({ navigation }) {
             text = convertS2T(text);
 
             const novelId = 'blog_yuluji_' + article.id;
-            const chapterTitle = convertS2T(article.title);
+            const chapterTitle = convertS2T(article.title || '無標題');
 
             let newChaptersData = [];
             try {
@@ -130,8 +186,8 @@ export default function BlogFeedScreen({ navigation }) {
                 title: chapterTitle,
                 author: '語錄集',
                 cover: '',
-                url: article.url,
-                chapters: newChaptersData.map(c => ({ title: c.title, url: article.url })),
+                url: article.url || '',
+                chapters: (newChaptersData || []).map(c => ({ title: c.title, url: article.url || '' })),
                 chapterCount: newChaptersData.length,
                 downloadedChapters: newChaptersData.length,
                 folderId: 'vault',
@@ -139,23 +195,26 @@ export default function BlogFeedScreen({ navigation }) {
             };
 
             await saveNovelToBookshelf(novelInfo);
-            await saveDownloadedId(article.id);
+            saveDownloadedId(article.id);
 
-            Alert.alert('下載完成', `《${convertS2T(article.title)}》已加入書架！`);
+            Alert.alert('下載完成', `《${chapterTitle}》已加入書架！`);
         } catch (e) {
-            Alert.alert('下載失敗', e.message);
+            Alert.alert('下載失敗', e?.message || '未知錯誤');
         } finally {
-            setDownloadingId(null);
+            if (isMountedRef.current) {
+                setDownloadingId(null);
+            }
         }
-    };
+    }, [downloadingId, saveDownloadedId]);
 
-    const handleArticlePress = (article) => {
+    const handleArticlePress = useCallback((article) => {
+        if (!article?.id) return;
         if (downloadedIds.has(article.id)) {
             const novelId = 'blog_yuluji_' + article.id;
-            navigation.navigate('Reader', { novelId, title: article.title });
+            navigation.navigate('Reader', { novelId, title: article.title || '' });
         } else {
             Alert.alert(
-                article.title,
+                article.title || '下載確認',
                 article.summary ? article.summary.substring(0, 200) + '...' : '要下載這篇文章嗎？',
                 [
                     { text: '取消', style: 'cancel' },
@@ -163,31 +222,20 @@ export default function BlogFeedScreen({ navigation }) {
                 ]
             );
         }
-    };
+    }, [downloadedIds, navigation, handleDownload]);
 
-    const filteredArticles = selectedTag
-        ? articles.filter(a => a.tags.includes(selectedTag))
-        : articles;
+    const filteredArticles = useMemo(() => {
+        if (!selectedTag) return articles;
+        return articles.filter(a => Array.isArray(a?.tags) && a.tags.includes(selectedTag));
+    }, [articles, selectedTag]);
 
-    const formatDate = (isoStr) => {
-        if (!isoStr) return '';
-        try {
-            const d = new Date(isoStr);
-            return `${d.getFullYear()}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
-        } catch {
-            return '';
-        }
-    };
+    const keyExtractor = useCallback(item => item?.id || String(Math.random()), []);
 
-    const formatLastUpdated = (ts) => {
-        if (!ts) return '';
-        const d = new Date(ts);
-        return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    };
-
-    const renderArticle = ({ item }) => {
+    const renderArticle = useCallback(({ item }) => {
+        if (!item) return null;
         const isDownloaded = downloadedIds.has(item.id);
         const isDownloading = downloadingId === item.id;
+        const tags = Array.isArray(item.tags) ? item.tags : [];
 
         return (
             <TouchableOpacity
@@ -198,16 +246,16 @@ export default function BlogFeedScreen({ navigation }) {
                 <View style={styles.articleContent}>
                     <View style={{ flex: 1 }}>
                         <Text style={[styles.articleTitle, { color: colors.text }]} numberOfLines={2}>
-                            {item.title}
+                            {item.title || '(無標題)'}
                         </Text>
                         <View style={styles.tagsRow}>
-                            {item.tags.slice(0, 3).map((tag, idx) => (
+                            {tags.slice(0, 3).map((tag, idx) => (
                                 <View key={idx} style={[styles.tagBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
                                     <Text style={[styles.tagText, { color: colors.primary }]}>{tag}</Text>
                                 </View>
                             ))}
-                            {item.tags.length > 3 && (
-                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{item.tags.length - 3}</Text>
+                            {tags.length > 3 && (
+                                <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{tags.length - 3}</Text>
                             )}
                         </View>
                         <Text style={[styles.dateText, { color: colors.textSecondary }]}>
@@ -233,7 +281,7 @@ export default function BlogFeedScreen({ navigation }) {
                 </View>
             </TouchableOpacity>
         );
-    };
+    }, [colors, isDark, downloadedIds, downloadingId, handleArticlePress, handleDownload]);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -313,9 +361,13 @@ export default function BlogFeedScreen({ navigation }) {
             ) : (
                 <FlatList
                     data={filteredArticles}
-                    keyExtractor={item => item.id}
+                    keyExtractor={keyExtractor}
                     renderItem={renderArticle}
                     contentContainerStyle={{ paddingBottom: 40, paddingTop: 8 }}
+                    maxToRenderPerBatch={10}
+                    windowSize={7}
+                    initialNumToRender={10}
+                    removeClippedSubviews={Platform.OS === 'android'}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <Feather name="inbox" size={48} color={colors.textSecondary} style={{ marginBottom: 16 }} />

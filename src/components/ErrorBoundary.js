@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default class ErrorBoundary extends React.Component {
@@ -14,10 +14,29 @@ export default class ErrorBoundary extends React.Component {
 
     componentDidCatch(error, info) {
         this.setState({ error, info });
+        console.error('ErrorBoundary caught an error:', error, info);
+        if (typeof this.props.onError === 'function') {
+            try {
+                this.props.onError(error, info);
+            } catch (e) {
+                console.error('Error in ErrorBoundary onError callback:', e);
+            }
+        }
     }
 
     handleReset = () => {
         this.setState({ hasError: false, error: null, info: null });
+    };
+
+    handleSecondaryReset = () => {
+        this.handleReset();
+        if (typeof this.props.onReset === 'function') {
+            try {
+                this.props.onReset();
+            } catch (e) {
+                console.error('Error in ErrorBoundary onReset callback:', e);
+            }
+        }
     };
 
     render() {
@@ -30,7 +49,7 @@ export default class ErrorBoundary extends React.Component {
                         
                         <View style={styles.errorBox}>
                             <Text style={styles.errorText}>
-                                {this.state.error ? this.state.error.toString() : '未知錯誤'}
+                                {this.state.error ? (this.state.error?.message || this.state.error.toString()) : '未知錯誤'}
                             </Text>
                             {this.state.info && this.state.info.componentStack ? (
                                 <Text style={styles.stackText}>
@@ -49,10 +68,7 @@ export default class ErrorBoundary extends React.Component {
                         {this.props.onReset ? (
                             <TouchableOpacity
                                 style={styles.buttonSecondary}
-                                onPress={() => {
-                                    this.handleReset();
-                                    this.props.onReset();
-                                }}
+                                onPress={this.handleSecondaryReset}
                             >
                                 <Text style={styles.buttonSecondaryText}>🏠 返回首頁</Text>
                             </TouchableOpacity>
@@ -64,6 +80,8 @@ export default class ErrorBoundary extends React.Component {
         return this.props.children;
     }
 }
+
+const monoFont = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 const styles = StyleSheet.create({
     container: {
@@ -96,13 +114,13 @@ const styles = StyleSheet.create({
     },
     errorText: {
         color: '#ffa39e',
-        fontFamily: 'monospace',
+        fontFamily: monoFont,
         fontSize: 13,
         fontWeight: '600'
     },
     stackText: {
         color: '#8c8c8c',
-        fontFamily: 'monospace',
+        fontFamily: monoFont,
         fontSize: 11,
         marginTop: 8
     },

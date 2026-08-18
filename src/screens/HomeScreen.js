@@ -23,7 +23,7 @@ import FolderListItem from '../components/home/FolderListItem';
 
 export default function HomeScreen({ navigation }) {
     const { colors, isDark, themeName, availableThemes, changeTheme, themeId } = useTheme();
-    const { startDownload, cancelDownload, activeTask, progressText, queue, bookshelfUpdated, pendingSelection, resumeDownload, cancelSelection } = useDownload();
+    const { startDownload, cancelDownload, activeTask, progressText, queue, bookshelfUpdated, pendingSelection, resumeDownload, cancelSelection, activeTaskProgress, retryChapterDownload, downloadingNovelId } = useDownload();
     
     const [searchInput, setSearchInput] = useState('');
     const [bookshelf, setBookshelf] = useState([]);
@@ -104,7 +104,9 @@ export default function HomeScreen({ navigation }) {
             const daysPassed = diffMs / (1000 * 60 * 60 * 24);
             const left = 7 - daysPassed;
             setSideloadDaysLeft(left < 0 ? 0 : left);
-        } catch (e) {}
+        } catch (e) {
+            console.error('Failed to load sideload timer', e);
+        }
     };
 
     const handleResetSideloadTimer = async () => {
@@ -113,7 +115,9 @@ export default function HomeScreen({ navigation }) {
             await AsyncStorage.setItem('@sideload_date', Date.now().toString());
             await loadSideloadTimer();
             Alert.alert('已重置', '側載 7 天簽名倒數已重置為今天！');
-        } catch (e) {}
+        } catch (e) {
+            Alert.alert('錯誤', '重置失敗: ' + e.message);
+        }
     };
 
     const handleSubmitChapterSelection = () => {
@@ -467,6 +471,11 @@ export default function HomeScreen({ navigation }) {
         });
     }, [bookshelf, searchInput]);
 
+    const flatListContentContainerStyle = React.useMemo(() => ({ 
+        paddingBottom: isSelectionMode ? 100 : 40, 
+        paddingTop: 130 
+    }), [isSelectionMode]);
+
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             
@@ -509,7 +518,11 @@ export default function HomeScreen({ navigation }) {
             <FlatList 
                 data={filteredBookshelf}
                 keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
-                contentContainerStyle={{ paddingBottom: isSelectionMode ? 100 : 40, paddingTop: 130 }}
+                contentContainerStyle={flatListContentContainerStyle}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
                 renderItem={({ item }) => (
                     <NovelListItem 
                         item={item}
@@ -570,6 +583,9 @@ export default function HomeScreen({ navigation }) {
                             progressText={progressText} 
                             cancelDownload={cancelDownload} 
                             colors={colors} 
+                            activeTaskProgress={activeTaskProgress}
+                            retryChapterDownload={retryChapterDownload}
+                            novelId={downloadingNovelId}
                         />
                         
                         <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>

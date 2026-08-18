@@ -7,11 +7,11 @@ import { saveNovelToBookshelf, saveChapterText, ensureNovelDir } from './storage
  */
 const DEFAULT_CHAPTER_PATTERNS = [
     // Standard: 第1章, 第一千二百三十四章, 第 1 節, 第1回, etc.
-    /(?:^|\n)\s*(第\s*[0-9零一二三四五六七八九十百千兩]+\s*[章節卷回折篇集部話][^\n]*)/g,
+    /(?:^|\n)\s*(第\s*[0-9零一二三四五六七八九十百千兩]+\s*[章節卷回折篇集部話][^\n\r]*)/g,
     // Pure numbers: 1. 標題, 001、標題, 123 標題
-    /(?:^|\n)\s*([0-9]{1,5}[、.．\s]+[^\n]+)/g,
+    /(?:^|\n)\s*([0-9]{1,5}[、.．\s]+[^\n\r]+)/g,
     // English chapters: Chapter 1, CHAPTER 100
-    /(?:^|\n)\s*(Chapter\s*[0-9]+[^\n]*)/gi,
+    /(?:^|\n)\s*(Chapter\s*[0-9]+[^\n\r]*)/gi,
 ];
 
 /**
@@ -97,13 +97,13 @@ export async function importLargeTxtNovel({
     const novelId = 'manual_' + Date.now();
     await ensureNovelDir(novelId);
 
-    // Normalize newlines
-    const textData = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Skip newline replacement for large strings to save memory
+    const textData = rawContent;
 
     // Find chapter boundary markers
     const matches = findChapterBoundaries(textData, customRegexStr, splitMode, splitExampleStr);
 
-    let parsedChapters = [];
+    let parsedChapters = []; // Store only start/end indices
 
     if (matches.length >= 3) {
         // Section before first chapter = Preface/Introduction
@@ -112,7 +112,8 @@ export async function importLargeTxtNovel({
         if (introText.length > 20) {
             parsedChapters.push({
                 title: '前言/簡介',
-                text: introText
+                start: 0,
+                end: firstMatch.index
             });
         }
 
@@ -122,11 +123,11 @@ export async function importLargeTxtNovel({
             
             const startPos = currentMatch.index + currentMatch.length;
             const endPos = nextMatch ? nextMatch.index : textData.length;
-            const chapterText = textData.substring(startPos, endPos).trim();
 
             parsedChapters.push({
                 title: currentMatch.title,
-                text: chapterText
+                start: startPos,
+                end: endPos
             });
         }
     } else {
@@ -139,27 +140,31 @@ export async function importLargeTxtNovel({
             currentTitle: ''
         });
 
-        const lines = textData.split('\n');
         const TARGET_CHUNK_SIZE = 8000;
-        let currentChunk = [];
-        let currentLen = 0;
+        let lastEnd = 0;
         let partIndex = 1;
 
-        for (let i = 0; i < lines.length; i++) {
-            currentChunk.push(lines[i]);
-            currentLen += lines[i].length + 1;
-
-            if (currentLen >= TARGET_CHUNK_SIZE || i === lines.length - 1) {
-                if (currentChunk.length > 0) {
-                    parsedChapters.push({
-                        title: `第 ${partIndex} 部分`,
-                        text: currentChunk.join('\n').trim()
-                    });
-                    partIndex++;
-                    currentChunk = [];
-                    currentLen = 0;
+        while (lastEnd < textData.length) {
+            let chunkEnd = lastEnd + TARGET_CHUNK_SIZE;
+            if (chunkEnd < textData.length) {
+                // Find next newline after chunkEnd to not break a line in half
+                let nextNewline = textData.indexOf('\n', chunkEnd);
+                if (nextNewline !== -1) {
+                    chunkEnd = nextNewline;
+                } else {
+                    chunkEnd = textData.length;
                 }
+            } else {
+                chunkEnd = textData.length;
             }
+
+            parsedChapters.push({
+                title: `第 ${partIndex} 部分`,
+                start: lastEnd,
+                end: chunkEnd
+            });
+            partIndex++;
+            lastEnd = chunkEnd + 1;
         }
     }
 
@@ -177,7 +182,8 @@ export async function importLargeTxtNovel({
         
         // Fast chapter-by-chapter S2T conversion
         const chTitle = convertS2T(item.title || `第 ${i + 1} 章`);
-        const chText = convertS2T(item.text || '');
+        const rawChunk = textData.substring(item.start, item.end).trim();
+        const chText = convertS2T(rawChunk);
 
         chaptersMeta.push({
             id: i,

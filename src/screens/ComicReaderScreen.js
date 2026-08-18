@@ -171,7 +171,7 @@ export default function ComicReaderScreen({ route, navigation }) {
                 }
             } else {
                 if (scrollViewRef.current) {
-                    const responder = scrollViewRef.current.getScrollResponder();
+                    const responder = scrollViewRef.current.getScrollResponder ? scrollViewRef.current.getScrollResponder() : null;
                     if (responder && responder.scrollResponderZoomTo) {
                         const Z_c = currentZoom.current || 1;
                         if (Z_c > 1.1) {
@@ -379,6 +379,13 @@ export default function ComicReaderScreen({ route, navigation }) {
                     data={pages}
                     keyExtractor={(item, index) => index.toString()}
                     renderItem={renderPage}
+                    style={{ flex: 1, width }}
+                    scrollEventThrottle={16}
+                    showsHorizontalScrollIndicator={false}
+                    showsVerticalScrollIndicator={false}
+                    maximumZoomScale={zoomRatio}
+                    minimumZoomScale={1}
+                    bouncesZoom={true}
                     onScroll={(e) => {
                         scrollY.current = e.nativeEvent.contentOffset.y;
                         scrollX.current = e.nativeEvent.contentOffset.x;
@@ -386,17 +393,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                             currentZoom.current = e.nativeEvent.zoomScale;
                         }
                     }}
-                    scrollEventThrottle={16}
-                    showsHorizontalScrollIndicator={false}
-                    showsVerticalScrollIndicator={false}
-                    style={{ flex: 1, width: width }}
                     removeClippedSubviews={Platform.OS === 'android'}
-                    initialNumToRender={2}
-                    maxToRenderPerBatch={2}
-                    windowSize={3}
-                    maximumZoomScale={zoomRatio}
-                    minimumZoomScale={1}
-                    bouncesZoom={true}
+                    initialNumToRender={3}
+                    windowSize={5}
                 />
             )}
 

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ThemeContext = createContext();
@@ -70,19 +70,13 @@ export const THEMES = {
     }
 };
 
+const AVAILABLE_THEMES = Object.values(THEMES).map(t => ({ id: t.id, name: t.name }));
+
 export const ThemeProvider = ({ children }) => {
     const [currentThemeId, setCurrentThemeId] = useState('softDark'); // Default to new premium theme
     const isMounted = useRef(true);
 
-    useEffect(() => {
-        isMounted.current = true;
-        loadTheme();
-        return () => {
-            isMounted.current = false;
-        };
-    }, []);
-
-    const loadTheme = async () => {
+    const loadTheme = useCallback(async () => {
         try {
             // Add a timeout fallback in case AsyncStorage hangs (known iOS issue)
             const fetchPromise = AsyncStorage.getItem('@app_theme_id');
@@ -99,44 +93,55 @@ export const ThemeProvider = ({ children }) => {
             const legacyDark = await AsyncStorage.getItem('@theme_isDark');
             if (!isMounted.current) return;
             if (legacyDark !== null) {
-                setCurrentThemeId(JSON.parse(legacyDark) ? 'softDark' : 'minimalist');
+                const isDarkVal = JSON.parse(legacyDark);
+                setCurrentThemeId(isDarkVal ? 'softDark' : 'minimalist');
             }
         } catch (e) {
-
+            console.warn('Failed to load theme preference:', e);
         }
-    };
+    }, []);
 
-    const changeTheme = async (themeId) => {
+    useEffect(() => {
+        isMounted.current = true;
+        loadTheme();
+        return () => {
+            isMounted.current = false;
+        };
+    }, [loadTheme]);
+
+    const changeTheme = useCallback(async (themeId) => {
         try {
             if (THEMES[themeId]) {
                 setCurrentThemeId(themeId);
                 await AsyncStorage.setItem('@app_theme_id', themeId);
             }
         } catch (e) {
-
+            console.warn('Failed to save theme preference:', e);
         }
-    };
+    }, []);
 
     // Keep toggleTheme for backwards compatibility during transition, mapping to minimal <-> cyberpunk
-    const toggleTheme = () => {
-        if (currentThemeId === 'cyberpunk') {
-            changeTheme('minimalist');
-        } else {
-            changeTheme('cyberpunk');
-        }
-    };
+    const toggleTheme = useCallback(() => {
+        setCurrentThemeId(prev => {
+            const nextTheme = prev === 'cyberpunk' ? 'minimalist' : 'cyberpunk';
+            AsyncStorage.setItem('@app_theme_id', nextTheme).catch(err => {
+                console.warn('Failed to toggle theme preference:', err);
+            });
+            return nextTheme;
+        });
+    }, []);
 
-    const activeTheme = THEMES[currentThemeId];
+    const activeTheme = THEMES[currentThemeId] || THEMES.softDark;
 
-    const contextValue = {
+    const contextValue = useMemo(() => ({
         themeId: activeTheme.id,
         isDark: activeTheme.isDark,
         colors: activeTheme.colors,
         changeTheme,
         toggleTheme,
         themeName: activeTheme.name,
-        availableThemes: Object.values(THEMES).map(t => ({ id: t.id, name: t.name }))
-    };
+        availableThemes: AVAILABLE_THEMES
+    }), [activeTheme, changeTheme, toggleTheme]);
 
     return (
         <ThemeContext.Provider value={contextValue}>
@@ -146,3 +151,4 @@ export const ThemeProvider = ({ children }) => {
 };
 
 export const useTheme = () => useContext(ThemeContext);
+

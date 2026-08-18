@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image } from 'react-native';
 import { getBookshelf, deleteNovel, moveNovelToFolder } from '../utils/storage';
 import { deleteFolder } from '../utils/folderStorage';
@@ -6,17 +6,76 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
 export default function FolderScreen({ route, navigation }) {
-    const { folderId, folderName } = route.params;
+    const { folderId, folderName } = route?.params || {};
     const { colors, isDark } = useTheme();
     
     const [bookshelf, setBookshelf] = useState([]);
+    const isMountedRef = useRef(true);
+
+    const loadBookshelf = useCallback(async () => {
+        try {
+            const list = await getBookshelf();
+            if (isMountedRef.current && Array.isArray(list)) {
+                setBookshelf(list.filter(n => n?.folderId === folderId));
+            }
+        } catch (e) {
+            console.warn('Failed to load folder bookshelf:', e);
+            if (isMountedRef.current) {
+                setBookshelf([]);
+            }
+        }
+    }, [folderId]);
+
+    const confirmDeleteFolder = useCallback(() => {
+        Alert.alert(
+            '刪除資料夾',
+            `確定要刪除「${folderName || '此資料夾'}」嗎？\n資料夾內的小說將會被移回未分類區，不會被刪除。`,
+            [
+                { text: '取消', style: 'cancel' },
+                { 
+                    text: '刪除', 
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            // 1. Move all novels back to root
+                            const list = await getBookshelf();
+                            if (Array.isArray(list)) {
+                                const novelsInFolder = list.filter(n => n?.folderId === folderId);
+                                for (const n of novelsInFolder) {
+                                    if (n?.id) {
+                                        await moveNovelToFolder(n.id, null);
+                                    }
+                                }
+                            }
+                            // 2. Delete folder
+                            if (folderId) {
+                                await deleteFolder(folderId);
+                            }
+                            navigation.goBack();
+                        } catch (e) {
+                            Alert.alert('刪除失敗', e?.message || '未知錯誤');
+                        }
+                    }
+                }
+            ]
+        );
+    }, [folderId, folderName, navigation]);
 
     useEffect(() => {
+        isMountedRef.current = true;
         const unsubscribe = navigation.addListener('focus', () => {
             loadBookshelf();
         });
         
-        // Add delete folder button to header
+        loadBookshelf();
+
+        return () => {
+            isMountedRef.current = false;
+            unsubscribe();
+        };
+    }, [navigation, loadBookshelf]);
+
+    useEffect(() => {
         navigation.setOptions({
             headerRight: () => (
                 <TouchableOpacity onPress={confirmDeleteFolder} style={{ padding: 8 }}>
@@ -24,107 +83,98 @@ export default function FolderScreen({ route, navigation }) {
                 </TouchableOpacity>
             )
         });
-        
-        return unsubscribe;
-    }, [navigation]);
+    }, [navigation, confirmDeleteFolder, colors.danger]);
 
-    const loadBookshelf = async () => {
-        const list = await getBookshelf();
-        setBookshelf(list.filter(n => n.folderId === folderId));
-    };
-
-    const confirmDeleteFolder = () => {
-        Alert.alert(
-            '刪除資料夾',
-            `確定要刪除「${folderName}」嗎？\n資料夾內的小說將會被移回未分類區，不會被刪除。`,
-            [
-                { text: '取消', style: 'cancel' },
-                { 
-                    text: '刪除', 
-                    style: 'destructive',
-                    onPress: async () => {
-                        // 1. Move all novels back to root
-                        const list = await getBookshelf();
-                        const novelsInFolder = list.filter(n => n.folderId === folderId);
-                        for (const n of novelsInFolder) {
-                            await moveNovelToFolder(n.id, null);
-                        }
-                        // 2. Delete folder
-                        await deleteFolder(folderId);
-                        navigation.goBack();
-                    }
-                }
-            ]
-        );
-    };
-
-    const confirmDeleteNovel = (novel) => {
+    const confirmDeleteNovel = useCallback((novel) => {
+        if (!novel?.id) return;
         Alert.alert(
             '刪除書籍',
-            `確定要刪除《${novel.title}》嗎？`,
+            `確定要刪除《${novel.title || '此書籍'}》嗎？`,
             [
                 { text: '取消', style: 'cancel' },
                 { 
                     text: '刪除', 
                     style: 'destructive',
                     onPress: async () => {
-                        await deleteNovel(novel.id);
-                        loadBookshelf();
+                        try {
+                            await deleteNovel(novel.id);
+                            loadBookshelf();
+                        } catch (e) {
+                            Alert.alert('刪除失敗', e?.message || '未知錯誤');
+                        }
                     }
                 }
             ]
         );
-    };
+    }, [loadBookshelf]);
     
-    const confirmRemoveFromFolder = (novel) => {
+    const confirmRemoveFromFolder = useCallback((novel) => {
+        if (!novel?.id) return;
         Alert.alert(
             '移出資料夾',
-            `將《${novel.title}》移回未分類區？`,
+            `將《${novel.title || '此書籍'}》移回未分類區？`,
             [
                 { text: '取消', style: 'cancel' },
                 { 
                     text: '確定',
                     onPress: async () => {
-                        await moveNovelToFolder(novel.id, null);
-                        loadBookshelf();
+                        try {
+                            await moveNovelToFolder(novel.id, null);
+                            loadBookshelf();
+                        } catch (e) {
+                            Alert.alert('移動失敗', e?.message || '未知錯誤');
+                        }
                     }
                 }
             ]
         );
-    };
+    }, [loadBookshelf]);
+
+    const keyExtractor = useCallback(item => item?.id || String(Math.random()), []);
+
+    const renderItem = useCallback(({ item }) => {
+        if (!item) return null;
+        const currentProgress = (typeof item.progressIndex === 'number' ? item.progressIndex : 0) + 1;
+        const totalChapters = item.chapterCount || 0;
+
+        return (
+            <TouchableOpacity 
+                style={[styles.bookItem, { backgroundColor: colors.surface, shadowColor: isDark ? '#000' : '#ccc', borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}
+                onPress={() => navigation.navigate('Reader', { novelId: item.id, title: item.title || '' })}
+            >
+                {item.cover ? <Image source={{ uri: item.cover }} style={styles.cover} /> : <View style={[styles.coverPlaceholder, { backgroundColor: colors.border }]} />}
+                <View style={styles.bookInfo}>
+                    <Text style={[styles.bookTitle, { color: colors.text }]}>{item.title || '(無標題)'}</Text>
+                    <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>共 {totalChapters} 章</Text>
+                    <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>上次閱讀: 第 {currentProgress} 章</Text>
+                </View>
+                <View style={styles.actionButtons}>
+                    <TouchableOpacity 
+                        style={[styles.actionBtn, { marginRight: 8 }]}
+                        onPress={() => confirmRemoveFromFolder(item)}
+                    >
+                        <Feather name="folder-minus" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={styles.actionBtn}
+                        onPress={() => confirmDeleteNovel(item)}
+                    >
+                        <Feather name="trash-2" size={20} color={colors.danger} />
+                    </TouchableOpacity>
+                </View>
+            </TouchableOpacity>
+        );
+    }, [colors, isDark, navigation, confirmRemoveFromFolder, confirmDeleteNovel]);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
             <FlatList 
                 data={bookshelf}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                    <TouchableOpacity 
-                        style={[styles.bookItem, { backgroundColor: colors.surface, shadowColor: isDark ? '#000' : '#ccc', borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}
-                        onPress={() => navigation.navigate('Reader', { novelId: item.id, title: item.title })}
-                    >
-                        {item.cover ? <Image source={{uri: item.cover}} style={styles.cover} /> : <View style={[styles.coverPlaceholder, { backgroundColor: colors.border }]} />}
-                        <View style={styles.bookInfo}>
-                            <Text style={[styles.bookTitle, { color: colors.text }]}>{item.title}</Text>
-                            <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>共 {item.chapterCount} 章</Text>
-                            <Text style={[styles.bookSubtitle, { color: colors.textSecondary }]}>上次閱讀: 第 {item.progressIndex + 1} 章</Text>
-                        </View>
-                        <View style={styles.actionButtons}>
-                            <TouchableOpacity 
-                                style={[styles.actionBtn, { marginRight: 8 }]}
-                                onPress={() => confirmRemoveFromFolder(item)}
-                            >
-                                <Feather name="folder-minus" size={20} color={colors.primary} />
-                            </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={styles.actionBtn}
-                                onPress={() => confirmDeleteNovel(item)}
-                            >
-                                <Feather name="trash-2" size={20} color={colors.danger} />
-                            </TouchableOpacity>
-                        </View>
-                    </TouchableOpacity>
-                )}
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                maxToRenderPerBatch={10}
+                windowSize={7}
+                initialNumToRender={10}
                 ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>這個資料夾目前是空的。</Text>}
             />
         </View>

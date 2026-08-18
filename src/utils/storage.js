@@ -118,7 +118,9 @@ export const updateNovelMetadata = async (novelId, updates) => {
 };
 
 export const moveNovelToFolder = async (novelId, folderId) => {
-    await updateNovelMetadata(novelId, { folderId });
+    try {
+        await updateNovelMetadata(novelId, { folderId });
+    } catch(e) {}
 };
 
 export const batchMoveNovels = async (novelIds, folderId) => {
@@ -151,15 +153,19 @@ export const batchMoveNovels = async (novelIds, folderId) => {
 };
 
 export const toggleNovelVisibility = async (novelId) => {
-    const list = await getBookshelf();
-    const novel = list.find(n => n.id === novelId);
-    if (novel) {
-        await updateNovelMetadata(novelId, { isHidden: !novel.isHidden });
-    }
+    try {
+        const list = await getBookshelf();
+        const novel = list.find(n => n.id === novelId);
+        if (novel) {
+            await updateNovelMetadata(novelId, { isHidden: !novel.isHidden });
+        }
+    } catch(e) {}
 };
 
 export const updateReadingProgress = async (novelId, progressIndex, progressSentence = 0) => {
-    await updateNovelMetadata(novelId, { progressIndex, progressSentence });
+    try {
+        await updateNovelMetadata(novelId, { progressIndex, progressSentence });
+    } catch(e) {}
 };
 
 export const deleteNovel = async (novelId) => {
@@ -177,9 +183,12 @@ export const batchDeleteNovels = async (novelIds) => {
         await AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(currentList));
 
         // Remove full metadata and files for each
+        try {
+            await AsyncStorage.multiRemove(Array.from(idSet).map(getNovelKey));
+        } catch(e) {}
+
         for (const novelId of novelIds) {
             try {
-                await AsyncStorage.removeItem(getNovelKey(novelId));
                 const folderPath = `${FileSystem.documentDirectory}novels/${novelId}/`;
                 const info = await FileSystem.getInfoAsync(folderPath);
                 if (info.exists) {
@@ -606,6 +615,7 @@ export const splitChapterData = async (novelId, index, newChaptersData) => {
         }
         
         // Save the new chapters
+        await ensureNovelDir(novelId);
         for (let i = 0; i < newChaptersData.length; i++) {
             const ch = newChaptersData[i];
             const path = `${getNovelDir(novelId)}${index + i}.json`;

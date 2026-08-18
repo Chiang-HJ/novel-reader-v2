@@ -62,6 +62,13 @@ export async function startBackgroundKeepAlive(tag = 'default') {
         // Fallback gracefully if audio initialization fails
     } finally {
         isInitializing = false;
+        if (activeHolders.size === 0 && soundInstance) {
+            try {
+                await soundInstance.stopAsync();
+                await soundInstance.unloadAsync();
+            } catch (e) {}
+            soundInstance = null;
+        }
     }
 }
 

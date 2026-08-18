@@ -18,6 +18,7 @@ export const ComicDownloadProvider = ({ children }) => {
     const [scrapeUrl, setScrapeUrl] = useState(null);
     const [progressText, setProgressText] = useState('');
     const [bookshelfUpdated, setBookshelfUpdated] = useState(Date.now());
+    const [activeTaskProgress, setActiveTaskProgress] = useState(null);
     
     // "album" = info mode, "photo" = chapter mode
     const [scrapeMode, setScrapeMode] = useState(null); 
@@ -33,6 +34,14 @@ export const ComicDownloadProvider = ({ children }) => {
             processNextTask(queue[0]);
         }
     }, [queue]);
+
+    useEffect(() => {
+        return () => {
+            if (chapterHtmlResolveRef.current) {
+                chapterHtmlResolveRef.current.reject(new Error('unmounted'));
+            }
+        };
+    }, []);
 
     const startDownload = (comic) => {
         // comic should have { id, title, cover, url }
@@ -117,81 +126,117 @@ export const ComicDownloadProvider = ({ children }) => {
             await saveNovelToBookshelf(novelData);
             setBookshelfUpdated(Date.now());
             
-            // Step 2: Download each chapter
             let downloadedCount = initialDownloadedCount;
-            for (let i = 0; i < chapters.length; i++) {
+
+            const progressArray = chapters.map((ch, idx) => ({
+                index: idx,
+                title: ch.title,
+                url: ch.url,
+                status: idx < downloadedCount ? 'success' : 'pending'
+            }));
+            setActiveTaskProgress(progressArray);
+            
+            // Step 2: Download each chapter
+            for (let i = downloadedCount; i < chapters.length; i++) {
                 if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
-                if (i < downloadedCount) continue;
                 
                 const chapter = chapters[i];
+                
+                setActiveTaskProgress(prev => {
+                    if(!prev) return prev;
+                    const next = [...prev];
+                    if (next[i]) next[i] = { ...next[i], status: 'downloading' };
+                    return next;
+                });
                 
                 setProgressText('正在下載: ' + chapter.title + ' (' + (i + 1) + '/' + chapters.length + ')');
                 
                 // Fetch chapter page and wait for JS descrambling
-                const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
-                const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
-                const chapterResult = await fetchHtmlViaWebView(chapterUrl, 'photo');
-                
-                if (chapterResult.error) throw new Error(chapterResult.error);
-                if (!chapterResult.images || chapterResult.images.length === 0) {
-                    throw new Error('章節 ' + chapter.title + ' 下載失敗');
-                }
-                
-                // Save images
-                const localPages = [];
-                for (let j = 0; j < chapterResult.images.length; j++) {
-                    const base64OrUrl = chapterResult.images[j];
-                    const pct = Math.round(((j + 1) / chapterResult.images.length) * 100);
-                    setProgressText(`[第 ${i + 1}/${chapters.length} 話] 下載圖片 (${j + 1}/${chapterResult.images.length}) - ${pct}%`);
-                    let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, chapterResult.cookies);
+                try {
+                    const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
+                    const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
+                    const chapterResult = await fetchHtmlViaWebView(chapterUrl, 'photo');
                     
-                    // Offline Descrambling
-                    try {
-                        if (descrambleWebViewRef.current) {
-                            setProgressText(`[第 ${i + 1}/${chapters.length} 話] 解密重組 (${j + 1}/${chapterResult.images.length})...`);
-                            const parts = localPath.split('/');
-                            let filename = parts[parts.length - 1];
-                            let photo_id = parseInt(chapter.id, 10);
-                            
-                            const nameParts = filename.split('_');
-                            if (nameParts.length >= 2) {
-                                photo_id = parseInt(nameParts[0], 10);
-                                filename = nameParts.slice(1).join('_');
-                            }
-                            
-                            const num = getScramblePieces(photo_id, filename);
-                            if (num > 1) {
-                                let mimeType = 'image/jpeg';
-                                if (localPath.toLowerCase().endsWith('.webp')) mimeType = 'image/webp';
-                                else if (localPath.toLowerCase().endsWith('.png')) mimeType = 'image/png';
-                                let scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: FileSystem.EncodingType.Base64 });
-                                const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
-                                const cleanBase64 = descrambledBase64.replace(/^data:image\/\w+;base64,/, '');
-                                
-                                // Since DescrambleWebView forces canvas.toDataURL('image/jpeg'), we must save as .jpg
-                                // Otherwise, React Native iOS <Image> will try to decode JPEG data as WEBP and render blank!
-                                const newPath = localPath.replace(/\.webp$/i, '.jpg').replace(/\.png$/i, '.jpg');
-                                await FileSystem.writeAsStringAsync(newPath, cleanBase64, { encoding: FileSystem.EncodingType.Base64 });
-                                
-                                if (newPath !== localPath) {
-                                    try { await FileSystem.deleteAsync(localPath, { idempotent: true }); } catch (e) {}
-                                    localPath = newPath;
-                                }
-                            }
-                        }
-                    } catch(e) {
+                    if (chapterResult.error) throw new Error(chapterResult.error);
+                    if (!chapterResult.images || chapterResult.images.length === 0) {
+                        throw new Error('章節 ' + chapter.title + ' 下載失敗');
                     }
                     
-                    localPages.push(localPath);
+                    // Save images
+                    const localPages = [];
+                    for (let j = 0; j < chapterResult.images.length; j++) {
+                        const base64OrUrl = chapterResult.images[j];
+                        const pct = Math.round(((j + 1) / chapterResult.images.length) * 100);
+                        setProgressText(`[第 ${i + 1}/${chapters.length} 話] 下載圖片 (${j + 1}/${chapterResult.images.length}) - ${pct}%`);
+                        let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, chapterResult.cookies);
+                        
+                        // Offline Descrambling
+                        try {
+                            if (descrambleWebViewRef.current) {
+                                setProgressText(`[第 ${i + 1}/${chapters.length} 話] 解密重組 (${j + 1}/${chapterResult.images.length})...`);
+                                
+                                let photo_id = parseInt(chapter.id, 10);
+                                let originalFilename = `${j}.jpg`;
+                                
+                                if (typeof base64OrUrl === 'string' && base64OrUrl.startsWith('http')) {
+                                    const urlWithoutParams = base64OrUrl.split('?')[0];
+                                    const urlParts = urlWithoutParams.split('/');
+                                    const urlFilename = urlParts[urlParts.length - 1];
+                                    const urlPhotoSegment = urlParts[urlParts.length - 2];
+                                    
+                                    if (urlFilename && urlFilename.includes('.')) originalFilename = urlFilename;
+                                    const parsedId = parseInt(urlPhotoSegment, 10);
+                                    if (!isNaN(parsedId) && parsedId > 0) photo_id = parsedId;
+                                }
+                                
+                                const num = getScramblePieces(photo_id, originalFilename);
+                                if (num > 1) {
+                                    let mimeType = 'image/jpeg';
+                                    if (localPath.toLowerCase().endsWith('.webp')) mimeType = 'image/webp';
+                                    else if (localPath.toLowerCase().endsWith('.png')) mimeType = 'image/png';
+                                    let scrambledBase64 = await FileSystem.readAsStringAsync(localPath, { encoding: FileSystem.EncodingType.Base64 });
+                                    const descrambledBase64 = await descrambleWebViewRef.current.descramble(scrambledBase64, num, mimeType);
+                                    const cleanBase64 = descrambledBase64.replace(/^data:image\/\w+;base64,/, '');
+                                    
+                                    const newPath = localPath.replace(/\.webp$/i, '.jpg').replace(/\.png$/i, '.jpg');
+                                    await FileSystem.writeAsStringAsync(newPath, cleanBase64, { encoding: FileSystem.EncodingType.Base64 });
+                                    
+                                    if (newPath !== localPath) {
+                                        try { await FileSystem.deleteAsync(localPath, { idempotent: true }); } catch (e) {}
+                                        localPath = newPath;
+                                    }
+                                }
+                            }
+                        } catch(e) {}
+                        
+                        localPages.push(localPath);
+                    }
+                    
+                    await saveComicChapterData(novelId, i, chapter.title, localPages);
+                    downloadedCount++;
+                    
+                    // Update novel metadata
+                    novelData.downloadedChapters = downloadedCount;
+                    await saveNovelToBookshelf(novelData);
+                    setBookshelfUpdated(Date.now());
+
+                    setActiveTaskProgress(prev => {
+                        if(!prev) return prev;
+                        const next = [...prev];
+                        if (next[i]) next[i] = { ...next[i], status: 'success' };
+                        return next;
+                    });
+                } catch (chErr) {
+                    if (chErr.message === 'Cancelled') throw chErr;
+                    
+                    setActiveTaskProgress(prev => {
+                        if(!prev) return prev;
+                        const next = [...prev];
+                        if (next[i]) next[i] = { ...next[i], status: 'error' };
+                        return next;
+                    });
+                    // Continue to next chapter!
                 }
-                
-                await saveComicChapterData(novelId, i, chapter.title, localPages);
-                downloadedCount++;
-                
-                // Update novel metadata
-                novelData.downloadedChapters = downloadedCount;
-                await saveNovelToBookshelf(novelData);
-                setBookshelfUpdated(Date.now());
             }
             
             setProgressText('下載完成！');
@@ -200,6 +245,7 @@ export const ComicDownloadProvider = ({ children }) => {
                     setActiveTask(null);
                     activeTaskRef.current = null;
                     setQueue(prev => prev.slice(1));
+                    setActiveTaskProgress(null);
                     setProgressText('');
                     stopBackgroundKeepAlive('comic_download');
                 }
@@ -213,6 +259,7 @@ export const ComicDownloadProvider = ({ children }) => {
             setActiveTask(null);
             activeTaskRef.current = null;
             setQueue(prev => prev.slice(1));
+            setActiveTaskProgress(null);
             setProgressText('');
             stopBackgroundKeepAlive('comic_download');
         }
@@ -325,6 +372,7 @@ export const ComicDownloadProvider = ({ children }) => {
             scrapeId,
             progressText,
             bookshelfUpdated,
+            activeTaskProgress,
             startDownload,
             cancelDownload,
             webViewRef,

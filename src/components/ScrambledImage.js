@@ -84,7 +84,6 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
         );
     }
 
-    const pieces = [];
     const move_original = Math.floor(h / num);
     const over = h % num;
     const scale = displayWidth / w;
@@ -93,7 +92,7 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
     // y_src: top coordinate in the ORIGINAL scrambled image
     // y_dst: top coordinate in the NEW descrambled image
     // move_h: height of the piece
-    const generatePieces = () => {
+    const generatePieces = React.useCallback(() => {
         const piecesList = [];
         
         if (algorithmMode === 0) {
@@ -143,36 +142,39 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
         }
         
         return piecesList;
-    };
+    }, [algorithmMode, h, num, move_original, over]);
 
-    const slices = generatePieces();
-    
-    const scaledW = w * scale;
-    const scaledH = h * scale;
+    const pieces = React.useMemo(() => {
+        const piecesList = generatePieces();
+        const scaledW = w * scale;
+        const scaledH = h * scale;
+        const result = [];
 
-    slices.forEach((slice) => {
-        pieces.push(
-            <View key={slice.i} style={{ 
-                width: scaledW, 
-                height: slice.move_h * scale, 
-                overflow: 'hidden', 
-                position: 'absolute', 
-                top: slice.y_dst * scale, 
-                left: 0 
-            }}>
-                <Image 
-                    source={{ uri }} 
-                    style={{ 
-                        width: scaledW, 
-                        height: scaledH, 
-                        position: 'absolute', 
-                        top: -slice.y_src * scale, 
-                        left: 0 
-                    }} 
-                />
-            </View>
-        );
-    });
+        piecesList.forEach((slice) => {
+            result.push(
+                <View key={slice.i} style={{ 
+                    width: scaledW, 
+                    height: slice.move_h * scale, 
+                    overflow: 'hidden', 
+                    position: 'absolute', 
+                    top: slice.y_dst * scale, 
+                    left: 0 
+                }}>
+                    <Image 
+                        source={{ uri }} 
+                        style={{ 
+                            width: scaledW, 
+                            height: scaledH, 
+                            position: 'absolute', 
+                            top: -slice.y_src * scale, 
+                            left: 0 
+                        }} 
+                    />
+                </View>
+            );
+        });
+        return result;
+    }, [generatePieces, w, h, scale, uri]);
 
     return (
         <View style={{ width: displayWidth, height: displayHeight, overflow: 'hidden', backgroundColor: 'black' }}>

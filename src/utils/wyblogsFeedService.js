@@ -2,12 +2,45 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WYBLOGS_BASE_URL = 'https://wyblogs.eu.org/series/%E5%B0%8F%E8%AA%AA/';
 const WYBLOGS_CACHE_KEY = '@wyblogs_feed_cache';
+const FETCH_TIMEOUT_MS = 15000;
+
+/**
+ * Helper to perform fetch with timeout
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response;
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            throw new Error('網路請求逾時，請檢查網路連線');
+        }
+        throw e;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+/**
+ * Safe URI component decoder
+ */
+function safeDecodeURIComponent(str) {
+    if (!str) return '';
+    try {
+        return decodeURIComponent(str);
+    } catch {
+        return str;
+    }
+}
 
 /**
  * Parse a single page of the wyblogs novel listing HTML.
  * Extracts article titles, URLs, and categories/tags.
  */
 function parseListingPage(html) {
+    if (!html || typeof html !== 'string') return [];
     const articles = [];
     
     // Match article links in h2/h5 headings pointing to /posts/
@@ -16,7 +49,7 @@ function parseListingPage(html) {
     
     while ((match = articleRegex.exec(html)) !== null) {
         const url = match[1];
-        let title = match[2].trim();
+        let title = match[2] ? match[2].trim() : '';
         
         if (!title || !url) continue;
         
@@ -29,13 +62,15 @@ function parseListingPage(html) {
         const catRegex = /href="[^"]*\/categories\/([^"]*)"[^>]*>([^<]*)<\/a>/gi;
         let catMatch;
         while ((catMatch = catRegex.exec(afterMatch)) !== null) {
-            categories.push(decodeURIComponent(catMatch[1]));
+            const decoded = safeDecodeURIComponent(catMatch[1]);
+            if (decoded) categories.push(decoded);
         }
         
         const tagRegex = /href="[^"]*\/tags\/([^"]*)"[^>]*>([^<]*)<\/a>/gi;
         let tagMatch;
         while ((tagMatch = tagRegex.exec(afterMatch)) !== null) {
-            tags.push(decodeURIComponent(tagMatch[1]));
+            const decoded = safeDecodeURIComponent(tagMatch[1]);
+            if (decoded) tags.push(decoded);
         }
         
         // Generate a stable ID from the URL
@@ -58,12 +93,13 @@ function parseListingPage(html) {
  * Detect total page count from the pagination HTML.
  */
 function detectTotalPages(html) {
+    if (!html || typeof html !== 'string') return 1;
     const lastPageRegex = /\/series\/(?:%E5%B0%8F%E8%AA%AA|小說)\/page\/(\d+)\//g;
     let maxPage = 1;
     let match;
     while ((match = lastPageRegex.exec(html)) !== null) {
         const pageNum = parseInt(match[1], 10);
-        if (pageNum > maxPage) maxPage = pageNum;
+        if (!isNaN(pageNum) && pageNum > maxPage) maxPage = pageNum;
     }
     return maxPage;
 }
@@ -75,7 +111,7 @@ export async function fetchAllWyblogsNovels(onProgress) {
     let allArticles = [];
     
     // Fetch first page to detect total pages
-    const firstPageResponse = await fetch(WYBLOGS_BASE_URL);
+    const firstPageResponse = await fetchWithTimeout(WYBLOGS_BASE_URL);
     if (!firstPageResponse.ok) throw new Error(`HTTP ${firstPageResponse.status}`);
     const firstPageHtml = await firstPageResponse.text();
     
@@ -94,7 +130,7 @@ export async function fetchAllWyblogsNovels(onProgress) {
         for (let page = startPage; page <= endPage; page++) {
             const pageUrl = `${WYBLOGS_BASE_URL}page/${page}/`;
             pagePromises.push(
-                fetch(pageUrl)
+                fetchWithTimeout(pageUrl)
                     .then(res => res.ok ? res.text() : '')
                     .then(html => parseListingPage(html))
                     .catch(() => [])
@@ -103,7 +139,9 @@ export async function fetchAllWyblogsNovels(onProgress) {
         
         const results = await Promise.all(pagePromises);
         for (const articles of results) {
-            allArticles.push(...articles);
+            if (Array.isArray(articles)) {
+                allArticles.push(...articles);
+            }
         }
         
         if (onProgress) onProgress(Math.min(endPage, totalPages), totalPages);
@@ -112,7 +150,7 @@ export async function fetchAllWyblogsNovels(onProgress) {
     // Deduplicate by id
     const seen = new Set();
     allArticles = allArticles.filter(a => {
-        if (seen.has(a.id)) return false;
+        if (!a?.id || seen.has(a.id)) return false;
         seen.add(a.id);
         return true;
     });
@@ -126,9 +164,14 @@ export async function fetchAllWyblogsNovels(onProgress) {
 export async function getWyblogsCachedFeed() {
     try {
         const cached = await AsyncStorage.getItem(WYBLOGS_CACHE_KEY);
-        if (cached) return JSON.parse(cached);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && Array.isArray(parsed.articles)) {
+                return parsed;
+            }
+        }
     } catch (e) {
-
+        console.warn('Failed to get wyblogs cached feed:', e);
     }
     return null;
 }
@@ -140,11 +183,11 @@ export async function saveWyblogsFeedToCache(articles) {
     try {
         const cacheData = {
             lastUpdated: Date.now(),
-            articles,
+            articles: Array.isArray(articles) ? articles : [],
         };
         await AsyncStorage.setItem(WYBLOGS_CACHE_KEY, JSON.stringify(cacheData));
     } catch (e) {
-
+        console.warn('Failed to save wyblogs feed to cache:', e);
     }
 }
 
@@ -152,7 +195,7 @@ export async function saveWyblogsFeedToCache(articles) {
  * Check if cache is stale (older than 7 days).
  */
 export function isWyblogsCacheStale(lastUpdated) {
-    if (!lastUpdated) return true;
+    if (!lastUpdated || typeof lastUpdated !== 'number') return true;
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
     return (Date.now() - lastUpdated) > SEVEN_DAYS_MS;
 }
@@ -191,7 +234,11 @@ export async function getWyblogsArticles(onProgress) {
  * Fetch full article content from a wyblogs article URL.
  */
 export async function fetchWyblogsArticleContent(articleUrl) {
-    const response = await fetch(articleUrl);
+    if (!articleUrl) {
+        throw new Error('未提供小說網址');
+    }
+
+    const response = await fetchWithTimeout(articleUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const html = await response.text();
     

@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 import { useTheme } from '../context/ThemeContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
 import { Feather } from '@expo/vector-icons';
+import DownloadProgress from '../components/home/DownloadProgress';
 
 const FALLBACK_DOMAINS = [
     'https://18comic.vip',
@@ -16,7 +17,7 @@ const FALLBACK_DOMAINS = [
 
 export default function JMComicFeedScreen({ navigation, route }) {
     const { colors, isDark } = useTheme();
-    const { startDownload, activeTask, progressText } = useComicDownload();
+    const { startDownload, activeTask, progressText, queue, cancelDownload, activeTaskProgress } = useComicDownload();
     const webviewRef = useRef(null);
     const domainIndexRef = useRef(0);
     
@@ -154,10 +155,10 @@ export default function JMComicFeedScreen({ navigation, route }) {
             } else if (data.type === 'NETWORK_ERROR') {
                 tryNextDomain(data.message || 'Network error');
             } else if (data.type === 'JS_ERROR') {
-
+                console.error('JS Error from WebView:', data.message);
             }
         } catch(e) {
-
+            console.error('WebView message parsing error:', e);
         }
     };
 
@@ -250,7 +251,10 @@ export default function JMComicFeedScreen({ navigation, route }) {
                                 try {
                                     const urlObj = new URL(inputUrl);
                                     queryText = urlObj.searchParams.get('search_query') || '';
-                                } catch(e) { queryText = ''; }
+                                } catch(e) { 
+                                    queryText = ''; 
+                                    console.error('URL parse error:', e);
+                                }
                             }
                             
                             const nextBaseUrl = searchDomain + '/search/photos?search_query=' + encodeURIComponent(queryText);
@@ -292,6 +296,10 @@ export default function JMComicFeedScreen({ navigation, route }) {
                     contentContainerStyle={{ padding: 8, paddingBottom: 100 }}
                     onEndReached={handleLoadMore}
                     onEndReachedThreshold={0.5}
+                    initialNumToRender={10}
+                    maxToRenderPerBatch={10}
+                    windowSize={5}
+                    removeClippedSubviews={true}
                     renderItem={({ item }) => (
                         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                             <Image source={{ uri: item.cover }} style={styles.cover} resizeMode="cover" />
@@ -367,16 +375,20 @@ export default function JMComicFeedScreen({ navigation, route }) {
                 </View>
             )}
 
-            {activeTask && (
-                <View style={[styles.progressContainer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
-                    <Text style={{ color: colors.text, fontSize: 12, marginBottom: 4 }}>
-                        {progressText || '下載準備中...'}
-                    </Text>
-                    <View style={[styles.progressBarBg, { backgroundColor: colors.border }]}>
-                        <View style={[styles.progressBarFill, { backgroundColor: colors.primary, width: '100%' }]} />
-                    </View>
                 </View>
             )}
+
+            <View style={{ position: 'absolute', bottom: 20, left: 0, right: 0 }}>
+                <DownloadProgress 
+                    queue={queue} 
+                    activeTask={activeTask} 
+                    progressText={progressText} 
+                    cancelDownload={cancelDownload} 
+                    colors={colors} 
+                    activeTaskProgress={activeTaskProgress}
+                    novelId={activeTask?.id}
+                />
+            </View>
         </View>
     );
 }
