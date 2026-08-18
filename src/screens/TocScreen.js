@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, A
 import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
-import { splitTextIntoChapters } from '../utils/parserUtils';
+import { splitTextIntoChapters, previewMatchedHeadings } from '../utils/parserUtils';
 import { useDownload } from '../context/DownloadContext';
 import { Feather } from '@expo/vector-icons';
 
@@ -53,6 +53,8 @@ export default function TocScreen({ route, navigation }) {
     const [splitMode, setSplitMode] = useState('regex');
     const [splitLength, setSplitLength] = useState('5000');
     const [splitProgress, setSplitProgress] = useState(null);
+    const [isPreviewingSplit, setIsPreviewingSplit] = useState(false);
+    const [splitPreviewListStr, setSplitPreviewListStr] = useState('');
 
     const refreshNovel = async () => {
         const n = await getNovelById(novel.id);
@@ -72,6 +74,7 @@ export default function TocScreen({ route, navigation }) {
                     setIsOptionsModalVisible(false);
                     setSplitTarget('novel');
                     setSelectedChapterIndex(null);
+                    setIsPreviewingSplit(false);
                     setIsSplitModalVisible(true);
                 }}
                     style={{ paddingRight: 15 }}
@@ -90,51 +93,49 @@ export default function TocScreen({ route, navigation }) {
     const openChapterSplitModal = () => {
         setSplitTarget('chapter');
         setIsOptionsModalVisible(false);
+        setIsPreviewingSplit(false);
         setIsSplitModalVisible(true);
     };
 
     const openNovelSplitModal = () => {
         setSplitTarget('novel');
         setSelectedChapterIndex(null);
+        setIsPreviewingSplit(false);
         setIsSplitModalVisible(true);
     };
 
-    const handleDeleteChapter = useCallback(() => {
+    const handleDeleteChapter = async () => {
         if (selectedChapterIndex === null) return;
-        Alert.alert('刪除章節', `確定要刪除「${novel.chapters[selectedChapterIndex].title}」嗎？\n刪除後後面的章節編號會自動遞補。`, [
-            { text: '取消', style: 'cancel' },
-            { 
-                text: '確定刪除', 
-                style: 'destructive',
-                onPress: async () => {
-                    setIsProcessing(true);
-                    await deleteChapterData(novel.id, selectedChapterIndex);
-                    await refreshNovel();
-                    setIsProcessing(false);
-                    setIsOptionsModalVisible(false);
-                }
-            }
-        ]);
-    }, [novel.chapters, novel.id, selectedChapterIndex]);
+        setIsOptionsModalVisible(false);
+        try {
+            await deleteChapterData(novel.id, selectedChapterIndex);
+            await refreshNovel();
+        } catch (e) {
+            Alert.alert('錯誤', e.message);
+        }
+    };
 
-    const openEditModal = useCallback(async (mode) => {
+    const openEditModal = async (mode) => {
         if (selectedChapterIndex === null) return;
         setEditMode(mode);
         setIsOptionsModalVisible(false);
-        setIsProcessing(true);
         
         if (mode === 'edit') {
-            setEditTitle(novel.chapters[selectedChapterIndex].title);
-            const content = await getChapterText(novel.id, selectedChapterIndex);
-            setEditText(content ? content.text : '');
+            const ch = novel.chapters[selectedChapterIndex];
+            setEditTitle(ch.title);
+            try {
+                const textData = await getChapterText(novel.id, selectedChapterIndex);
+                setEditText(typeof textData === 'string' ? textData : (textData ? textData.text : ''));
+            } catch (e) {
+                setEditText('');
+            }
         } else {
             setEditTitle('');
             setEditText('');
         }
         
-        setIsProcessing(false);
         setIsEditModalVisible(true);
-    }, [novel.chapters, novel.id, selectedChapterIndex]);
+    };
 
     const handleSaveChapter = async () => {
         if (!editTitle.trim()) {
@@ -159,6 +160,46 @@ export default function TocScreen({ route, navigation }) {
             Alert.alert('錯誤', e.message);
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const previewSplit = async () => {
+        setIsProcessing(true);
+        setSplitProgress({ percent: 0, stage: '準備預覽...' });
+        try {
+            let oldText = '';
+            if (splitTarget === 'novel') {
+                setSplitProgress({ percent: 0, stage: '正在讀取所有章節內容...' });
+                oldText = await getAllChapterText(novel.id, (cur, tot) => {
+                    const pct = Math.round((cur / tot) * 30);
+                    setSplitProgress({ percent: pct, stage: `讀取章節內文 (${cur}/${tot})...` });
+                });
+            } else {
+                const index = selectedChapterIndex;
+                const oldTextData = await getChapterText(novel.id, index);
+                if (!oldTextData) {
+                    Alert.alert('錯誤', '無法讀取章節內容，請先下載此章節。');
+                    return;
+                }
+                oldText = typeof oldTextData === 'string' ? oldTextData : (oldTextData.text || '');
+            }
+
+            setSplitProgress({ percent: 40, stage: '正在預覽章節規則...' });
+            await new Promise(r => setTimeout(r, 10));
+            
+            const matches = previewMatchedHeadings(
+                oldText, 
+                splitMode, 
+                splitMode === 'example' ? splitExampleStr : splitRegexStr
+            );
+            
+            setSplitPreviewListStr(matches.join('\n'));
+            setIsPreviewingSplit(true);
+        } catch (e) {
+            Alert.alert('規則錯誤', e.message);
+        } finally {
+            setIsProcessing(false);
+            setSplitProgress(null);
         }
     };
 
@@ -192,7 +233,23 @@ export default function TocScreen({ route, navigation }) {
 
             let newChaptersData = [];
 
-            if (splitMode === 'regex' || splitMode === 'example') {
+            if (isPreviewingSplit) {
+                setSplitProgress({ percent: 40, stage: '正在依自訂清單分割...' });
+                await new Promise(r => setTimeout(r, 10));
+                try {
+                    newChaptersData = splitTextIntoChapters(
+                        oldText, 
+                        'list', 
+                        splitPreviewListStr, 
+                        targetChapterTitle
+                    );
+                } catch (e) {
+                    Alert.alert('規則錯誤', e.message);
+                    setIsProcessing(false);
+                    setSplitProgress(null);
+                    return;
+                }
+            } else if (splitMode === 'regex' || splitMode === 'example') {
                 setSplitProgress({ percent: 40, stage: '正在匹配章節規則...' });
                 await new Promise(r => setTimeout(r, 10));
                 try {
@@ -503,63 +560,83 @@ export default function TocScreen({ route, navigation }) {
                             </TouchableOpacity>
                         </View>
                         
-                        <View style={{ flexDirection: 'row', marginBottom: 15 }}>
-                            <TouchableOpacity 
-                                style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'regex' ? colors.primary : 'transparent' }}
-                                onPress={() => setSplitMode('regex')}
-                            >
-                                <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'example' ? colors.primary : 'transparent' }}
-                                onPress={() => setSplitMode('example')}
-                            >
-                                <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'length' ? colors.primary : 'transparent' }}
-                                onPress={() => setSplitMode('length')}
-                            >
-                                <Text style={{ color: splitMode === 'length' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>字數分割</Text>
-                            </TouchableOpacity>
-                        </View>
-                        
-                        {splitMode === 'example' ? (
+                        {isPreviewingSplit ? (
                             <>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入章節的編號範例</Text>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如輸入: 1. 或 第1章</Text>
+                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請確認或編輯以下用來分割的標題清單：</Text>
+                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>系統將嚴格依照此清單中的每一行文字來切割章節。您可以刪除誤判的句子，或手動補上遺漏的標題。</Text>
                                 <TextInput 
-                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
-                                    value={splitExampleStr}
-                                    onChangeText={setSplitExampleStr}
-                                    placeholder="輸入範例，例如: 1."
+                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 250, paddingHorizontal: 15, paddingVertical: 10, textAlignVertical: 'top' }]} 
+                                    multiline={true}
+                                    value={splitPreviewListStr}
+                                    onChangeText={setSplitPreviewListStr}
+                                    placeholder="標題清單..."
                                     placeholderTextColor={colors.textSecondary}
                                 />
-                            </>
-                        ) : splitMode === 'regex' ? (
-                            <>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入用來分割章節的關鍵字或規則 (Regex)：</Text>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如: 第.*[章節] 會切分出「第一章」、「第十二節」等。</Text>
-                                <TextInput 
-                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
-                                    placeholder="第.*[章節]"
-                                    placeholderTextColor={colors.textSecondary}
-                                    value={splitRegexStr}
-                                    onChangeText={setSplitRegexStr}
-                                />
+                                <TouchableOpacity onPress={() => setIsPreviewingSplit(false)} style={{ marginTop: 10, alignSelf: 'flex-start' }}>
+                                    <Text style={{ color: colors.primary, textDecorationLine: 'underline' }}>返回重新設定規則</Text>
+                                </TouchableOpacity>
                             </>
                         ) : (
                             <>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入每個章節大約的字數 (字)：</Text>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>系統會以段落為單位進行分割，確保不會把一句話切斷。</Text>
-                                <TextInput 
-                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
-                                    placeholder="5000"
-                                    keyboardType="numeric"
-                                    placeholderTextColor={colors.textSecondary}
-                                    value={splitLength}
-                                    onChangeText={setSplitLength}
-                                />
+                                <View style={{ flexDirection: 'row', marginBottom: 15 }}>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'regex' ? colors.primary : 'transparent' }}
+                                        onPress={() => setSplitMode('regex')}
+                                    >
+                                        <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'example' ? colors.primary : 'transparent' }}
+                                        onPress={() => setSplitMode('example')}
+                                    >
+                                        <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'length' ? colors.primary : 'transparent' }}
+                                        onPress={() => setSplitMode('length')}
+                                    >
+                                        <Text style={{ color: splitMode === 'length' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>字數分割</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                
+                                {splitMode === 'example' ? (
+                                    <>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入章節的編號範例</Text>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如輸入: 1. 或 第1章</Text>
+                                        <TextInput 
+                                            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
+                                            value={splitExampleStr}
+                                            onChangeText={setSplitExampleStr}
+                                            placeholder="輸入範例，例如: 1."
+                                            placeholderTextColor={colors.textSecondary}
+                                        />
+                                    </>
+                                ) : splitMode === 'regex' ? (
+                                    <>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入用來分割章節的關鍵字或規則 (Regex)：</Text>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>例如: 第.*[章節] 會切分出「第一章」、「第十二節」等。</Text>
+                                        <TextInput 
+                                            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
+                                            placeholder="第.*[章節]"
+                                            placeholderTextColor={colors.textSecondary}
+                                            value={splitRegexStr}
+                                            onChangeText={setSplitRegexStr}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10}}>請輸入每個章節大約的字數 (字)：</Text>
+                                        <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>系統會以段落為單位進行分割，確保不會把一句話切斷。</Text>
+                                        <TextInput 
+                                            style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 50, paddingHorizontal: 15 }]} 
+                                            placeholder="5000"
+                                            keyboardType="numeric"
+                                            placeholderTextColor={colors.textSecondary}
+                                            value={splitLength}
+                                            onChangeText={setSplitLength}
+                                        />
+                                    </>
+                                )}
                             </>
                         )}
                         
@@ -574,19 +651,50 @@ export default function TocScreen({ route, navigation }) {
                             </View>
                         )}
                         
-                        <TouchableOpacity 
-                            style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.7 : 1 }]} 
-                            onPress={executeSplit}
-                            disabled={isProcessing}
-                        >
-                            {isProcessing ? (
-                                <ActivityIndicator color="#fff" size="small" />
-                            ) : (
-                                <Text style={styles.saveBtnText}>
-                                    {splitTarget === 'novel' ? '開始重分割' : '開始分割'}
-                                </Text>
-                            )}
-                        </TouchableOpacity>
+                        {isPreviewingSplit ? (
+                            <TouchableOpacity 
+                                style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.7 : 1 }]} 
+                                onPress={executeSplit}
+                                disabled={isProcessing}
+                            >
+                                {isProcessing ? (
+                                    <ActivityIndicator color="#fff" size="small" />
+                                ) : (
+                                    <Text style={styles.saveBtnText}>
+                                        確認依此清單分割
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+                                {(splitMode === 'example' || splitMode === 'regex') && (
+                                    <TouchableOpacity 
+                                        style={[styles.saveBtn, { backgroundColor: '#FF9500', opacity: isProcessing ? 0.7 : 1, flex: 1, marginTop: 0 }]} 
+                                        onPress={previewSplit}
+                                        disabled={isProcessing}
+                                    >
+                                        {isProcessing && splitProgress?.stage.includes('預覽') ? (
+                                            <ActivityIndicator color="#fff" size="small" />
+                                        ) : (
+                                            <Text style={[styles.saveBtnText, { fontSize: 14 }]}>產生預覽清單</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                )}
+                                <TouchableOpacity 
+                                    style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isProcessing ? 0.7 : 1, flex: 1, marginTop: 0 }]} 
+                                    onPress={executeSplit}
+                                    disabled={isProcessing}
+                                >
+                                    {isProcessing && !splitProgress?.stage.includes('預覽') ? (
+                                        <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                        <Text style={[styles.saveBtnText, { fontSize: 14 }]}>
+                                            直接開始分割
+                                        </Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
                 </View>
             </Modal>
