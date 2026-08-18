@@ -11,6 +11,7 @@ const TwitterDownloadWebViewHost = () => {
     const { url: twitterUrl, isDirectExtract } = activeTwitterTask;
 
     if (isDirectExtract) {
+        // Alert.alert('DEBUG', 'Modal should open!');
         return (
             <Modal visible={true} animationType="slide">
                 <View style={{ flex: 1, backgroundColor: '#121212', paddingTop: 50 }}>

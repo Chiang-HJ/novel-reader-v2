@@ -821,7 +821,6 @@ export default function VaultScreen({ navigation }) {
     const triggerTwitterDownload = (isDirect) => {
         if (!twitterUrl.trim()) return;
         downloadTwitterVideo(twitterUrl, isDirect);
-        setTwitterUrl(''); // clear input after dispatching
     };
 
     return (
@@ -1148,12 +1147,17 @@ export default function VaultScreen({ navigation }) {
                                     autoCorrect={false}
                                 />
                                 <TouchableOpacity 
-                                    style={{ padding: 12, backgroundColor: isDownloadingTwitter || !twitterUrl ? '#333' : '#1DA1F2', alignItems: 'center' }}
-                                    disabled={isDownloadingTwitter || !twitterUrl}
-                                    onPress={() => triggerTwitterDownload(false)}
+                                    disabled={!isDownloadingTwitter && !twitterUrl}
+                                    onPress={() => {
+                                        if (isDownloadingTwitter) {
+                                            cancelTwitterDownload();
+                                        } else {
+                                            triggerTwitterDownload(false);
+                                        }
+                                    }}
                                 >
                                     {isDownloadingTwitter ? (
-                                        <Text style={{color: '#fff', fontSize: 12, fontWeight: 'bold'}}>{twitterProgressText || "下載中.."}</Text>
+                                        <Text style={{color: '#ff4444', fontSize: 12, fontWeight: 'bold'}}>取消 ({twitterProgressText || "下載中.."})</Text>
                                     ) : (
                                         <Feather name="download" size={20} color="#fff" />
                                     )}
