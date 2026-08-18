@@ -104,62 +104,57 @@ const TwitterDownloadWebViewHost = () => {
         <View style={{ position: 'absolute', top: 0, left: 0, width: 10, height: 10, overflow: 'hidden', opacity: 0 }} pointerEvents="none">
             <WebView 
                 key={twitterUrl + "_auto"}
-                source={{ uri: 'https://twitsave.com/' }}
+                source={{ uri: 'https://savetwitter.net/zh-tw' }}
                 injectedJavaScript={`
                     setTimeout(function() {
-                        var isInfoPage = window.location.pathname.indexOf('/info') !== -1;
-                        var input = document.querySelector('input[name="url"]') || document.querySelector('input[type="text"]');
-                        var btn = document.querySelector('button[type="submit"]') || document.querySelector('button');
+                        var input = document.querySelector('input#s_input') || document.querySelector('input[name="q"]') || document.querySelector('input[type="text"]');
+                        var btn = document.querySelector('button.btn-red') || document.querySelector('button#btn-submit') || document.querySelector('button');
                         
-                        if (!isInfoPage) {
-                            // We are on the home page, fill the form and submit
-                            if (input && btn) {
-                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                if (nativeInputValueSetter) {
-                                    nativeInputValueSetter.call(input, '${twitterUrl}');
-                                } else {
-                                    input.value = '${twitterUrl}';
-                                }
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                                
-                                setTimeout(function() {
-                                    btn.click();
-                                }, 500);
+                        if (input && btn && !window.didSubmitTwitterForm) {
+                            window.didSubmitTwitterForm = true;
+                            var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                            if (nativeInputValueSetter) {
+                                nativeInputValueSetter.call(input, '${twitterUrl}');
                             } else {
-                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Twitsave form not found' }));
+                                input.value = '${twitterUrl}';
                             }
-                        } else {
-                            // We are on the result page, wait for the download links
-                            var tries = 0;
-                            var check = setInterval(function() {
-                                tries++;
-                                
-                                // Check for error message
-                                var errorText = document.body.innerText;
-                                if (errorText.indexOf('could not find any video') !== -1 || errorText.indexOf('private account') !== -1) {
-                                    clearInterval(check);
-                                    window.ReactNativeWebView.postMessage('ERROR_NO_VIDEO');
-                                    return;
-                                }
-
-                                var resLinks = document.querySelectorAll('a[href*="/download?file="], a[href*=".mp4"]');
-                                var validLinks = [];
-                                for (var i = 0; i < resLinks.length; i++) {
-                                    var href = resLinks[i].href;
-                                    if (href && href.startsWith('http')) {
-                                        validLinks.push(href);
-                                    }
-                                }
-                                
-                                if (validLinks.length > 0) {
-                                    clearInterval(check);
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
-                                } else if (tries > 25) {
-                                    clearInterval(check);
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for twitsave result' }));
-                                }
-                            }, 1000);
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            
+                            setTimeout(function() {
+                                btn.click();
+                            }, 500);
                         }
+
+                        var tries = 0;
+                        var check = setInterval(function() {
+                            tries++;
+                            
+                            var errorText = document.body.innerText;
+                            if (errorText.indexOf('Private video') !== -1 || errorText.indexOf('No video found') !== -1 || errorText.indexOf('私人') !== -1) {
+                                clearInterval(check);
+                                window.ReactNativeWebView.postMessage('ERROR_NO_VIDEO');
+                                return;
+                            }
+
+                            // savetwitter usually gives a.btn for downloads
+                            var resLinks = document.querySelectorAll('a[href*=".mp4"], a[href*="video.twimg.com"], a.btn-success, a.btn-primary');
+                            var validLinks = [];
+                            for (var i = 0; i < resLinks.length; i++) {
+                                var href = resLinks[i].href || resLinks[i].getAttribute('href');
+                                if (href && href.startsWith('http') && (href.indexOf('.mp4') !== -1 || href.indexOf('video.twimg.com') !== -1 || href.indexOf('download') !== -1)) {
+                                    validLinks.push(href);
+                                }
+                            }
+                            
+                            if (validLinks.length > 0 && !window.didExtractTwitter) {
+                                window.didExtractTwitter = true;
+                                clearInterval(check);
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auto_twitter_data', urls: [validLinks[0]] }));
+                            } else if (tries > 30) {
+                                clearInterval(check);
+                                window.ReactNativeWebView.postMessage(JSON.stringify({ error: 'Timeout waiting for savetwitter result' }));
+                            }
+                        }, 1000);
                     }, 2000);
                     true;
                 `}
