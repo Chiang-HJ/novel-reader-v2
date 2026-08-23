@@ -187,7 +187,7 @@ export default function DictionaryManagerScreen({ navigation }) {
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <BlurView intensity={20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%', alignItems: 'center' }}>
-                            <TouchableWithoutFeedback onPress={() => {}}>
+                            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                                 <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.border }]}>
                                     <Text style={[styles.modalTitle, { color: colors.text }]}>
                                         新增{activeTab === 0 ? '文字過濾' : '語音校正'}規則

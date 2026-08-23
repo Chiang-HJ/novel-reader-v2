@@ -1,4 +1,4 @@
-export function splitTextIntoChapters(textData, splitMode, splitStr, defaultTitle = '全一章') {
+export function splitTextIntoChapters(textData, splitMode, splitStr, defaultTitle = '全一章', strictMatch = false) {
     if (textData === null || textData === undefined) {
         return [{ title: defaultTitle || '全一章', text: '' }];
     }
@@ -17,8 +17,12 @@ export function splitTextIntoChapters(textData, splitMode, splitStr, defaultTitl
         const replaced = escapeRegExp(splitStr.trim()).replace(/\d+/g, '\\d+');
         // Anchor to start of line to prevent splitting mid-sentence (e.g. at random numbers)
         if (replaced === '\\d+') {
-            // User inputted a pure number, be more strict: must be followed by space, punctuation, or end of line
-            finalRegexStr = '^\\s*\\d+(?:\\s+.*|[、.．：:]\\s*.*|$)';
+            if (strictMatch) {
+                // User inputted a pure number, be more strict: must be followed by space, punctuation, or end of line
+                finalRegexStr = '^\\s*\\d+(?:\\s+.*|[、.．：:]\\s*.*|$)';
+            } else {
+                finalRegexStr = '^\\s*\\d+.*';
+            }
         } else {
             // Replace literal spaces with \s+ to be more forgiving
             finalRegexStr = '^\\s*' + replaced.replace(/\s+/g, '\\s+') + '.*';
@@ -71,7 +75,7 @@ export function splitTextIntoChapters(textData, splitMode, splitStr, defaultTitl
     return newChaptersData;
 }
 
-export function previewMatchedHeadings(textData, splitMode, splitStr) {
+export function previewMatchedHeadings(textData, splitMode, splitStr, strictMatch = false) {
     if (!textData) return [];
     const safeText = typeof textData === 'string' ? textData : String(textData);
     if (!safeText.trim()) return [];
@@ -82,7 +86,11 @@ export function previewMatchedHeadings(textData, splitMode, splitStr) {
         const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const replaced = escapeRegExp(splitStr.trim()).replace(/\d+/g, '\\d+');
         if (replaced === '\\d+') {
-            finalRegexStr = '^\\s*\\d+(?:\\s+.*|[、.．：:]\\s*.*|$)';
+            if (strictMatch) {
+                finalRegexStr = '^\\s*\\d+(?:\\s+.*|[、.．：:]\\s*.*|$)';
+            } else {
+                finalRegexStr = '^\\s*\\d+.*';
+            }
         } else {
             finalRegexStr = '^\\s*' + replaced.replace(/\s+/g, '\\s+') + '.*';
         }

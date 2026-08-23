@@ -761,7 +761,7 @@ export default function HomeScreen({ navigation }) {
             {/* Import Text Modal */}
             <Modal visible={isImportModalVisible} transparent={true} animationType="slide">
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: colors.surface, height: '80%', padding: 20 }]}>
+                    <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, height: '80%', padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>手動匯入小說</Text>
                             <TouchableOpacity onPress={() => setIsImportModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
@@ -832,14 +832,14 @@ export default function HomeScreen({ navigation }) {
                                 </Text>
                             </TouchableOpacity>
                         </View>
-                    </View>
+                    </TouchableOpacity>
                 </KeyboardAvoidingView>
             </Modal>
             
             {/* Chapter Selection Modal */}
             <Modal visible={!!pendingSelection} transparent={true} animationType="fade">
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
+                    <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>選擇下載章節</Text>
                         </View>
@@ -888,14 +888,14 @@ export default function HomeScreen({ navigation }) {
                                 <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>確定下載</Text>
                             </TouchableOpacity>
                         </View>
-                    </View>
+                    </TouchableOpacity>
                 </KeyboardAvoidingView>
             </Modal>
             {/* Options Modal */}
             <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)} />
-                    <TouchableOpacity activeOpacity={1} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
+                    <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
                             <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>

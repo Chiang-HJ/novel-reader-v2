@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useLayoutEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
@@ -55,6 +55,7 @@ export default function TocScreen({ route, navigation }) {
     const [splitProgress, setSplitProgress] = useState(null);
     const [isPreviewingSplit, setIsPreviewingSplit] = useState(false);
     const [splitPreviewListStr, setSplitPreviewListStr] = useState('');
+    const [strictMatch, setStrictMatch] = useState(false);
 
     const refreshNovel = async () => {
         const n = await getNovelById(novel.id);
@@ -190,7 +191,8 @@ export default function TocScreen({ route, navigation }) {
             const matches = previewMatchedHeadings(
                 oldText, 
                 splitMode, 
-                splitMode === 'example' ? splitExampleStr : splitRegexStr
+                splitMode === 'example' ? splitExampleStr : splitRegexStr,
+                strictMatch
             );
             
             setSplitPreviewListStr(matches.join('\n'));
@@ -257,7 +259,8 @@ export default function TocScreen({ route, navigation }) {
                         oldText, 
                         splitMode, 
                         splitMode === 'example' ? splitExampleStr : splitRegexStr, 
-                        targetChapterTitle
+                        targetChapterTitle,
+                        strictMatch
                     );
                 } catch (e) {
                     Alert.alert('規則錯誤', e.message);
@@ -610,6 +613,13 @@ export default function TocScreen({ route, navigation }) {
                                             placeholder="輸入範例，例如: 1."
                                             placeholderTextColor={colors.textSecondary}
                                         />
+                                        <TouchableOpacity 
+                                            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, marginBottom: 15 }} 
+                                            onPress={() => setStrictMatch(!strictMatch)}
+                                        >
+                                            <Feather name={strictMatch ? "check-square" : "square"} size={20} color={colors.primary} style={{ marginRight: 8 }} />
+                                            <Text style={{ color: colors.textSecondary }}>嚴格要求數字後方必須有標點符號或空格</Text>
+                                        </TouchableOpacity>
                                     </>
                                 ) : splitMode === 'regex' ? (
                                     <>
@@ -701,9 +711,10 @@ export default function TocScreen({ route, navigation }) {
 
             {/* Edit/Add Chapter Modal */}
             <Modal visible={isEditModalVisible} transparent={true} animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
+                            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text }]}>
                                 {editMode === 'edit' ? '修改章節' : '新增章節'}
                             </Text>
@@ -742,6 +753,7 @@ export default function TocScreen({ route, navigation }) {
                         </TouchableOpacity>
                     </View>
                 </View>
+                </TouchableWithoutFeedback>
             </Modal>
 
         </View>
