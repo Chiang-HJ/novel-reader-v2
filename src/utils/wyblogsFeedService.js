@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WYBLOGS_BASE_URL = 'https://wyblogs.eu.org/series/%E5%B0%8F%E8%AA%AA/';
 const WYBLOGS_CACHE_KEY = '@wyblogs_feed_cache';
@@ -232,66 +232,85 @@ export async function getWyblogsArticles(onProgress) {
 
 /**
  * Fetch full article content from a wyblogs article URL.
+ * Always fetches the original URL first (backward-compatible),
+ * then checks for continuation pages (/2.html, /3.html, ...) only if the
+ * original URL clearly ends with a page number like /1.html.
  */
-export async function fetchWyblogsArticleContent(articleUrl) {
-    if (!articleUrl) {
-        throw new Error('未提供小說網址');
-    }
+export async function fetchWyblogsArticleContent(articleUrl, onProgress) {
+    if (!articleUrl) throw new Error('未提供小說網址');
 
-    const response = await fetchWithTimeout(articleUrl);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const html = await response.text();
-    
-    // Extract content from article tag
-    let content = '';
-    const lowerHtml = html.toLowerCase();
-    const articleStart = lowerHtml.indexOf('<article');
-    
-    if (articleStart !== -1) {
-        const innerStart = lowerHtml.indexOf('>', articleStart) + 1;
-        const endIndex = lowerHtml.indexOf('</article>', innerStart);
-        if (endIndex !== -1) {
-            content = html.substring(innerStart, endIndex);
+    function extractCleanText(html) {
+        let content = '';
+        const lower = html.toLowerCase();
+        const as = lower.indexOf('<article');
+        if (as !== -1) {
+            const is = lower.indexOf('>', as) + 1;
+            const ei = lower.indexOf('</article>', is);
+            if (ei !== -1) content = html.substring(is, ei);
         }
-    }
-    
-    if (!content) {
-        for (const cls of ['post-body', 'post-content', 'entry-content']) {
-            const idx = lowerHtml.indexOf(cls);
-            if (idx !== -1) {
-                const start = lowerHtml.indexOf('>', idx) + 1;
-                const end = lowerHtml.indexOf('</div>', start);
-                if (end !== -1) {
-                    content = html.substring(start, end);
-                    break;
+        if (!content) {
+            for (const cls of ['post-body', 'post-content', 'entry-content']) {
+                const idx = lower.indexOf(cls);
+                if (idx !== -1) {
+                    const s = lower.indexOf('>', idx) + 1;
+                    const e = lower.indexOf('</div>', s);
+                    if (e !== -1) { content = html.substring(s, e); break; }
                 }
             }
         }
+        if (!content) content = html;
+        return content
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<ins[\s\S]*?<\/ins>/gi, '')
+            .replace(/<ul[\s\S]*?<\/ul>/gi, '')
+            .replace(/<ol[\s\S]*?<\/ol>/gi, '')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/p>/gi, '\n\n')
+            .replace(/<\/div>/gi, '\n')
+            .replace(/<\/h[1-6]>/gi, '\n\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#x([0-9a-fA-F]+);/gi, (m, h) => String.fromCharCode(parseInt(h, 16)))
+            .replace(/&#(\d+);/g, (m, code) => String.fromCharCode(code))
+            .replace(/[\r\n]{3,}/g, '\n\n')
+            .trim();
     }
-    
-    if (!content) content = html;
-    
-    // Clean HTML to plain text
-    let text = content;
-    text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
-    text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
-    text = text.replace(/<ins[\s\S]*?<\/ins>/gi, '');
-    text = text.replace(/<ul[\s\S]*?<\/ul>/gi, '');
-    text = text.replace(/<ol[\s\S]*?<\/ol>/gi, '');
-    text = text.replace(/<br\s*\/?>/gi, '\n');
-    text = text.replace(/<\/p>/gi, '\n\n');
-    text = text.replace(/<\/div>/gi, '\n');
-    text = text.replace(/<\/h[1-6]>/gi, '\n\n');
-    text = text.replace(/<[^>]+>/g, '');
-    text = text.replace(/&nbsp;/g, ' ');
-    text = text.replace(/&amp;/g, '&');
-    text = text.replace(/&lt;/g, '<');
-    text = text.replace(/&gt;/g, '>');
-    text = text.replace(/&quot;/g, '"');
-    text = text.replace(/&#x([0-9a-fA-F]+);/gi, (m, h) => String.fromCharCode(parseInt(h, 16)));
-    text = text.replace(/&#(\d+);/g, (m, code) => String.fromCharCode(code));
-    text = text.replace(/[\r\n]{3,}/g, '\n\n');
-    text = text.trim();
-    
-    return text;
+
+    // Step 1: Always fetch the original URL directly (backward-compatible)
+    if (onProgress) onProgress(1);
+    const firstResponse = await fetchWithTimeout(articleUrl, {}, 20000);
+    if (!firstResponse.ok) throw new Error(`HTTP ${firstResponse.status}，無法下載小說`);
+    const firstHtml = await firstResponse.text();
+    const firstText = extractCleanText(firstHtml);
+    if (!firstText || firstText.length < 50) throw new Error('無法讀取小說內容');
+
+    const allTexts = [firstText];
+
+    // Step 2: Only try continuation pages if URL ends with /N.html (e.g. /1.html -> /2.html)
+    const pageNumMatch = articleUrl.match(/^(https?:\/\/.+\/)(\d+)\.html$/);
+    if (pageNumMatch) {
+        const baseUrl = pageNumMatch[1];
+        let nextPage = parseInt(pageNumMatch[2], 10) + 1;
+        while (true) {
+            if (onProgress) onProgress(nextPage);
+            try {
+                const res = await fetchWithTimeout(`${baseUrl}${nextPage}.html`, {}, 15000);
+                if (!res.ok) break;
+                const html = await res.text();
+                if (!html || html.length < 500) break;
+                const text = extractCleanText(html);
+                if (!text || text.length < 100) break;
+                allTexts.push(text);
+                nextPage++;
+                if (nextPage > 51) break;
+            } catch (e) { break; }
+        }
+    }
+
+    return allTexts.join('\n\n');
 }

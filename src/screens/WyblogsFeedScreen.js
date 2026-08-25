@@ -144,10 +144,22 @@ export default function WyblogsFeedScreen({ navigation }) {
     const handleDownload = useCallback(async (article) => {
         if (!article?.id || downloadingId) return;
         setDownloadingId(article.id);
+        setFetchText('正在下載小說...');
+        setFetchProgress(0.1);
 
         try {
-            let text = await fetchWyblogsArticleContent(article.url);
+            let text = await fetchWyblogsArticleContent(article.url, (page) => {
+                if (isMountedRef.current) {
+                    setFetchText(`正在下載第 ${page} 頁...`);
+                    setFetchProgress(Math.min(0.1 + page * 0.05, 0.9));
+                }
+            });
             text = convertS2T(text);
+
+            if (isMountedRef.current) {
+                setFetchText('正在處理章節...');
+                setFetchProgress(0.95);
+            }
 
             const novelId = 'blog_wyblogs_' + article.id;
             const chapterTitle = convertS2T(article.title || '無標題');
@@ -190,6 +202,8 @@ export default function WyblogsFeedScreen({ navigation }) {
         } finally {
             if (isMountedRef.current) {
                 setDownloadingId(null);
+                setFetchText('');
+                setFetchProgress(0);
             }
         }
     }, [downloadingId]);
@@ -254,6 +268,9 @@ export default function WyblogsFeedScreen({ navigation }) {
                                 <Text style={{ color: colors.textSecondary, fontSize: 11 }}>+{categories.length - 3}</Text>
                             )}
                         </View>
+                        {isDownloading && fetchText ? (
+                            <Text style={{ color: colors.primary, fontSize: 12, marginTop: 4 }}>{fetchText}</Text>
+                        ) : null}
                     </View>
                     <View style={styles.actionArea}>
                         {isDownloading ? (
@@ -274,7 +291,7 @@ export default function WyblogsFeedScreen({ navigation }) {
                 </View>
             </TouchableOpacity>
         );
-    }, [colors, isDark, downloadedIds, downloadingId, handleArticlePress, handleDownload]);
+    }, [colors, isDark, downloadedIds, downloadingId, fetchText, handleArticlePress, handleDownload]);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
