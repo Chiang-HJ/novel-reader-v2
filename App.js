@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
 import { View, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -102,10 +103,12 @@ function PrivacyScreen() {
   );
 }
 
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
 function AppContent() {
   return (
     // This View is the single root. Both Navigator and WebViewHost live as siblings inside it.
-    <View style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <RootNavigator />
       </ErrorBoundary>
@@ -114,7 +117,7 @@ function AppContent() {
       <ComicDownloadWebViewHost />
       <TwitterDownloadWebViewHost />
       <PrivacyScreen />
-    </View>
+    </GestureHandlerRootView>
   );
 }
 export default function App() {

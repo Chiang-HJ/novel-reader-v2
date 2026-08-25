@@ -20,8 +20,8 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     
     const isPureNumber = !prefix && !suffix;
     
-    // Use ^.*? to handle zero-width spaces or indentation safely
-    let regexPattern = '^.*?';
+    // Use strict whitespace matching to handle indentation safely without matching random text
+    let regexPattern = '^[ \\t\\u3000\\xA0]*';
     if (prefix) regexPattern += escapeRegExp(prefix).replace(/\s+/g, '\\s*') + '\\s*';
     
     // Enforce padding length. This is the REAL fix for the "23" bug when user types "001".
@@ -50,7 +50,14 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
         // We do NOT enforce strict sequential ordering because authors often post chapters out of order
         // or have flashbacks (e.g. 031 then 030).
         if (num >= startNum && num <= startNum + 5000) {
-            results.push(match[0].trim());
+            const matchedLine = match[0].trim();
+            // Filter out lines that look like dates or timestamps (e.g. 2024-02-07, 23.05.01)
+            if (isPureNumber) {
+                if (/^\d{2,4}[-./]\d{1,2}[-./]\d{1,2}/.test(matchedLine)) continue;
+                if (/^\d{2,4}年\d{1,2}月/.test(matchedLine)) continue;
+                if (matchedLine.length > 40) continue; // Noise filter: pure number chapters shouldn't be very long
+            }
+            results.push(matchedLine);
         }
     }
     

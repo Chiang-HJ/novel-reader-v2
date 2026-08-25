@@ -1,4 +1,4 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WYBLOGS_BASE_URL = 'https://wyblogs.eu.org/series/%E5%B0%8F%E8%AA%AA/';
 const WYBLOGS_CACHE_KEY = '@wyblogs_feed_cache';
@@ -238,6 +238,8 @@ export async function getWyblogsArticles(onProgress) {
  */
 export async function fetchWyblogsArticleContent(articleUrl, onProgress) {
     if (!articleUrl) throw new Error('未提供小說網址');
+    // Ensure URL is properly encoded (React Native fetch fails on raw Chinese chars)
+    const safeUrl = encodeURI(decodeURI(articleUrl));
 
     function extractCleanText(html) {
         let content = '';
@@ -283,7 +285,7 @@ export async function fetchWyblogsArticleContent(articleUrl, onProgress) {
 
     // Step 1: Always fetch the original URL directly (backward-compatible)
     if (onProgress) onProgress(1);
-    const firstResponse = await fetchWithTimeout(articleUrl, {}, 20000);
+    const firstResponse = await fetchWithTimeout(safeUrl, {}, 20000);
     if (!firstResponse.ok) throw new Error(`HTTP ${firstResponse.status}，無法下載小說`);
     const firstHtml = await firstResponse.text();
     const firstText = extractCleanText(firstHtml);
@@ -292,7 +294,7 @@ export async function fetchWyblogsArticleContent(articleUrl, onProgress) {
     const allTexts = [firstText];
 
     // Step 2: Only try continuation pages if URL ends with /N.html (e.g. /1.html -> /2.html)
-    const pageNumMatch = articleUrl.match(/^(https?:\/\/.+\/)(\d+)\.html$/);
+    const pageNumMatch = safeUrl.match(/^(https?:\/\/.+\/)(\d+)\.html(?:[?#].*)?$/);
     if (pageNumMatch) {
         const baseUrl = pageNumMatch[1];
         let nextPage = parseInt(pageNumMatch[2], 10) + 1;

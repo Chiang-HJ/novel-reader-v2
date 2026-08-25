@@ -1,11 +1,13 @@
-import React, { useState, useCallback, useLayoutEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator, Keyboard, TouchableWithoutFeedback } from 'react-native';
+import React, { useState, useCallback, useLayoutEffect, useRef } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator, Keyboard, TouchableWithoutFeedback, ScrollView, PanResponder, Animated } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveChapterText, updateNovelMetadata, splitChapterData, getAllChapterText, replaceNovelChapters } from '../utils/storage';
 import { splitTextIntoChapters, previewMatchedHeadings } from '../utils/parserUtils';
 import { useDownload } from '../context/DownloadContext';
 import { Feather } from '@expo/vector-icons';
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function TocScreen({ route, navigation }) {
     const { colors, isDark } = useTheme();
@@ -54,7 +56,13 @@ export default function TocScreen({ route, navigation }) {
     const [splitLength, setSplitLength] = useState('5000');
     const [splitProgress, setSplitProgress] = useState(null);
     const [isPreviewingSplit, setIsPreviewingSplit] = useState(false);
-    const [splitPreviewListStr, setSplitPreviewListStr] = useState('');
+    const [splitPreviewList, setSplitPreviewList] = useState([]); // array of title strings
+    const [editingPreviewIdx, setEditingPreviewIdx] = useState(null); // index being edited inline
+    const [dragIdx, setDragIdx] = useState(null); // index being dragged
+    const [dragOverIdx, setDragOverIdx] = useState(null); // index being hovered over
+    const dragY = useRef(new Animated.Value(0)).current;
+    const dragStartY = useRef(0);
+    const itemHeight = 44; // approximate height per row
     const [strictMatch, setStrictMatch] = useState(false);
 
     const refreshNovel = async () => {
@@ -195,8 +203,31 @@ export default function TocScreen({ route, navigation }) {
                 strictMatch
             );
             
-            setSplitPreviewListStr(matches.join('\n'));
+            setSplitPreviewList(matches);
             setIsPreviewingSplit(true);
+
+            // Auto disorder detection: check if numeric titles are out of order
+            const nums = matches.map(m => { const n = m.match(/\d+/); return n ? parseInt(n[0], 10) : null; }).filter(n => n !== null);
+            if (nums.length >= 3) {
+                let outOfOrder = 0;
+                for (let i = 1; i < nums.length; i++) { if (nums[i] < nums[i - 1]) outOfOrder++; }
+                if (outOfOrder > 0) {
+                    Alert.alert(
+                        '偵測到章節順序異常',
+                        `有 ${outOfOrder} 個章節的編號順序不連續（可能有作者倒敘或補章）。\n\n要自動依數字排列整齊嗎？`,
+                        [
+                            { text: '保持原序', style: 'cancel' },
+                            { text: '自動排序', onPress: () => {
+                                setSplitPreviewList(prev => [...prev].sort((a, b) => {
+                                    const na = a.match(/\d+/); const nb = b.match(/\d+/);
+                                    if (na && nb) return parseInt(na[0], 10) - parseInt(nb[0], 10);
+                                    return 0;
+                                }));
+                            }}
+                        ]
+                    );
+                }
+            }
         } catch (e) {
             Alert.alert('規則錯誤', e.message);
         } finally {
@@ -242,9 +273,27 @@ export default function TocScreen({ route, navigation }) {
                     newChaptersData = splitTextIntoChapters(
                         oldText, 
                         'list', 
-                        splitPreviewListStr, 
+                        splitPreviewList.join('\n'), 
                         targetChapterTitle
                     );
+                    
+                    // Reorder newChaptersData to exactly match the user's sorted splitPreviewList
+                    if (newChaptersData.length > 0) {
+                        const orderMap = new Map();
+                        // Assign priority index based on the preview list order
+                        splitPreviewList.forEach((title, index) => {
+                            // Only set if not already set (in case of duplicates, keep first occurrence)
+                            if (!orderMap.has(title.trim())) orderMap.set(title.trim(), index);
+                        });
+                        
+                        newChaptersData.sort((a, b) => {
+                            if (a.title === '前言/簡介') return -1;
+                            if (b.title === '前言/簡介') return 1;
+                            const idxA = orderMap.has(a.title.trim()) ? orderMap.get(a.title.trim()) : 999999;
+                            const idxB = orderMap.has(b.title.trim()) ? orderMap.get(b.title.trim()) : 999999;
+                            return idxA - idxB;
+                        });
+                    }
                 } catch (e) {
                     Alert.alert('規則錯誤', e.message);
                     setIsProcessing(false);
@@ -552,6 +601,7 @@ export default function TocScreen({ route, navigation }) {
 
             {/* Split Modal */}
             <Modal visible={isSplitModalVisible} transparent={true} animationType="slide">
+                <GestureHandlerRootView style={{ flex: 1 }}>
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                     <View style={styles.modalOverlay}>
                         <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
@@ -566,19 +616,141 @@ export default function TocScreen({ route, navigation }) {
                         
                         {isPreviewingSplit ? (
                             <>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10}}>請確認或編輯以下用來分割的標題清單：</Text>
-                                <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 12}}>系統將嚴格依照此清單中的每一行文字來切割章節。您可以刪除誤判的句子，或手動補上遺漏的標題。</Text>
-                                <TextInput 
-                                    style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#f5f5f5', height: 250, paddingHorizontal: 15, paddingVertical: 10, textAlignVertical: 'top' }]} 
-                                    multiline={true}
-                                    value={splitPreviewListStr}
-                                    onChangeText={setSplitPreviewListStr}
-                                    placeholder="標題清單..."
-                                    placeholderTextColor={colors.textSecondary}
-                                />
-                                <TouchableOpacity onPress={() => setIsPreviewingSplit(false)} style={{ marginTop: 10, alignSelf: 'flex-start' }}>
-                                    <Text style={{ color: colors.primary, textDecorationLine: 'underline' }}>返回重新設定規則</Text>
-                                </TouchableOpacity>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <Text style={{ color: colors.textSecondary, fontSize: 13, flex: 1 }}>共 {splitPreviewList.length} 個章節，長按可拖曳排序</Text>
+                                    <TouchableOpacity onPress={() => setIsPreviewingSplit(false)}>
+                                        <Text style={{ color: colors.primary, fontSize: 13 }}>返回設定</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={{ flex: 1, maxHeight: 300, borderRadius: 10, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
+                                    <DraggableFlatList
+                                        data={splitPreviewList}
+                                        onDragEnd={({ data }) => setSplitPreviewList(data)}
+                                        keyExtractor={(item, index) => `${index}-${item}`}
+                                        containerStyle={{ flex: 1 }}
+                                        renderItem={({ item, getIndex, drag, isActive }) => {
+                                            const idx = getIndex();
+                                            return (
+                                                <ScaleDecorator>
+                                                    <View>
+                                                        {/* Insert Above */}
+                                                        <TouchableOpacity
+                                                            style={{ alignItems: 'center', paddingVertical: 3 }}
+                                                            onPress={() => {
+                                                                const newList = [...splitPreviewList];
+                                                                newList.splice(idx, 0, '');
+                                                                setSplitPreviewList(newList);
+                                                                setEditingPreviewIdx(idx);
+                                                            }}
+                                                        >
+                                                            <View style={{ flexDirection: 'row', alignItems: 'center', opacity: 0.3 }}>
+                                                                <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary }} />
+                                                                <Feather name="plus" size={11} color={colors.primary} style={{ marginHorizontal: 6 }} />
+                                                                <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary }} />
+                                                            </View>
+                                                        </TouchableOpacity>
+
+                                                        {/* Item Row */}
+                                                        <View style={{
+                                                            flexDirection: 'row', alignItems: 'center',
+                                                            paddingHorizontal: 10, paddingVertical: 9,
+                                                            backgroundColor:
+                                                                isActive ? (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.07)')
+                                                                : editingPreviewIdx === idx ? (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)')
+                                                                : 'transparent',
+                                                        }}>
+                                                            {/* Drag handle */}
+                                                            <TouchableOpacity
+                                                                style={{ paddingRight: 8, paddingVertical: 4 }}
+                                                                onLongPress={drag}
+                                                                delayLongPress={100}
+                                                                onPress={() => setEditingPreviewIdx(idx)}
+                                                            >
+                                                                <Feather name="menu" size={16} color={isActive ? colors.primary : colors.textSecondary} />
+                                                            </TouchableOpacity>
+
+                                                            <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primary + '22', justifyContent: 'center', alignItems: 'center', marginRight: 8 }}>
+                                                                <Text style={{ color: colors.primary, fontSize: 9, fontWeight: '700' }}>{idx + 1}</Text>
+                                                            </View>
+
+                                                            {editingPreviewIdx === idx ? (
+                                                                <TextInput
+                                                                    style={{ flex: 1, color: colors.text, fontSize: 14, padding: 0 }}
+                                                                    value={item}
+                                                                    autoFocus
+                                                                    onChangeText={(t) => {
+                                                                        const newList = [...splitPreviewList];
+                                                                        newList[idx] = t;
+                                                                        setSplitPreviewList(newList);
+                                                                    }}
+                                                                    onBlur={() => {
+                                                                        if (!splitPreviewList[idx]?.trim()) {
+                                                                            setSplitPreviewList(prev => prev.filter((_, i) => i !== idx));
+                                                                        }
+                                                                        setEditingPreviewIdx(null);
+                                                                    }}
+                                                                    returnKeyType="done"
+                                                                    onSubmitEditing={() => setEditingPreviewIdx(null)}
+                                                                />
+                                                            ) : (
+                                                                <TouchableOpacity
+                                                                    style={{ flex: 1 }}
+                                                                    onPress={() => setEditingPreviewIdx(idx)}
+                                                                    onLongPress={() => {
+                                                                        Alert.alert('刪除章節', `確定要刪除「${item}」嗎？`, [
+                                                                            { text: '取消', style: 'cancel' },
+                                                                            { text: '刪除', style: 'destructive', onPress: () => {
+                                                                                setSplitPreviewList(prev => prev.filter((_, i) => i !== idx));
+                                                                            }}
+                                                                        ]);
+                                                                    }}
+                                                                    delayLongPress={600}
+                                                                >
+                                                                    <Text style={{ color: colors.text, fontSize: 14 }} numberOfLines={1}>{item}</Text>
+                                                                </TouchableOpacity>
+                                                            )}
+
+                                                            <TouchableOpacity
+                                                                style={{ padding: 6, marginLeft: 2 }}
+                                                                onPress={() => {
+                                                                    setSplitPreviewList(prev => prev.filter((_, i) => i !== idx));
+                                                                    if (editingPreviewIdx === idx) setEditingPreviewIdx(null);
+                                                                }}
+                                                            >
+                                                                <Feather name="x" size={16} color={colors.textSecondary} />
+                                                            </TouchableOpacity>
+                                                        </View>
+
+                                                        {/* Insert Below (after last only) */}
+                                                        {idx === splitPreviewList.length - 1 && (
+                                                            <TouchableOpacity
+                                                                style={{ alignItems: 'center', paddingVertical: 3 }}
+                                                                onPress={() => {
+                                                                    setSplitPreviewList(prev => [...prev, '']);
+                                                                    setEditingPreviewIdx(splitPreviewList.length);
+                                                                }}
+                                                            >
+                                                                <View style={{ flexDirection: 'row', alignItems: 'center', opacity: 0.3 }}>
+                                                                    <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary }} />
+                                                                    <Feather name="plus" size={11} color={colors.primary} style={{ marginHorizontal: 6 }} />
+                                                                    <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.primary }} />
+                                                                </View>
+                                                            </TouchableOpacity>
+                                                        )}
+                                                    </View>
+                                                </ScaleDecorator>
+                                            );
+                                        }}
+                                    />
+                                    {splitPreviewList.length === 0 && (
+                                        <TouchableOpacity
+                                            style={{ padding: 16, alignItems: 'center' }}
+                                            onPress={() => { setSplitPreviewList(['']); setEditingPreviewIdx(0); }}
+                                        >
+                                            <Text style={{ color: colors.primary }}>＋ 新增第一個章節標題</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             </>
                         ) : (
                             <>
@@ -710,6 +882,7 @@ export default function TocScreen({ route, navigation }) {
                     </View>
                 </View>
                 </TouchableWithoutFeedback>
+                </GestureHandlerRootView>
             </Modal>
 
             {/* Edit/Add Chapter Modal */}
