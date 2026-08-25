@@ -30,6 +30,11 @@ jobs:
         run: |
           echo "export NODE_BINARY=$(command -v node)" > ios/.xcode.env.local
 
+      - name: Install CocoaPods Dependencies
+        run: |
+          cd ios
+          pod install
+
       - name: Patch Pods project fmt target to use c++17
         run: |
           cd ios
