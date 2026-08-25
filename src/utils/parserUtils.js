@@ -6,7 +6,6 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     
     if (!numMatch) {
-        // Fallback for non-numeric examples
         let finalRegexStr = '^\\s*' + escapeRegExp(trimStr).replace(/\s+/g, '\\s+') + '.*';
         const regexObj = new RegExp('(' + finalRegexStr + ')', 'gm');
         const matches = text.match(regexObj);
@@ -17,12 +16,14 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     const startNumStr = numMatch[2];
     const suffix = numMatch[3];
     const startNum = parseInt(startNumStr, 10);
+    const padLen = startNumStr.length;
     
     const isPureNumber = !prefix && !suffix;
     
     let regexPattern = '^\\s*';
     if (prefix) regexPattern += escapeRegExp(prefix).replace(/\s+/g, '\\s*') + '\\s*';
-    regexPattern += '(\\d+)';
+    // Require at least padLen digits (e.g., '001' means at least 3 digits)
+    regexPattern += '(\\d{' + padLen + ',})';
     if (suffix) regexPattern += '\\s*' + escapeRegExp(suffix).replace(/\s+/g, '\\s*');
     
     if (isPureNumber) {
@@ -38,23 +39,46 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     
     const regex = new RegExp(regexPattern, 'gm');
     let match;
-    let expectedNum = startNum;
-    const results = [];
+    const allMatches = [];
     
     while ((match = regex.exec(text)) !== null) {
-        const line = match[0];
-        const num = parseInt(match[1], 10);
+        allMatches.push({
+            line: match[0].trim(),
+            num: parseInt(match[1], 10)
+        });
+    }
+    
+    const results = [];
+    let expectedNum = startNum;
+    let currentIndex = 0;
+    
+    while (currentIndex < allMatches.length) {
+        let bestMatchIdx = -1;
+        let minNum = Infinity;
         
-        if (results.length === 0) {
-             if (num >= startNum && num <= startNum + 50) {
-                 results.push(line.trim());
-                 expectedNum = num + 1;
-             }
+        for (let i = currentIndex; i < allMatches.length; i++) {
+            const m = allMatches[i];
+            
+            const targetNum = results.length === 0 ? startNum : expectedNum - 1;
+            const expectedExact = results.length === 0 ? startNum : expectedNum;
+            
+            if (m.num >= targetNum) {
+                if (m.num < minNum) {
+                    minNum = m.num;
+                    bestMatchIdx = i;
+                }
+                if (minNum === expectedExact) {
+                    break;
+                }
+            }
+        }
+        
+        if (bestMatchIdx !== -1) {
+            results.push(allMatches[bestMatchIdx].line);
+            expectedNum = allMatches[bestMatchIdx].num + 1;
+            currentIndex = bestMatchIdx + 1;
         } else {
-             if (num >= expectedNum - 1 && num <= expectedNum + 50) {
-                 results.push(line.trim());
-                 expectedNum = num + 1;
-             }
+            break;
         }
     }
     
