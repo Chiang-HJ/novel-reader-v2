@@ -29,15 +29,20 @@ if (!fs.existsSync(sliderPodspecPath)) {
   console.warn(`WARNING: ${sliderPodspecPath} not found, skipping.`);
 } else {
   let sliderContent = fs.readFileSync(sliderPodspecPath, 'utf8');
-  if (sliderContent.includes('s.source_files = "ios/**/*.{h,m,mm}"')) {
+  // First, recover from any previous corrupted nested ternaries (new_arch_enabled ? new_arch_enabled ? ...)
+  sliderContent = sliderContent.replace(/new_arch_enabled \? (new_arch_enabled \? )+/, 'new_arch_enabled ? ');
+  
+  if (sliderContent.includes('s.source_files = "ios/**/*.{h,m,mm}"') && !sliderContent.includes('new_arch_enabled ?')) {
     sliderContent = sliderContent.replace(
       's.source_files = "ios/**/*.{h,m,mm}"',
-      // Only include .mm files when New Architecture is enabled
-      `new_arch_enabled ? s.source_files = "ios/**/*.{h,m,mm}" : (s.source_files = "ios/**/*.{h,m}"; s.exclude_files = "ios/**/RNCSliderComponentView.{h,mm}")`
+      `new_arch_enabled ? (s.source_files = "ios/**/*.{h,m,mm}") : (s.source_files = "ios/**/*.{h,m}"; s.exclude_files = "ios/**/RNCSliderComponentView.{h,mm}")`
     );
     fs.writeFileSync(sliderPodspecPath, sliderContent);
     console.log('SUCCESS: Patched slider podspec to exclude Fabric files in Old Architecture');
+  } else if (sliderContent.includes('new_arch_enabled ?')) {
+    fs.writeFileSync(sliderPodspecPath, sliderContent); // save the un-corrupted version
+    console.log('slider podspec already safely patched.');
   } else {
-    console.log('slider podspec already patched or has unexpected format.');
+    console.log('slider podspec has unexpected format.');
   }
 }
