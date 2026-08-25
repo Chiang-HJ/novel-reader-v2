@@ -6,7 +6,6 @@ import { getNovelById, deleteChapterData, addChapterData, getChapterText, saveCh
 import { splitTextIntoChapters, previewMatchedHeadings } from '../utils/parserUtils';
 import { useDownload } from '../context/DownloadContext';
 import { Feather } from '@expo/vector-icons';
-import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function TocScreen({ route, navigation }) {
@@ -623,16 +622,14 @@ export default function TocScreen({ route, navigation }) {
                                     </TouchableOpacity>
                                 </View>
                                 <View style={{ flex: 1, maxHeight: 300, borderRadius: 10, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
-                                    <DraggableFlatList
+                                    <FlatList
                                         data={splitPreviewList}
-                                        onDragEnd={({ data }) => setSplitPreviewList(data)}
                                         keyExtractor={(item, index) => `${index}-${item}`}
                                         containerStyle={{ flex: 1 }}
-                                        renderItem={({ item, getIndex, drag, isActive }) => {
-                                            const idx = getIndex();
+                                        renderItem={({ item, index }) => {
+                                            const idx = index;
                                             return (
-                                                <ScaleDecorator>
-                                                    <View>
+                                                <View>
                                                         {/* Insert Above */}
                                                         <TouchableOpacity
                                                             style={{ alignItems: 'center', paddingVertical: 3 }}
@@ -655,18 +652,15 @@ export default function TocScreen({ route, navigation }) {
                                                             flexDirection: 'row', alignItems: 'center',
                                                             paddingHorizontal: 10, paddingVertical: 9,
                                                             backgroundColor:
-                                                                isActive ? (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.07)')
-                                                                : editingPreviewIdx === idx ? (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)')
+                                                                editingPreviewIdx === idx ? (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)')
                                                                 : 'transparent',
                                                         }}>
                                                             {/* Drag handle */}
                                                             <TouchableOpacity
                                                                 style={{ paddingRight: 8, paddingVertical: 4 }}
-                                                                onLongPress={drag}
-                                                                delayLongPress={100}
                                                                 onPress={() => setEditingPreviewIdx(idx)}
                                                             >
-                                                                <Feather name="menu" size={16} color={isActive ? colors.primary : colors.textSecondary} />
+                                                                <Feather name="menu" size={16} color={colors.textSecondary} />
                                                             </TouchableOpacity>
 
                                                             <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primary + '22', justifyContent: 'center', alignItems: 'center', marginRight: 8 }}>
@@ -738,7 +732,6 @@ export default function TocScreen({ route, navigation }) {
                                                             </TouchableOpacity>
                                                         )}
                                                     </View>
-                                                </ScaleDecorator>
                                             );
                                         }}
                                     />

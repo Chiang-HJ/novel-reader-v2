@@ -24,7 +24,7 @@ jobs:
         run: node fix_fmt.js
 
       - name: Expo Prebuild (Generate iOS folder)
-        run: npx expo prebuild --platform ios --clean
+        run: npx expo prebuild --platform ios --clean --skip-dependency-update react-native-reanimated
 
       - name: Setup Xcode Node Environment
         run: |
