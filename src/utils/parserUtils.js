@@ -20,10 +20,13 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     
     const isPureNumber = !prefix && !suffix;
     
-    let regexPattern = '^\\s*';
+    // Use ^.*? to handle zero-width spaces or indentation safely
+    let regexPattern = '^.*?';
     if (prefix) regexPattern += escapeRegExp(prefix).replace(/\s+/g, '\\s*') + '\\s*';
-    // Require at least padLen digits (e.g., '001' means at least 3 digits)
+    
+    // Enforce padding length. This is the REAL fix for the "23" bug when user types "001".
     regexPattern += '(\\d{' + padLen + ',})';
+    
     if (suffix) regexPattern += '\\s*' + escapeRegExp(suffix).replace(/\s+/g, '\\s*');
     
     if (isPureNumber) {
@@ -39,46 +42,15 @@ function extractSequentialHeadings(text, exampleStr, strictMatch) {
     
     const regex = new RegExp(regexPattern, 'gm');
     let match;
-    const allMatches = [];
+    const results = [];
     
     while ((match = regex.exec(text)) !== null) {
-        allMatches.push({
-            line: match[0].trim(),
-            num: parseInt(match[1], 10)
-        });
-    }
-    
-    const results = [];
-    let expectedNum = startNum;
-    let currentIndex = 0;
-    
-    while (currentIndex < allMatches.length) {
-        let bestMatchIdx = -1;
-        let minNum = Infinity;
-        
-        for (let i = currentIndex; i < allMatches.length; i++) {
-            const m = allMatches[i];
-            
-            const targetNum = results.length === 0 ? startNum : expectedNum - 1;
-            const expectedExact = results.length === 0 ? startNum : expectedNum;
-            
-            if (m.num >= targetNum) {
-                if (m.num < minNum) {
-                    minNum = m.num;
-                    bestMatchIdx = i;
-                }
-                if (minNum === expectedExact) {
-                    break;
-                }
-            }
-        }
-        
-        if (bestMatchIdx !== -1) {
-            results.push(allMatches[bestMatchIdx].line);
-            expectedNum = allMatches[bestMatchIdx].num + 1;
-            currentIndex = bestMatchIdx + 1;
-        } else {
-            break;
+        const num = parseInt(match[1], 10);
+        // We only filter out numbers that are smaller than the start number.
+        // We do NOT enforce strict sequential ordering because authors often post chapters out of order
+        // or have flashbacks (e.g. 031 then 030).
+        if (num >= startNum && num <= startNum + 5000) {
+            results.push(match[0].trim());
         }
     }
     
