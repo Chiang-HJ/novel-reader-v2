@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
 import { getBookshelf, deleteNovel, updateNovelMetadata } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Audio } from 'expo-av';
