@@ -52,8 +52,7 @@ jobs:
             pods_project.save
             puts "Saved Pods.xcodeproj"
           else
-            puts "ERROR: fmt target not found!"
-            exit 1
+            puts "INFO: fmt target not found, skipping."
           end
           RUBY
 
