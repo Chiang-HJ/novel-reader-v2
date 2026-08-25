@@ -552,9 +552,10 @@ export default function TocScreen({ route, navigation }) {
 
             {/* Split Modal */}
             <Modal visible={isSplitModalVisible} transparent={true} animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.editContent, { backgroundColor: colors.surface }]}>
+                            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
                             <Text style={[styles.modalTitle, { color: colors.text }]}>
                                 {splitTarget === 'novel' ? '整本重分割' : '自動分割章節'}
                             </Text>
@@ -614,12 +615,13 @@ export default function TocScreen({ route, navigation }) {
                                             placeholderTextColor={colors.textSecondary}
                                         />
                                         <TouchableOpacity 
-                                            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, marginBottom: 15 }} 
+                                            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, marginBottom: 5 }} 
                                             onPress={() => setStrictMatch(!strictMatch)}
                                         >
                                             <Feather name={strictMatch ? "check-square" : "square"} size={20} color={colors.primary} style={{ marginRight: 8 }} />
                                             <Text style={{ color: colors.textSecondary }}>嚴格要求數字後方必須有標點符號或空格</Text>
                                         </TouchableOpacity>
+                                        <Text style={{ color: colors.textSecondary, marginBottom: 15, fontSize: 12 }}>提示：輸入數字 (例如 001 或 1) 時，系統會自動將其視為「所有連續數字」(包含 1, 2, 002, 100 等)。如果預覽中出現如「10年前」的誤判，請勾選上方選項或手動刪除。</Text>
                                     </>
                                 ) : splitMode === 'regex' ? (
                                     <>
@@ -707,6 +709,7 @@ export default function TocScreen({ route, navigation }) {
                         )}
                     </View>
                 </View>
+                </TouchableWithoutFeedback>
             </Modal>
 
             {/* Edit/Add Chapter Modal */}
