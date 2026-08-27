@@ -1,6 +1,11 @@
 import md5 from 'md5';
 
-export const getScramblePieces = (photo_id, filename) => {
+export const getScramblePieces = (photo_id, filename, novelId = '') => {
+    // Boylove algorithm
+    if (novelId.includes('boylove') || novelId.includes('香香腐宅')) {
+        return 13;
+    }
+    
     // 18comic defaults scramble_id to 220980.
     const scramble_id = 220980;
     

@@ -13,6 +13,7 @@ import TocScreen from './src/screens/TocScreen';
 import BlogFeedScreen from './src/screens/BlogFeedScreen';
 import WyblogsFeedScreen from './src/screens/WyblogsFeedScreen';
 import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
+import BoyloveFeedScreen from './src/screens/BoyloveFeedScreen';
 import ComicReaderScreen from './src/screens/ComicReaderScreen';
 import DictionaryManagerScreen from './src/screens/DictionaryManagerScreen';
 import TrackPlayer from './src/utils/safeTrackPlayer';
@@ -64,6 +65,7 @@ function RootNavigator() {
         <Stack.Screen name="BlogFeed" component={BlogFeedScreen} options={{ title: '語錄集' }} />
         <Stack.Screen name="WyblogsFeed" component={WyblogsFeedScreen} options={{ title: 'Wyblogs 小說' }} />
         <Stack.Screen name="JMComicFeed" component={JMComicFeedScreen} options={{ title: '禁漫天堂 (18comic)' }} />
+        <Stack.Screen name="BoyloveFeed" component={BoyloveFeedScreen} options={{ title: 'Boylove' }} />
         <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DictionaryManager" component={DictionaryManagerScreen} options={{ headerShown: false }} />
       </Stack.Navigator>

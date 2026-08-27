@@ -299,7 +299,7 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData, 
             const filePath = `${imagesDir}${fileName}`;
             const downloadOptions = {
                 headers: {
-                    'Referer': 'https://18comic.vip/',
+                    'Referer': imageData.includes('boylove') ? 'https://boylove.cc/' : 'https://18comic.vip/',
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
                 }
             };

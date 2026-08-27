@@ -995,27 +995,35 @@ export default function VaultScreen({ navigation }) {
                                     </TouchableOpacity>
                                 </View>
 
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, gap: 8 }}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                                     <TouchableOpacity 
-                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        style={{ width: '48%', backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
                                         onPress={() => navigation.navigate('BlogFeed')}
                                     >
                                         <Feather name="book-open" size={16} color={colors.primary} />
                                         <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>語錄集</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity 
-                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        style={{ width: '48%', backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
                                         onPress={() => navigation.navigate('WyblogsFeed')}
                                     >
                                         <Feather name="book" size={16} color={colors.primary} />
                                         <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>Wyblogs</Text>
                                     </TouchableOpacity>
+
                                     <TouchableOpacity 
-                                        style={{ flex: 1, backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }} 
+                                        style={{ width: '48%', backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 }} 
                                         onPress={() => navigation.navigate('JMComicFeed')}
                                     >
                                         <Feather name="image" size={16} color={colors.primary} />
                                         <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>禁漫天堂</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ width: '48%', backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 }} 
+                                        onPress={() => navigation.navigate('BoyloveFeed')}
+                                    >
+                                        <Feather name="image" size={16} color={colors.primary} />
+                                        <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>香香腐宅</Text>
                                     </TouchableOpacity>
                                 </View>
 
@@ -1075,8 +1083,12 @@ export default function VaultScreen({ navigation }) {
                                     }
                                 }}
                                 onAuthorPress={(author) => {
-                                    if (item.type === 'comic') {
-                                        navigation.navigate('JMComicFeed', { initialQuery: author });
+                                    if (item.type === 'comic' || item.id.includes('comic') || item.id.includes('香香')) {
+                                        if (item.id.includes('boylove') || item.id.includes('香香')) {
+                                            navigation.navigate('BoyloveFeed', { initialQuery: author });
+                                        } else {
+                                            navigation.navigate('JMComicFeed', { initialQuery: author });
+                                        }
                                     }
                                 }}
                                 onDelete={() => confirmDeleteNovel(item)}

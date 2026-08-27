@@ -548,8 +548,12 @@ export default function HomeScreen({ navigation }) {
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}
                         onAuthorPress={(author) => {
-                            if (item.type === 'comic') {
-                                navigation.navigate('JMComicFeed', { initialQuery: author });
+                            if (item.type === 'comic' || item.id.includes('comic') || item.id.includes('香香')) {
+                                if (item.id.includes('boylove') || item.id.includes('香香')) {
+                                    navigation.navigate('BoyloveFeed', { initialQuery: author });
+                                } else {
+                                    navigation.navigate('JMComicFeed', { initialQuery: author });
+                                }
                             } else {
                                 setSearchInput(author);
                             }

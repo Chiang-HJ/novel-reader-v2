@@ -1,6 +1,19 @@
 import { getParserForUrl } from './parsers';
 import { convertS2T } from './opencc';
 
+// Removed globalWebviewFetcher
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 15000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response;
+    } finally {
+        clearTimeout(id);
+    }
+};
+
 export const parseNovelInfo = (html, url) => {
     const parser = getParserForUrl(url);
     const info = parser.parseInfo(html, url);
@@ -28,12 +41,27 @@ export const fetchNovelInfo = async (url) => {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X)',
             'Accept': 'text/html'
         };
-        const response = await fetch(url, { headers });
+        const response = await fetchWithTimeout(url, { headers }, 5000);
         const html = await response.text();
+        const lowerHtml = html.toLowerCase();
+        
+        // Detect Cloudflare block
+        if (
+            response.status === 403 || 
+            response.status === 503 || 
+            lowerHtml.includes('enable javascript and cookies to continue') ||
+            lowerHtml.includes('just a moment...') ||
+            lowerHtml.includes('cloudflare')
+        ) {
+            throw new Error('存取被 Cloudflare 拒絕。由於這是一個需要進階驗證的網站，自動下載功能已停用。請使用瀏覽器開啟。');
+        }
+        
         return parseNovelInfo(html, url);
     } catch (e) {
-
-        throw new Error('無法取得小說資訊，請確認網址正確');
+        if (e.name === 'AbortError') {
+            throw new Error('存取被 Cloudflare 拒絕 (超時)。由於這是一個需要進階驗證的網站，自動下載功能已停用。請使用瀏覽器開啟。');
+        }
+        throw new Error(e.message || '無法取得小說資訊，請確認網址正確');
     }
 };
 
@@ -49,11 +77,29 @@ export const fetchChapterText = async (chapterUrl) => {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X)',
             'Accept': 'text/html'
         };
-        const response = await fetch(chapterUrl, { headers });
+        const response = await fetchWithTimeout(chapterUrl, { headers });
         let html = await response.text();
+        const lowerHtml = html.toLowerCase();
+
+        // Detect Cloudflare block
+        if (
+            response.status === 403 || 
+            response.status === 503 || 
+            lowerHtml.includes('enable javascript and cookies to continue') ||
+            lowerHtml.includes('just a moment...') ||
+            lowerHtml.includes('cloudflare')
+        ) {
+            if (globalWebviewFetcher) {
+                console.log('Cloudflare detected in fetchChapterText, falling back to WebView...');
+                const webviewHtml = await globalWebviewFetcher(chapterUrl);
+                if (webviewHtml) {
+                    return parseChapterText(webviewHtml, chapterUrl);
+                }
+            }
+        }
+        
         return parseChapterText(html, chapterUrl);
     } catch (e) {
-
         return '本章節下載失敗。';
     }
 };

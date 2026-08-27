@@ -70,6 +70,57 @@ const DescrambleWebView = forwardRef((props, ref) => {
                         
                         var mime = data.mimeType || 'image/jpeg';
                         img.src = "data:" + mime + ";base64," + data.base64;
+
+                    } else if (data && data.type === 'DESCRAMBLE_BOYLOVE') {
+                        // Boylove horizontal descramble: mirrors do_mergeImg() from boylove.cc
+                        var img = new Image();
+                        img.onload = function() {
+                            var canvas = document.getElementById('canvas');
+                            var ctx = canvas.getContext('2d');
+                            var w = img.naturalWidth;
+                            var h = img.naturalHeight;
+                            var num = 13; // boylove standard
+                            canvas.width = w;
+                            canvas.height = h;
+
+                            for (var i = 1; i <= num; i++) {
+                                if (h >= 4000) {
+                                    // Not scrambled: straight copy
+                                    ctx.drawImage(img,
+                                        Math.floor(w/num)*(i-1), 0, Math.floor(w/num), h,
+                                        Math.floor(w/num)*(i-1), 0, Math.floor(w/num), h
+                                    );
+                                } else if (i === num) {
+                                    var lastW = w - Math.floor(w/num)*(num-1);
+                                    ctx.drawImage(img,
+                                        0, 0, lastW, h,
+                                        Math.floor(w/num)*(num-1), 0, lastW, h
+                                    );
+                                } else {
+                                    var pw = Math.floor(w/num);
+                                    ctx.drawImage(img,
+                                        w - pw*i, 0, pw, h,
+                                        pw*(i-1), 0, pw, h
+                                    );
+                                }
+                            }
+
+                            var resultBase64 = canvas.toDataURL('image/jpeg', 0.92);
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'DESCRAMBLE_RESULT',
+                                jobId: data.jobId,
+                                base64: resultBase64
+                            }));
+                        };
+                        img.onerror = function() {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'DESCRAMBLE_ERROR',
+                                jobId: data.jobId,
+                                error: 'Boylove image load failed'
+                            }));
+                        };
+                        var mime = data.mimeType || 'image/jpeg';
+                        img.src = "data:" + mime + ";base64," + data.base64;
                     }
                 } catch(e) {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ 
@@ -113,6 +164,34 @@ const DescrambleWebView = forwardRef((props, ref) => {
                     mimeType
                 });
                 
+                webViewRef.current.injectJavaScript(`window.postMessage(${JSON.stringify(message)}, '*'); true;`);
+            });
+        },
+
+        descrambleBoylove: (base64, mimeType = 'image/jpeg') => {
+            return new Promise((resolve, reject) => {
+                if (!isReady || !webViewRef.current) {
+                    reject(new Error('DescrambleWebView is not ready'));
+                    return;
+                }
+
+                const jobId = jobIdCounter.current++;
+                const timer = setTimeout(() => {
+                    if (pendingJobs.current[jobId]) {
+                        delete pendingJobs.current[jobId];
+                        reject(new Error(`Boylove descramble timeout for jobId ${jobId}`));
+                    }
+                }, 15000);
+
+                pendingJobs.current[jobId] = { resolve, reject, timer };
+
+                const message = JSON.stringify({
+                    type: 'DESCRAMBLE_BOYLOVE',
+                    jobId,
+                    base64,
+                    mimeType
+                });
+
                 webViewRef.current.injectJavaScript(`window.postMessage(${JSON.stringify(message)}, '*'); true;`);
             });
         }

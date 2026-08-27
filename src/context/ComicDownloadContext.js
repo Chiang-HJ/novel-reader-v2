@@ -5,6 +5,7 @@ import { saveNovelToBookshelf, saveComicChapterData, saveComicImage, getNovelMet
 import * as FileSystem from 'expo-file-system/legacy';
 import { getScramblePieces } from '../utils/comicUtils';
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
+import { getParserForUrl } from '../utils/parsers';
 
 import DescrambleWebView from '../components/DescrambleWebView';
 
@@ -76,8 +77,10 @@ export const ComicDownloadProvider = ({ children }) => {
         setProgressText('正在取得漫畫資訊...');
         
         try {
-            // Step 1: Save basic metadata to bookshelf (Vault)
-            const novelId = 'comic_18comic_' + task.id;
+            const parser = getParserForUrl(task.url);
+            const isJMComic = parser && parser.domain && (parser.domain.includes('18comic') || parser.domain.includes('jmcomic'));
+            
+            const novelId = 'comic_' + (parser ? parser.name : '18comic') + '_' + task.id;
             const existingNovel = await getNovelMetadata(novelId);
             const initialDownloadedCount = existingNovel ? (existingNovel.downloadedChapters || 0) : 0;
             
@@ -89,34 +92,45 @@ export const ComicDownloadProvider = ({ children }) => {
                 type: 'comic',
                 folderId: 'vault',
                 isHidden: true,
-                isDescrambled: true,
+                // JMComic: images are descrambled offline at download time, so mark as true.
+                // boylove: unknown until we check the chapter HTML. Start as false (assume scrambled).
+                //          Will be updated to true per-chapter if server sends unscrambled images.
+                isDescrambled: isJMComic ? true : false,
                 chapters: [],
                 downloadedChapters: initialDownloadedCount,
                 chapterCount: 0
             };
             
-            // We use the WebView to parse the album page for chapters
-            const albumData = await fetchHtmlViaWebView(task.url, 'album');
-            if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
-            
-            const html = albumData.html || '';
-            const author = albumData.author || '';
-            
-            // Debug alert for author extraction
-            if (author) {
-                novelData.author = author;
-            } else {
-                // Fallback to regex if JS extraction failed
-                const authorMatch = html.match(/data-original-title="作者"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) 
-                    || html.match(/itemprop="author"[^>]*>([^<]+)<\/a>/i)
-                    || html.match(/作者[：:]\s*<a[^>]*>([^<]+)<\/a>/i);
-                if (authorMatch && authorMatch[1]) {
-                    novelData.author = authorMatch[1].trim();
+            let chapters = [];
+            if (isJMComic) {
+                // JMComic uses WebView to parse album page
+                const albumData = await fetchHtmlViaWebView(task.url, 'album');
+                if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
+                
+                const html = albumData.html || '';
+                const author = albumData.author || '';
+                if (author) novelData.author = author;
+                else {
+                    const authorMatch = html.match(/data-original-title="作者"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) 
+                        || html.match(/itemprop="author"[^>]*>([^<]+)<\/a>/i)
+                        || html.match(/作者[：:]\s*<a[^>]*>([^<]+)<\/a>/i);
+                    if (authorMatch && authorMatch[1]) novelData.author = authorMatch[1].trim();
                 }
+                
+                chapters = parseAlbumChapters(html, task.url);
+            } else if (parser.parseInfo) {
+                // Use parser directly (e.g. boylove)
+                const res = await fetch(task.url, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+                });
+                const html = await res.text();
+                if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
+                
+                const info = parser.parseInfo(html, task.url);
+                if (info.author) novelData.author = info.author;
+                chapters = info.chapters || [];
             }
             
-            // Basic regex parsing for chapters (eps)
-            const chapters = parseAlbumChapters(html, task.url);
             if (chapters.length === 0) {
                 throw new Error('找不到章節資訊');
             }
@@ -126,19 +140,34 @@ export const ComicDownloadProvider = ({ children }) => {
             await saveNovelToBookshelf(novelData);
             setBookshelfUpdated(Date.now());
             
-            let downloadedCount = initialDownloadedCount;
+            // Calculate how many chapters are already downloaded based on .json files
+            let downloadedCount = 0;
+            const downloadedFlags = [];
+            if (chapters.length > 0) {
+                for (let i = 0; i < chapters.length; i++) {
+                    const jsonPath = FileSystem.documentDirectory + `novels/${novelId}/${i}.json`;
+                    const jsonInfo = await FileSystem.getInfoAsync(jsonPath);
+                    if (jsonInfo.exists) {
+                        downloadedFlags[i] = true;
+                        downloadedCount++;
+                    } else {
+                        downloadedFlags[i] = false;
+                    }
+                }
+            }
 
             const progressArray = chapters.map((ch, idx) => ({
                 index: idx,
                 title: ch.title,
                 url: ch.url,
-                status: idx < downloadedCount ? 'success' : 'pending'
+                status: downloadedFlags[idx] ? 'success' : 'pending'
             }));
             setActiveTaskProgress(progressArray);
             
             // Step 2: Download each chapter
-            for (let i = downloadedCount; i < chapters.length; i++) {
+            for (let i = 0; i < chapters.length; i++) {
                 if (cancelFlagRef.current.has(task.id)) throw new Error('Cancelled');
+                if (downloadedFlags[i]) continue;
                 
                 const chapter = chapters[i];
                 
@@ -151,28 +180,53 @@ export const ComicDownloadProvider = ({ children }) => {
                 
                 setProgressText('正在下載: ' + chapter.title + ' (' + (i + 1) + '/' + chapters.length + ')');
                 
-                // Fetch chapter page and wait for JS descrambling
                 try {
-                    const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
-                    const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
-                    const chapterResult = await fetchHtmlViaWebView(chapterUrl, 'photo');
+                    let images = [];
+                    let cookies = '';
+                    let chapterResult = null;
+                    if (isJMComic) {
+                        const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
+                        const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
+                        chapterResult = await fetchHtmlViaWebView(chapterUrl, 'photo');
+                        if (chapterResult.error) throw new Error(chapterResult.error);
+                        images = chapterResult.images;
+                        cookies = chapterResult.cookies;
+                    } else if (parser.fetchChapterImages) {
+                        const fetchResult = await parser.fetchChapterImages(chapter.url);
+                        if (fetchResult && fetchResult.images) {
+                            images = fetchResult.images;
+                            // Update isDescrambled based on whether THIS chapter is scrambled.
+                            // isDescrambled=true means "images are already correct, no runtime descrambling needed"
+                            // Only permanently mark as not-scrambled if the server confirms it.
+                            // If at least one chapter is scrambled, we must keep isDescrambled=false.
+                            if (fetchResult.isScrambled === true && novelData.isDescrambled !== false) {
+                                novelData.isDescrambled = false;
+                                await saveNovelToBookshelf(novelData);
+                            } else if (fetchResult.isScrambled === false && novelData.isDescrambled !== true) {
+                                // Only update to "not scrambled" if we haven't already marked it scrambled
+                                novelData.isDescrambled = true;
+                                await saveNovelToBookshelf(novelData);
+                            }
+                        } else if (Array.isArray(fetchResult)) {
+                            images = fetchResult;
+                        }
+                    }
                     
-                    if (chapterResult.error) throw new Error(chapterResult.error);
-                    if (!chapterResult.images || chapterResult.images.length === 0) {
-                        throw new Error('章節 ' + chapter.title + ' 下載失敗');
+                    if (!images || images.length === 0) {
+                        throw new Error('章節 ' + chapter.title + ' 下載失敗 (無圖片)');
                     }
                     
                     // Save images
                     const localPages = [];
-                    for (let j = 0; j < chapterResult.images.length; j++) {
-                        const base64OrUrl = chapterResult.images[j];
-                        const pct = Math.round(((j + 1) / chapterResult.images.length) * 100);
-                        setProgressText(`[第 ${i + 1}/${chapters.length} 話] 下載圖片 (${j + 1}/${chapterResult.images.length}) - ${pct}%`);
-                        let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, chapterResult.cookies);
+                    for (let j = 0; j < images.length; j++) {
+                        const base64OrUrl = images[j];
+                        const pct = Math.round(((j + 1) / images.length) * 100);
+                        setProgressText(`[第 ${i + 1}/${chapters.length} 話] 下載圖片 (${j + 1}/${images.length}) - ${pct}%`);
+                        let localPath = await saveComicImage(novelId, chapter.id, j, base64OrUrl, cookies);
                         
                         // Offline Descrambling
                         try {
-                            if (descrambleWebViewRef.current) {
+                            if (isJMComic && descrambleWebViewRef.current && chapterResult && chapterResult.images) {
                                 setProgressText(`[第 ${i + 1}/${chapters.length} 話] 解密重組 (${j + 1}/${chapterResult.images.length})...`);
                                 
                                 let photo_id = parseInt(chapter.id, 10);
@@ -262,6 +316,50 @@ export const ComicDownloadProvider = ({ children }) => {
             setActiveTaskProgress(null);
             setProgressText('');
             stopBackgroundKeepAlive('comic_download');
+        }
+    };
+
+    const retryFailedChapters = async (comicId) => {
+        const novel = await getNovelById(comicId);
+        if (novel) {
+            startDownload(novel);
+        }
+    };
+
+    const retryChapterDownload = async (comicId, chapterIndex) => {
+        try {
+            // Delete the JSON file so it gets recognized as missing
+            const jsonPath = FileSystem.documentDirectory + `novels/${comicId}/${chapterIndex}.json`;
+            await FileSystem.deleteAsync(jsonPath, { idempotent: true });
+            
+            // Delete the images directory
+            const novel = await getNovelById(comicId);
+            // Calculate how many chapters are already downloaded based on .json files
+            let initialDownloadedCount = 0;
+            const downloadedFlags = [];
+            if (novel && novel.chapters && novel.chapters.length > 0) {
+                for (let i = 0; i < novel.chapters.length; i++) {
+                    const jsonPath = FileSystem.documentDirectory + `novels/${comicId}/${i}.json`;
+                    const jsonInfo = await FileSystem.getInfoAsync(jsonPath);
+                    if (jsonInfo.exists) {
+                        downloadedFlags[i] = true;
+                        initialDownloadedCount++;
+                    } else {
+                        downloadedFlags[i] = false;
+                    }
+                }
+            }
+            
+            const chapterId = novel.chapters[chapterIndex].id;
+            const chapterDir = FileSystem.documentDirectory + `comics/${comicId}/${chapterId}/`;
+            await FileSystem.deleteAsync(chapterDir, { idempotent: true });
+            
+            // Start download again
+            if (novel) {
+                startDownload(novel);
+            }
+        } catch (e) {
+            console.error(e);
         }
     };
 
@@ -375,6 +473,8 @@ export const ComicDownloadProvider = ({ children }) => {
             activeTaskProgress,
             startDownload,
             cancelDownload,
+            retryFailedChapters,
+            retryChapterDownload,
             webViewRef,
             onWebViewMessage
         }}>
