@@ -6,6 +6,7 @@ import { useComicDownload } from '../context/ComicDownloadContext';
 import { Feather } from '@expo/vector-icons';
 import { parsers } from '../utils/parsers';
 import DownloadProgress from '../components/home/DownloadProgress';
+import boyloveTags from '../utils/boyloveTags.json';
 
 const FILTER_OPTIONS = {
     cate: [
@@ -28,58 +29,6 @@ const FILTER_OPTIONS = {
         { label: '全部', value: 2 },
         { label: '一般', value: 0 },
         { label: 'VIP', value: 1 },
-    ],
-    tag: [
-        { label: '全部', value: '0' },
-        { label: '香香漢化', value: '香香汉化' },
-        { label: '年下系列', value: '年下系列' },
-        { label: '甜寵', value: '甜宠' },
-        { label: '校園', value: '校园' },
-        { label: '純愛', value: '纯爱' },
-        { label: '美人', value: '美人' },
-        { label: '腹黑', value: '腹黑' },
-        { label: '人外', value: '人外' },
-        { label: '誘受', value: '诱受' },
-        { label: '體型差', value: '体型差' },
-        { label: '健氣受', value: '健气受' },
-        { label: 'ABO', value: 'ABO' },
-        { label: '傲嬌', value: '傲娇' },
-        { label: '搞笑', value: '搞笑' },
-        { label: '強勢系列', value: '强势系列' },
-        { label: '忠犬攻', value: '忠犬攻' },
-        { label: '青梅竹馬', value: '青梅竹马' },
-        { label: '絕世系列', value: '绝世系列' },
-        { label: '調教/BDSM', value: '调教｜BDSM' },
-        { label: '虐戀', value: '虐恋' },
-        { label: '暗戀', value: '暗恋' },
-        { label: '天然', value: '天然受' },
-        { label: '年上系列', value: '年上系列' },
-        { label: '黑皮', value: '黑皮' },
-        { label: '心機', value: '心机' },
-        { label: '偏執攻', value: '偏执攻' },
-        { label: '瘋批', value: '疯批' },
-        { label: '救贖', value: '救赎' },
-        { label: '道具PLAY', value: '道具PLAY' },
-        { label: '男孕', value: '男孕' },
-        { label: '雙潔', value: '双洁' },
-        { label: '哭包', value: '哭包' },
-        { label: '古風', value: '古风' },
-        { label: '火葬場', value: '火葬场系列' },
-        { label: '奇幻', value: '奇幻' },
-        { label: '娛樂圈', value: '娱乐圈' },
-        { label: '黑道', value: '黑道' },
-        { label: '年齡差/叔系', value: '年龄差｜叔系' },
-        { label: '總裁', value: '总裁' },
-        { label: '女裝', value: '女装' },
-        { label: '深情攻', value: '深情攻' },
-        { label: '強制', value: '强制' },
-        { label: '多角關係', value: '三角/多角关系' },
-        { label: '靈異/鬼怪', value: '灵异｜鬼怪' },
-        { label: '骨科', value: '骨科' },
-        { label: '病嬌', value: '病娇' },
-        { label: '監禁', value: '监禁' },
-        { label: '穿越', value: '穿越' },
-        { label: '高H', value: '高H' },
     ]
 };
 
@@ -95,6 +44,7 @@ export default function BoyloveFeedScreen({ navigation }) {
     const [loading, setLoading] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [isTagsExpanded, setIsTagsExpanded] = useState(false);
     
     // Search specific state
     const [searched, setSearched] = useState(false);
@@ -236,6 +186,46 @@ export default function BoyloveFeedScreen({ navigation }) {
         );
     };
 
+    const renderTagFilterGroup = () => {
+        const displayedOptions = isTagsExpanded ? boyloveTags : boyloveTags.slice(0, 10);
+        return (
+            <View style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16 }}>
+                    {displayedOptions.map(opt => {
+                        const isActive = filters.tag === opt.value;
+                        return (
+                            <TouchableOpacity
+                                key={opt.value}
+                                style={[
+                                    styles.filterPill,
+                                    { marginBottom: 8, marginRight: 8, paddingHorizontal: 12, paddingVertical: 6 },
+                                    isActive ? { backgroundColor: colors.primary } : { backgroundColor: isDark ? '#333' : '#E0E0E0' }
+                                ]}
+                                onPress={() => setFilters(prev => ({ ...prev, tag: opt.value }))}
+                            >
+                                <Text style={[
+                                    styles.filterText,
+                                    { color: isActive ? '#FFF' : colors.text }
+                                ]}>
+                                    {opt.label}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+                <TouchableOpacity 
+                    style={{ alignSelf: 'center', padding: 8, flexDirection: 'row', alignItems: 'center' }}
+                    onPress={() => setIsTagsExpanded(!isTagsExpanded)}
+                >
+                    <Text style={{ color: colors.primary, marginRight: 4 }}>
+                        {isTagsExpanded ? '收起標籤' : `展開全部標籤 (${boyloveTags.length})`}
+                    </Text>
+                    <Feather name={isTagsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+            </View>
+        );
+    };
+
     const renderItem = ({ item }) => {
         const downloading = isDownloading(item);
 
@@ -313,7 +303,7 @@ export default function BoyloveFeedScreen({ navigation }) {
                     {renderFilterGroup('cate', FILTER_OPTIONS.cate)}
                     {renderFilterGroup('type', FILTER_OPTIONS.type)}
                     {renderFilterGroup('done', FILTER_OPTIONS.done)}
-                    {renderFilterGroup('tag', FILTER_OPTIONS.tag)}
+                    {renderTagFilterGroup()}
                 </View>
             )}
 
