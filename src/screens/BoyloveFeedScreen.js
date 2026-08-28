@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator, Image, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator, Image, ScrollView, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
@@ -187,7 +187,7 @@ export default function BoyloveFeedScreen({ navigation }) {
     };
 
     const renderTagFilterGroup = () => {
-        const displayedOptions = isTagsExpanded ? boyloveTags : boyloveTags.slice(0, 10);
+        const displayedOptions = boyloveTags.slice(0, 10);
         return (
             <View style={{ marginBottom: 12 }}>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16 }}>
@@ -215,12 +215,12 @@ export default function BoyloveFeedScreen({ navigation }) {
                 </View>
                 <TouchableOpacity 
                     style={{ alignSelf: 'center', padding: 8, flexDirection: 'row', alignItems: 'center' }}
-                    onPress={() => setIsTagsExpanded(!isTagsExpanded)}
+                    onPress={() => setIsTagsExpanded(true)}
                 >
                     <Text style={{ color: colors.primary, marginRight: 4 }}>
-                        {isTagsExpanded ? '收起標籤' : `展開全部標籤 (${boyloveTags.length})`}
+                        {`展開全部標籤 (${boyloveTags.length})`}
                     </Text>
-                    <Feather name={isTagsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                    <Feather name="chevron-down" size={16} color={colors.primary} />
                 </TouchableOpacity>
             </View>
         );
@@ -351,6 +351,50 @@ export default function BoyloveFeedScreen({ navigation }) {
                     novelId={activeTask?.id}
                 />
             )}
+
+            {/* Tags Modal Drawer */}
+            <Modal visible={isTagsExpanded} animationType="slide" transparent={true}>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: isDark ? '#2C2C2C' : '#FFFFFF' }]}>
+                        <View style={styles.modalHeader}>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>全部標籤</Text>
+                            <TouchableOpacity onPress={() => setIsTagsExpanded(false)} style={styles.modalCloseBtn}>
+                                <Feather name="x" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <ScrollView style={{ flex: 1, padding: 16 }}>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                {boyloveTags.map(opt => {
+                                    const isActive = filters.tag === opt.value;
+                                    return (
+                                        <TouchableOpacity
+                                            key={opt.value}
+                                            style={[
+                                                styles.filterPill,
+                                                { marginBottom: 8, marginRight: 8, paddingHorizontal: 12, paddingVertical: 6 },
+                                                isActive ? { backgroundColor: colors.primary } : { backgroundColor: isDark ? '#444' : '#E0E0E0' }
+                                            ]}
+                                            onPress={() => {
+                                                setFilters(prev => ({ ...prev, tag: opt.value }));
+                                                setIsTagsExpanded(false);
+                                                fetchCategories(1, true);
+                                            }}
+                                        >
+                                            <Text style={[
+                                                styles.filterText,
+                                                { color: isActive ? '#FFF' : colors.text }
+                                            ]}>
+                                                {opt.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                            <View style={{ height: 40 }} />
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -377,5 +421,10 @@ const styles = StyleSheet.create({
     downloadBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginLeft: 8 },
     downloadingBtn: { backgroundColor: '#999' },
     centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    footerLoader: { padding: 16, alignItems: 'center', justifyContent: 'center' }
+    footerLoader: { padding: 16, alignItems: 'center', justifyContent: 'center' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalContent: { height: '70%', borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#444' },
+    modalTitle: { fontSize: 18, fontWeight: 'bold' },
+    modalCloseBtn: { padding: 4 }
 });

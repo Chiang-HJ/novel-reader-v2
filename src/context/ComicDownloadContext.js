@@ -80,7 +80,8 @@ export const ComicDownloadProvider = ({ children }) => {
             const parser = getParserForUrl(task.url);
             const isJMComic = parser && parser.domain && (parser.domain.includes('18comic') || parser.domain.includes('jmcomic'));
             
-            const novelId = 'comic_' + (parser ? parser.name : '18comic') + '_' + task.id;
+            // Prevent double prefixing if task.id already has the prefix
+            const novelId = task.id.startsWith('comic_') ? task.id : 'comic_' + (parser ? parser.name : '18comic') + '_' + task.id;
             const existingNovel = await getNovelMetadata(novelId);
             const initialDownloadedCount = existingNovel ? (existingNovel.downloadedChapters || 0) : 0;
             
@@ -339,10 +340,8 @@ export const ComicDownloadProvider = ({ children }) => {
                 }
             }
             
-            const chapterId = novel.chapters[chapterIndex].id;
-            const chapterDir = FileSystem.documentDirectory + `comics/${comicId}/${chapterId}/`;
-            await FileSystem.deleteAsync(chapterDir, { idempotent: true });
-            
+            // We don't need to manually delete images because saveComicImage overwrites them
+            // based on chapterId_index.jpg naming.
             // Start download again
             if (novel) {
                 startDownload(novel);

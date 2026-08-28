@@ -164,12 +164,8 @@ export const fetchChapterImages = async (url) => {
         }
         
         // Detect if the chapter is scrambled:
-        // do_mergeImg() function is defined on ALL chapters (boilerplate),
-        // but only CALLED on scrambled chapters.
-        const callMatch = html.match(/do_mergeImg\s*\([^)]/g);
-        const definitionCount = (html.match(/function\s+do_mergeImg/g) || []).length;
-        const callCount = callMatch ? callMatch.length : 0;
-        const isScrambled = callCount > definitionCount;
+        // The server renders <canvas id="viewportX"> next to images for scrambled chapters.
+        const isScrambled = /<canvas[^>]*id=["']viewport/i.test(html);
         
         // Sometimes it's encoded or in a JS variable.
         if (images.length === 0) {

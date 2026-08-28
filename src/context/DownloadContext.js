@@ -508,18 +508,19 @@ export const DownloadProvider = ({ children }) => {
     };
 
     const handleNovelInfoReady = async (novelInfo, task) => {
-        if (initialFetchTimerRef.current) clearTimeout(initialFetchTimerRef.current);
-        if (downloadingNovelIdRef.current) return;
+        try {
+            if (initialFetchTimerRef.current) clearTimeout(initialFetchTimerRef.current);
+            if (downloadingNovelIdRef.current) return;
 
-        downloadingNovelIdRef.current = novelInfo.id;
-        setDownloadingNovelId(novelInfo.id);
-        setIsCaptchaBlocked(false);
+            downloadingNovelIdRef.current = novelInfo.id;
+            setDownloadingNovelId(novelInfo.id);
+            setIsCaptchaBlocked(false);
 
-        setProgressText(`已取得《${novelInfo.title}》目錄，共 ${novelInfo.chapters.length} 章，準備下載...`);
+            setProgressText(`已取得《${novelInfo.title}》目錄，共 ${novelInfo.chapters.length} 章，準備下載...`);
 
-        const existingFull = await getNovelMetadata(novelInfo.id);
-        const existingList = await getBookshelf();
-        const existing = existingFull || existingList.find(n => n.id === novelInfo.id);
+            const existingFull = await getNovelMetadata(novelInfo.id);
+            const existingList = await getBookshelf();
+            const existing = existingFull || existingList.find(n => n.id === novelInfo.id);
         
         if (task.startChapter === undefined) {
             setProgressText(`請選擇《${novelInfo.title}》的下載章節範圍...`);
@@ -797,6 +798,18 @@ export const DownloadProvider = ({ children }) => {
         activeTaskRef.current = null;
         setQueue(prev => prev.filter(q => q.url !== task?.url));
         stopBackgroundKeepAlive('novel_download');
+        
+        } catch (e) {
+            console.error("handleNovelInfoReady error:", e);
+            setScrapeUrl(null);
+            downloadingNovelIdRef.current = null;
+            setDownloadingNovelId(null);
+            setProgressText(`下載失敗: ${e.message}`);
+            setActiveTask(null);
+            activeTaskRef.current = null;
+            setQueue(prev => prev.filter(q => q.url !== task?.url));
+            stopBackgroundKeepAlive('novel_download');
+        }
     };
 
     const onWebViewMessage = async (event) => {
