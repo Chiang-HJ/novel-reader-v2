@@ -321,7 +321,7 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData, 
     }
 };
 
-export const saveComicChapterData = async (novelId, chapterIndex, title, pages) => {
+export const saveComicChapterData = async (novelId, chapterIndex, title, pages, isScrambled = undefined) => {
     const folderPath = getNovelDir(novelId);
     try {
         const info = await FileSystem.getInfoAsync(folderPath);
@@ -334,6 +334,9 @@ export const saveComicChapterData = async (novelId, chapterIndex, title, pages) 
         
         // pages is an array of local file URIs
         const data = { title, pages, id: fileId };
+        if (isScrambled !== undefined) {
+            data.isScrambled = isScrambled;
+        }
         await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
         
         return fileId;

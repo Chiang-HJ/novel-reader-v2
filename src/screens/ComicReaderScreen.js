@@ -18,24 +18,18 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight }) => {
+const AutoHeightImage = ({ uri, screenWidth, isHorizontal, screenHeight, onRetry }) => {
     const [imgHeight, setImgHeight] = useState(screenWidth / 0.7);
     const [error, setError] = useState(false);
     const [loaded, setLoaded] = useState(false);
 
     if (error) {
         return (
-            <TouchableOpacity onPress={async () => {
-                try {
-                    const info = await FileSystem.getInfoAsync(uri);
-                    Alert.alert('檔案資訊', `存在 (Exists): ${info.exists}\n大小 (Size): ${info.size}\n\n路徑: ${info.uri}`);
-                } catch (e) {
-                    Alert.alert('檢查失敗', `錯誤訊息: ${e.message}\n\nURI 型別: ${typeof uri}\nURI 內容: ${JSON.stringify(uri)}`);
-                }
-            }}>
-                <View style={{ width: screenWidth, minHeight: 300, justifyContent: 'center', alignItems: 'center', backgroundColor: '#222' }}>
-                    <Text style={{ color: '#ff4444', fontSize: 16, fontWeight: 'bold' }}>圖片載入失敗 (點擊檢查檔案)</Text>
-                    <Text style={{ color: '#aaa', fontSize: 10, marginTop: 8, paddingHorizontal: 10, textAlign: 'center' }}>{uri}</Text>
+            <TouchableOpacity onPress={onRetry}>
+                <View style={{ width: screenWidth, height: screenWidth * 1.2, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="image" size={48} color="#444" />
+                    <Text style={{ color: '#666', marginTop: 12 }}>圖片載入失敗，點擊重新下載</Text>
+                    <Text style={{ color: '#444', marginTop: 8, fontSize: 10 }}>{uri.split('/').pop()}</Text>
                 </View>
             </TouchableOpacity>
         );
@@ -92,6 +86,7 @@ export default function ComicReaderScreen({ route, navigation }) {
                 onPress: () => {
                     setShowTOC(false);
                     retryFailedChapters(novelId);
+                    navigation.goBack();
                 }
             }
         ]);
@@ -161,11 +156,14 @@ export default function ComicReaderScreen({ route, navigation }) {
                     return p;
                 });
                 setPages(fixedPages);
+                setChapterIsScrambled(chapterData.isScrambled);
             } else {
                 setPages([]);
+                setChapterIsScrambled(undefined);
             }
         } catch (e) {
             setPages([]);
+            setChapterIsScrambled(undefined);
         } finally {
             setIsLoading(false);
         }
@@ -228,8 +226,10 @@ export default function ComicReaderScreen({ route, navigation }) {
             }, 300);
         }
     };
+    const [isMenuVisible, setIsMenuVisible] = useState(false);
     
     const [forceDescramble, setForceDescramble] = useState(false);
+    const [chapterIsScrambled, setChapterIsScrambled] = useState(undefined);
 
     const showZoomSettings = () => {
         Alert.alert('設定', '請選擇設定項目', [
@@ -281,27 +281,46 @@ export default function ComicReaderScreen({ route, navigation }) {
         const item = resolveLocalPath(rawItem);
         const isBoylove = novelId.includes('香香腐宅');
         const is18comic = novelId.includes('18comic');
+        
+        // Use chapter-specific scrambled flag if available, otherwise fallback to novel's flag
         const autoDescramble = is18comic && !novel?.isDescrambled;
-        const needsDescrambling = autoDescramble || forceDescramble;
+        const autoDescrambleBoylove = chapterIsScrambled !== undefined ? chapterIsScrambled : (novel?.isDescrambled === false);
+        
+        const needsDescrambling = isBoylove ? (autoDescrambleBoylove || forceDescramble) : (autoDescramble || forceDescramble);
+        
+        const handleImageErrorRetry = () => {
+            Alert.alert(
+                '圖片載入失敗',
+                '是否要重新下載本章節？',
+                [
+                    { text: '取消', style: 'cancel' },
+                    { text: '重新下載', onPress: () => {
+                        retryChapterDownload(novelId, currentChapterIndex);
+                        navigation.goBack();
+                    }}
+                ]
+            );
+        };
+        
         const imageContent = (
             <TouchableWithoutFeedback onPress={(e) => handleImageTap(e, index)}>
                 <View style={{ width, justifyContent: 'center', alignItems: 'center' }}>
                     {isBoylove ? (
-                        // Boylove always uses BoyloveImage because downloaded images are WebP (iOS Image cannot render WebP).
-                        // BoyloveImage converts WebP to JPEG via Canvas, and also descrambles if needed.
                         <BoyloveImage
                             uri={item}
                             screenWidth={width}
                             screenHeight={height}
                             isHorizontal={isHorizontal}
-                            needsDescrambling={novel?.isDescrambled === false}
+                            needsDescrambling={needsDescrambling}
+                            onRetry={handleImageErrorRetry}
                         />
                     ) : !needsDescrambling && algorithmMode === 0 ? (
                         <AutoHeightImage 
                             uri={item} 
                             screenWidth={width} 
                             isHorizontal={isHorizontal} 
-                            screenHeight={height} 
+                            screenHeight={height}
+                            onRetry={handleImageErrorRetry}
                         />
                     ) : (
                         <ScrambledImage 
@@ -533,6 +552,7 @@ export default function ComicReaderScreen({ route, navigation }) {
                             setShowOptionsModal(false);
                             setShowTOC(false);
                             retryChapterDownload(novelId, selectedChapterForOptions);
+                            navigation.goBack();
                         }}>
                             <Feather name="refresh-cw" size={20} color="#FF9500" />
                             <Text style={[styles.modalOptionText, { color: '#FF9500' }]}>重新下載此章節</Text>

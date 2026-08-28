@@ -195,18 +195,7 @@ export const ComicDownloadProvider = ({ children }) => {
                         const fetchResult = await parser.fetchChapterImages(chapter.url);
                         if (fetchResult && fetchResult.images) {
                             images = fetchResult.images;
-                            // Update isDescrambled based on whether THIS chapter is scrambled.
-                            // isDescrambled=true means "images are already correct, no runtime descrambling needed"
-                            // Only permanently mark as not-scrambled if the server confirms it.
-                            // If at least one chapter is scrambled, we must keep isDescrambled=false.
-                            if (fetchResult.isScrambled === true && novelData.isDescrambled !== false) {
-                                novelData.isDescrambled = false;
-                                await saveNovelToBookshelf(novelData);
-                            } else if (fetchResult.isScrambled === false && novelData.isDescrambled !== true) {
-                                // Only update to "not scrambled" if we haven't already marked it scrambled
-                                novelData.isDescrambled = true;
-                                await saveNovelToBookshelf(novelData);
-                            }
+                            images = fetchResult.images;
                         } else if (Array.isArray(fetchResult)) {
                             images = fetchResult;
                         }
@@ -266,7 +255,7 @@ export const ComicDownloadProvider = ({ children }) => {
                         localPages.push(localPath);
                     }
                     
-                    await saveComicChapterData(novelId, i, chapter.title, localPages);
+                    await saveComicChapterData(novelId, i, chapter.title, localPages, fetchResult?.isScrambled);
                     downloadedCount++;
                     
                     // Update novel metadata

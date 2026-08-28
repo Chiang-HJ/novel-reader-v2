@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Image, Dimensions, ActivityIndicator, Text } from 'react-native';
+import { View, Image, ActivityIndicator, Dimensions, TouchableOpacity, Text } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { getScramblePieces } from '../utils/comicUtils';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIGHT, screenWidth = SCREEN_WIDTH, algorithmMode = 0 }) => {
+const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIGHT, screenWidth = SCREEN_WIDTH, algorithmMode = 0, onRetry }) => {
     const [dimensions, setDimensions] = useState({ w: screenWidth, h: screenWidth * 1.5 }); // Default fallback
     const [error, setError] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -202,9 +203,13 @@ const ScrambledImage = ({ uri, novelId, isHorizontal, screenHeight = SCREEN_HEIG
 
     if (error) {
         return (
-            <View style={{ width: screenWidth, height: 300, justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator size="small" color="#ff4444" />
-            </View>
+            <TouchableOpacity onPress={onRetry}>
+                <View style={{ width: screenWidth, height: screenWidth * 1.2, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="image" size={48} color="#444" />
+                    <Text style={{ color: '#666', marginTop: 12 }}>圖片載入失敗，點擊重新下載</Text>
+                    <Text style={{ color: '#444', marginTop: 8, fontSize: 10 }}>{uri.split('/').pop()}</Text>
+                </View>
+            </TouchableOpacity>
         );
     }
 

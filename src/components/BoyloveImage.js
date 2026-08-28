@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Image, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
+import { View, Image, ActivityIndicator, Dimensions, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -13,7 +14,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
  * Step 2: Once the descrambled base64 is received, the WebView is unmounted
  *         and a normal <Image> is shown. This restores all touch/zoom gestures.
  */
-const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = true }) => {
+const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = true, onRetry }) => {
     const [scrambledB64, setScrambledB64] = useState(null);
     const [mimeType, setMimeType] = useState('image/jpeg');
     const [descrambledB64, setDescrambledB64] = useState(null);
@@ -122,7 +123,15 @@ const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = tru
     };
 
     if (error) {
-        return <View style={{ width: screenWidth, height: 200, backgroundColor: '#111' }} />;
+        return (
+            <TouchableOpacity onPress={onRetry}>
+                <View style={{ width: screenWidth, height: screenWidth * 1.2, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }}>
+                    <Feather name="image" size={48} color="#444" />
+                    <Text style={{ color: '#666', marginTop: 12 }}>圖片載入失敗，點擊重新下載</Text>
+                    <Text style={{ color: '#444', marginTop: 8, fontSize: 10 }}>{uri.split('/').pop()}</Text>
+                </View>
+            </TouchableOpacity>
+        );
     }
 
     // Step 2: Once descrambled, show a normal <Image> (gestures work normally)

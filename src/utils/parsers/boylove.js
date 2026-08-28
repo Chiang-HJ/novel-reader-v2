@@ -164,10 +164,9 @@ export const fetchChapterImages = async (url) => {
         }
         
         // Detect if the chapter is scrambled by checking for actual canvas drawing code.
-        // An unscrambled chapter still has do_mergeImg in the JS, but its body will lack 'drawImage'.
-        // The most reliable signal: scrambled pages use canvas.drawImage() to recompose tiles.
         const firstMergeImgMatch = html.match(/function firstMergeImg[^\{]*\{([\s\S]*?)\}/);
-        const isScrambled = firstMergeImgMatch && firstMergeImgMatch[1].trim().length > 0;
+        const hasFirstMergeImg = firstMergeImgMatch && firstMergeImgMatch[1].trim().length > 0;
+        const isScrambled = hasFirstMergeImg;
         
         // Sometimes it's encoded or in a JS variable.
         if (images.length === 0) {
