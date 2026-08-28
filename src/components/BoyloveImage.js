@@ -20,6 +20,7 @@ const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = tru
     const [descrambledB64, setDescrambledB64] = useState(null);
     const [imgHeight, setImgHeight] = useState(screenWidth * 1.5);
     const [error, setError] = useState(false);
+    const pendingUriRef = useRef(null);  // track which URI the WebView was started for
 
     // Reset whenever the URI changes
     useEffect(() => {
@@ -28,6 +29,7 @@ const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = tru
         setDescrambledB64(null);
         setError(false);
         setImgHeight(screenWidth * 1.5);
+        pendingUriRef.current = uri;  // mark which URI we're loading
 
         const load = async () => {
             try {
@@ -113,10 +115,10 @@ const BoyloveImage = ({ uri, screenWidth = SCREEN_WIDTH, needsDescrambling = tru
     const onWebViewMessage = (event) => {
         try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'done' && data.dataUrl) {
+            if (data.type === 'done' && data.dataUrl && pendingUriRef.current === uri) {
                 setImgHeight(screenWidth * data.aspectRatio);
                 setDescrambledB64(data.dataUrl);
-            } else if (data.type === 'error') {
+            } else if (data.type === 'error' && pendingUriRef.current === uri) {
                 setError(true);
             }
         } catch (e) {}

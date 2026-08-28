@@ -357,13 +357,7 @@ export const getChapterText = async (novelId, fileId) => {
     try {
         const info = await FileSystem.getInfoAsync(filePath);
         if (info.exists) {
-            let content;
-            try {
-                const { File } = require('expo-file-system');
-                content = await new File(filePath).text();
-            } catch (e) {
-                content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
-            }
+            const content = await FileSystem.readAsStringAsync(filePath, { encoding: 'utf8' });
             return JSON.parse(content);
         }
         return null;

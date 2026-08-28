@@ -184,6 +184,7 @@ export const ComicDownloadProvider = ({ children }) => {
                     let images = [];
                     let cookies = '';
                     let chapterResult = null;
+                    let fetchResult = null;
                     if (isJMComic) {
                         const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
                         const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
@@ -192,9 +193,8 @@ export const ComicDownloadProvider = ({ children }) => {
                         images = chapterResult.images;
                         cookies = chapterResult.cookies;
                     } else if (parser.fetchChapterImages) {
-                        const fetchResult = await parser.fetchChapterImages(chapter.url);
+                        fetchResult = await parser.fetchChapterImages(chapter.url);
                         if (fetchResult && fetchResult.images) {
-                            images = fetchResult.images;
                             images = fetchResult.images;
                         } else if (Array.isArray(fetchResult)) {
                             images = fetchResult;

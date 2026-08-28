@@ -136,7 +136,8 @@ export default function ComicReaderScreen({ route, navigation }) {
     const loadChapter = async (index, novelData) => {
         setIsLoading(true);
         setCurrentChapterIndex(index);
-        const data = novelData || novel;
+        setPages([]);                     // clear stale pages immediately
+        setChapterIsScrambled(undefined); // reset scramble flag immediately
         updateReadingProgress(novelId, index);
         
         try {

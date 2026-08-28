@@ -163,10 +163,13 @@ export const fetchChapterImages = async (url) => {
             images.push(imgUrl);
         }
         
-        // Detect if the chapter is scrambled by checking for actual canvas drawing code.
-        const firstMergeImgMatch = html.match(/function firstMergeImg[^\{]*\{([\s\S]*?)\}/);
-        const hasFirstMergeImg = firstMergeImgMatch && firstMergeImgMatch[1].trim().length > 0;
-        const isScrambled = hasFirstMergeImg;
+        // Detect if the chapter is scrambled:
+        // do_mergeImg() function is defined on ALL chapters (boilerplate),
+        // but only CALLED on scrambled chapters.
+        const callMatch = html.match(/do_mergeImg\s*\([^)]/g);
+        const definitionCount = (html.match(/function\s+do_mergeImg/g) || []).length;
+        const callCount = callMatch ? callMatch.length : 0;
+        const isScrambled = callCount > definitionCount;
         
         // Sometimes it's encoded or in a JS variable.
         if (images.length === 0) {
