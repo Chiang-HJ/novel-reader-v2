@@ -13,13 +13,17 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
 
 import NovelListItem from '../components/home/NovelListItem';
+import DownloadProgress from '../components/home/DownloadProgress';
 import { useTwitterDownload } from '../context/TwitterDownloadContext';
+import { useComicDownload } from '../context/ComicDownloadContext';
 
 const VAULT_MEDIA_KEY = '@vault_media';
 const VAULT_TAGS_KEY = '@vault_tags';
 
 export default function VaultScreen({ navigation }) {
     const { colors, isDark } = useTheme();
+    const { activeTask, progressText, queue, cancelDownload, activeTaskProgress, retryChapterDownload, startDownload } = useComicDownload();
+    const downloadingNovelId = activeTask?.id || null;
     const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
     const [activeTab, setActiveTab] = useState('novels'); // 'novels' or 'media'
     const [bookshelf, setBookshelf] = useState([]);
@@ -846,6 +850,20 @@ export default function VaultScreen({ navigation }) {
                 </TouchableOpacity>
             </View>
 
+            {/* Comic Download Progress - only visible when downloading */}
+            {(activeTask || queue.length > 0) && (
+                <DownloadProgress
+                    queue={queue}
+                    activeTask={activeTask}
+                    progressText={progressText}
+                    cancelDownload={cancelDownload}
+                    colors={colors}
+                    activeTaskProgress={activeTaskProgress}
+                    retryChapterDownload={retryChapterDownload}
+                    novelId={downloadingNovelId}
+                />
+            )}
+
             {activeTab === 'storage' ? (
                 <View style={{ flex: 1 }}>
                     {isScanningStorage ? (
@@ -1098,6 +1116,20 @@ export default function VaultScreen({ navigation }) {
                                     <View style={{ justifyContent: 'center', alignItems: 'center', flex: 1 }}>
                                         <Feather name={selectedNovelIds.has(item.id) ? "check-square" : "square"} size={24} color={selectedNovelIds.has(item.id) ? colors.primary : colors.textSecondary} />
                                     </View>
+                                ) : (item.type === 'comic' && item.chapterCount > 0 && (item.downloadedChapters || 0) < item.chapterCount) ? (
+                                    <TouchableOpacity
+                                        style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: (queue.some(q => q.id === item.id) || activeTask?.id === item.id) ? '#888' : colors.primary, borderRadius: 8, alignItems: 'center' }}
+                                        onPress={() => {
+                                            if (!queue.some(q => q.id === item.id) && activeTask?.id !== item.id) {
+                                                startDownload(item);
+                                            }
+                                        }}
+                                        disabled={queue.some(q => q.id === item.id) || activeTask?.id === item.id}
+                                    >
+                                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600', textAlign: 'center' }}>
+                                            {(queue.some(q => q.id === item.id) || activeTask?.id === item.id) ? '下載中' : `繼續\n${item.downloadedChapters || 0}/${item.chapterCount}`}
+                                        </Text>
+                                    </TouchableOpacity>
                                 ) : null}
                             />
                         )}

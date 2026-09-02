@@ -229,23 +229,24 @@ export default function ComicReaderScreen({ route, navigation }) {
     };
     const [isMenuVisible, setIsMenuVisible] = useState(false);
     
-    const [forceDescramble, setForceDescramble] = useState(false);
+    const [descrambleOverride, setDescrambleOverride] = useState('auto'); // 'auto', 'on', 'off'
     const [chapterIsScrambled, setChapterIsScrambled] = useState(undefined);
 
     const showZoomSettings = () => {
-        Alert.alert('設定', '請選擇設定項目', [
-            { text: '設定放大倍率', onPress: () => {
-                Alert.alert('設定放大倍率', '請選擇雙擊後的放大倍率', [
-                    { text: '1.5 倍', onPress: () => changeZoomRatio(1.5) },
-                    { text: '2.0 倍', onPress: () => changeZoomRatio(2.0) },
-                    { text: '2.5 倍', onPress: () => changeZoomRatio(2.5) },
-                    { text: '3.0 倍', onPress: () => changeZoomRatio(3.0) },
-                    { text: '取消', style: 'cancel' }
+        Alert.alert('設定', '請選擇設定：', [
+            { text: '開啟選單', onPress: () => setIsMenuVisible(true) },
+            { text: '更換圖片來源 (如圖片破圖)', onPress: () => {
+                Alert.alert('提示', '請手動重新整理或返回重進以載入新來源', [
+                    { text: '好', style: 'cancel' }
                 ]);
             }},
-            { text: forceDescramble ? '取消強制即時解密' : '開啟強制即時解密', onPress: () => {
-                setForceDescramble(!forceDescramble);
-                Alert.alert('已更改', forceDescramble ? '已取消強制即時解密' : '已開啟強制即時解密。若下載的圖片未成功解密，開啟此選項可即時解密。');
+            { text: `強制解密 (${descrambleOverride === 'on' ? '開' : descrambleOverride === 'off' ? '關' : '自動'})`, onPress: () => {
+                let nextState = 'auto';
+                if (descrambleOverride === 'auto') nextState = 'on';
+                else if (descrambleOverride === 'on') nextState = 'off';
+                
+                setDescrambleOverride(nextState);
+                Alert.alert('提示', `已切換為：${nextState === 'on' ? '強制解密' : nextState === 'off' ? '強制不解密' : '自動'}`);
             }},
             { text: '切換解析算法 (除錯用)', onPress: () => {
                 const nextMode = (algorithmMode + 1) % 7;
@@ -287,7 +288,14 @@ export default function ComicReaderScreen({ route, navigation }) {
         const autoDescramble = is18comic && !novel?.isDescrambled;
         const autoDescrambleBoylove = chapterIsScrambled !== undefined ? chapterIsScrambled : (novel?.isDescrambled === false);
         
-        const needsDescrambling = isBoylove ? (autoDescrambleBoylove || forceDescramble) : (autoDescramble || forceDescramble);
+        let needsDescrambling = false;
+        if (descrambleOverride === 'on') {
+            needsDescrambling = true;
+        } else if (descrambleOverride === 'off') {
+            needsDescrambling = false;
+        } else {
+            needsDescrambling = isBoylove ? autoDescrambleBoylove : autoDescramble;
+        }
         
         const handleImageErrorRetry = () => {
             Alert.alert(
@@ -306,24 +314,15 @@ export default function ComicReaderScreen({ route, navigation }) {
         const imageContent = (
             <TouchableWithoutFeedback onPress={(e) => handleImageTap(e, index)}>
                 <View style={{ width, justifyContent: 'center', alignItems: 'center' }}>
-                    {isBoylove ? (
+                    {(isBoylove && needsDescrambling) ? (
                         <BoyloveImage
                             uri={item}
                             screenWidth={width}
                             screenHeight={height}
-                            isHorizontal={isHorizontal}
                             needsDescrambling={needsDescrambling}
                             onRetry={handleImageErrorRetry}
                         />
-                    ) : !needsDescrambling && algorithmMode === 0 ? (
-                        <AutoHeightImage 
-                            uri={item} 
-                            screenWidth={width} 
-                            isHorizontal={isHorizontal} 
-                            screenHeight={height}
-                            onRetry={handleImageErrorRetry}
-                        />
-                    ) : (
+                    ) : needsDescrambling ? (
                         <ScrambledImage 
                             uri={item} 
                             novelId={novelId} 
@@ -331,6 +330,14 @@ export default function ComicReaderScreen({ route, navigation }) {
                             screenHeight={height} 
                             screenWidth={width}
                             algorithmMode={algorithmMode > 0 ? algorithmMode : 0}
+                        />
+                    ) : (
+                        <AutoHeightImage 
+                            uri={item} 
+                            screenWidth={width} 
+                            isHorizontal={isHorizontal} 
+                            screenHeight={height}
+                            onRetry={handleImageErrorRetry}
                         />
                     )}
                 </View>
@@ -414,11 +421,11 @@ export default function ComicReaderScreen({ route, navigation }) {
                 </View>
             ) : isHorizontal ? (
                 <FlatList
-                    key={`horizontal-${algorithmMode}-${forceDescramble}`}
+                    key={`horizontal-${algorithmMode}-${descrambleOverride}`}
                     ref={flatListRef}
                     data={pages}
                     keyExtractor={(item, index) => index.toString()}
-                    extraData={{ algorithmMode, forceDescramble }}
+                    extraData={{ algorithmMode, descrambleOverride }}
                     horizontal={true}
                     pagingEnabled={true}
                     showsHorizontalScrollIndicator={false}

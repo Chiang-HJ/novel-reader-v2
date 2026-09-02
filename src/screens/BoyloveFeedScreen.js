@@ -5,7 +5,6 @@ import { useTheme } from '../context/ThemeContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
 import { Feather } from '@expo/vector-icons';
 import { parsers } from '../utils/parsers';
-import DownloadProgress from '../components/home/DownloadProgress';
 import boyloveTags from '../utils/boyloveTags.json';
 
 const FILTER_OPTIONS = {
@@ -34,7 +33,7 @@ const FILTER_OPTIONS = {
 
 export default function BoyloveFeedScreen({ navigation }) {
     const { colors, isDark } = useTheme();
-    const { startDownload, activeTask, progressText, queue, cancelDownload, activeTaskProgress } = useComicDownload();
+    const { startDownload, activeTask, queue } = useComicDownload();
 
     // Mode: 'search' | 'category'
     const [mode, setMode] = useState('category');
@@ -339,18 +338,6 @@ export default function BoyloveFeedScreen({ navigation }) {
                 </View>
             )}
 
-            {/* Active Download Progress */}
-            {activeTask && activeTask.url && activeTask.url.includes('boylove') && (
-                <DownloadProgress 
-                    queue={queue}
-                    activeTask={activeTask}
-                    progressText={progressText}
-                    activeTaskProgress={activeTaskProgress}
-                    cancelDownload={cancelDownload}
-                    colors={colors}
-                    novelId={activeTask?.id}
-                />
-            )}
 
             {/* Tags Modal Drawer */}
             <Modal visible={isTagsExpanded} animationType="slide" transparent={true}>

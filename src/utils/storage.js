@@ -307,6 +307,9 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData, 
                 downloadOptions.headers['Cookie'] = cookieStr;
             }
             const result = await FileSystem.downloadAsync(imageData, filePath, downloadOptions);
+            if (result.status !== 200) {
+                throw new Error(`圖片下載失敗 (HTTP ${result.status}): ${imageData}`);
+            }
             return result.uri;
         } else {
             const filePath = `${imagesDir}${fileName}`;

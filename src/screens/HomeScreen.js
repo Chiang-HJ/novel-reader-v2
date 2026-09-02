@@ -17,7 +17,6 @@ import { importLargeTxtNovel } from '../utils/txtImporter';
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
 
 import SearchBar from '../components/home/SearchBar';
-import DownloadProgress from '../components/home/DownloadProgress';
 import NovelListItem from '../components/home/NovelListItem';
 import FolderListItem from '../components/home/FolderListItem';
 
@@ -483,7 +482,7 @@ export default function HomeScreen({ navigation }) {
             <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={styles.pinnedHeader}>
                 <View style={styles.appHeader}>
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                        <TouchableOpacity onLongPress={unlockVault} activeOpacity={0.8}>
+                        <TouchableOpacity onPress={unlockVault} activeOpacity={0.8}>
                             <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
                         </TouchableOpacity>
 
@@ -581,17 +580,7 @@ export default function HomeScreen({ navigation }) {
                         />
 
 
-                        <DownloadProgress 
-                            queue={queue} 
-                            activeTask={activeTask} 
-                            progressText={progressText} 
-                            cancelDownload={cancelDownload} 
-                            colors={colors} 
-                            activeTaskProgress={activeTaskProgress}
-                            retryChapterDownload={retryChapterDownload}
-                            novelId={downloadingNovelId}
-                        />
-                        
+
                         <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                             <View style={{flexDirection: 'row', alignItems: 'center'}}>
                                 <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書架</Text>

@@ -104,13 +104,15 @@ export const parseInfo = (html, url) => {
 
         // Extract chapters
         let chapters = [];
-        const chapterListMatch = html.match(/JSON\.parse\("(\{\\"list\\":\[.*?\]\})"/);
+        // The chapter list JSON can use key "list" (older) or "data" (newer format)
+        const chapterListMatch = html.match(/JSON\.parse\("(\{\\\"list\\\":\[.*?\].*?\}|\{\\\"data\\\":\[.*?\].*?\})"/);
         if (chapterListMatch) {
             try {
                 const parsedStr = chapterListMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
                 const chapterData = JSON.parse(parsedStr);
-                if (chapterData && chapterData.list) {
-                    chapters = chapterData.list.map(ch => ({
+                const chapterList = chapterData.list || chapterData.data;
+                if (chapterList) {
+                    chapters = chapterList.map(ch => ({
                         id: ch.id.toString(),
                         title: convertS2T(ch.title),
                         url: `https://boylove.cc/home/book/capter/id/${ch.id}`
@@ -165,7 +167,10 @@ export const fetchChapterImages = async (url) => {
         
         // Detect if the chapter is scrambled:
         // The server renders <canvas id="viewportX"> next to images for scrambled chapters.
-        const isScrambled = /<canvas[^>]*id=["']viewport/i.test(html);
+        // However, recently they have started putting <canvas> in every chapter but leaving firstMergeImg empty if it's not scrambled.
+        const hasCanvas = /<canvas[^>]*id=["']viewport/i.test(html);
+        const hasEmptyMerge = /function\s+firstMergeImg\s*\([^)]*\)\s*\{\s*\}/.test(html);
+        const isScrambled = hasCanvas && !hasEmptyMerge;
         
         // Sometimes it's encoded or in a JS variable.
         if (images.length === 0) {
