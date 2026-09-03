@@ -127,6 +127,7 @@ export default function ComicReaderScreen({ route, navigation }) {
             } else {
                 setIsLoading(false);
             }
+        };
         loadInitialData();
     }, []);
 
