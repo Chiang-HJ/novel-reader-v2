@@ -171,18 +171,15 @@ export default function ReaderScreen({ route, navigation }) {
         }, [])
     );
 
-    // Reading time tracking
+    // Reading time tracking: accumulate in memory, flush to disk only when leaving screen
+    // This eliminates 360 AsyncStorage read+write cycles per hour that the old setInterval caused.
+    const readingTimeAccRef = useRef(0);
     useEffect(() => {
-        let interval;
-        const startTracking = () => {
-            interval = setInterval(() => {
-                if (AppState.currentState === 'active' && (!isPlayingRef.current || isSpeechPausedRef.current === false)) {
-                    // Log 10 seconds of reading
-                    addReadingTime(10);
-                }
-            }, 10000);
-        };
-        startTracking();
+        const interval = setInterval(() => {
+            if (AppState.currentState === 'active' && (!isPlayingRef.current || isSpeechPausedRef.current === false)) {
+                readingTimeAccRef.current += 10; // accumulate in memory only
+            }
+        }, 10000);
         return () => clearInterval(interval);
     }, []);
     
@@ -230,10 +227,11 @@ export default function ReaderScreen({ route, navigation }) {
     useEffect(() => {
         navigation.setOptions({ headerShown: false });
         if (isFullScreen) {
+            // Update every 60s instead of every 10s to reduce unnecessary re-renders
             const timer = setInterval(() => {
                 const now = new Date();
                 setCurrentTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
-            }, 10000);
+            }, 60000);
             return () => clearInterval(timer);
         }
     }, [isFullScreen, navigation]);
@@ -260,9 +258,19 @@ export default function ReaderScreen({ route, navigation }) {
             return () => {
                 // When leaving the screen, stop audio
                 if (isPlayingRef.current) {
-                    
                     isSpeechPausedRef.current = false;
                     setPlayingState(false);
+                }
+                // P0-B: Flush accumulated reading time to disk in one batch write instead of 360/hr
+                if (readingTimeAccRef.current > 0) {
+                    addReadingTime(readingTimeAccRef.current);
+                    readingTimeAccRef.current = 0;
+                }
+                // P1-A: Release the native Audio Session to prevent background battery drain
+                if (silentSoundRef.current) {
+                    silentSoundRef.current.stopAsync().catch(() => {});
+                    silentSoundRef.current.unloadAsync().catch(() => {});
+                    silentSoundRef.current = null;
                 }
             };
         }, [])
@@ -316,12 +324,10 @@ export default function ReaderScreen({ route, navigation }) {
             }
         };
 
-        InteractionManager.runAfterInteractions(() => {
-            loadSettings();
-            setupAudio();
-            loadNovel();
-            loadVoices();
-        });
+        loadSettings();
+        setupAudio();
+        loadNovel();
+        loadVoices();
         return () => {
             Speech.stop();
 
@@ -719,7 +725,8 @@ export default function ReaderScreen({ route, navigation }) {
         }
 
         setCurrentSentenceIndex(index);
-        updateReadingProgress(novelId, chapterIndexRef.current, index);
+        // NOTE: reading progress is persisted via the debounced useEffect above (3-second delay)
+        // No need for a direct call here - that caused excessive AsyncStorage I/O during TTS playback
         
         // If in paging mode, highlight via JS, but ONLY if app is in foreground
         // Injecting JS while the app is backgrounded can freeze the JS bridge or crash playback on iOS/Android

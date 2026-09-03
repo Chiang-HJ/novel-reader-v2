@@ -28,9 +28,9 @@ try {
 
 
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
-import { DownloadProvider } from './src/context/DownloadContext';
-import { ComicDownloadProvider } from './src/context/ComicDownloadContext';
-import { TwitterDownloadProvider } from './src/context/TwitterDownloadContext';
+import { DownloadProvider, useDownload } from './src/context/DownloadContext';
+import { ComicDownloadProvider, useComicDownload } from './src/context/ComicDownloadContext';
+import { TwitterDownloadProvider, useTwitterDownload } from './src/context/TwitterDownloadContext';
 import DownloadWebViewHost from './src/components/DownloadWebViewHost';
 import ComicDownloadWebViewHost from './src/components/ComicDownloadWebViewHost';
 import TwitterDownloadWebViewHost from './src/components/TwitterDownloadWebViewHost';
@@ -111,16 +111,24 @@ function PrivacyScreen() {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 function AppContent() {
+  const { queue: novelQueue, activeTask: novelTask } = useDownload();
+  const { queue: comicQueue, activeTask: comicTask } = useComicDownload();
+  const { twitterQueue, activeTwitterTask } = useTwitterDownload();
+
+  const needsNovelWebView = novelQueue.length > 0 || novelTask !== null;
+  const needsComicWebView = comicQueue.length > 0 || comicTask !== null;
+  const needsTwitterWebView = twitterQueue.length > 0 || activeTwitterTask !== null;
+
   return (
     // This View is the single root. Both Navigator and WebViewHost live as siblings inside it.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <RootNavigator />
       </ErrorBoundary>
-      {/* WebView for download engine - rendered as sibling to navigator, NOT inside Provider */}
-      <DownloadWebViewHost />
-      <ComicDownloadWebViewHost />
-      <TwitterDownloadWebViewHost />
+      {/* P1-C: WebViewHosts only mount when there are active or pending downloads */}
+      {needsNovelWebView && <DownloadWebViewHost />}
+      {needsComicWebView && <ComicDownloadWebViewHost />}
+      {needsTwitterWebView && <TwitterDownloadWebViewHost />}
       <PrivacyScreen />
     </GestureHandlerRootView>
   );

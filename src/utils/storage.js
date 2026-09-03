@@ -74,9 +74,38 @@ export const saveNovelToBookshelf = async (novelInfo) => {
 export const getBookshelf = async () => {
     try {
         const listStr = await AsyncStorage.getItem(NOVELS_KEY);
-        return listStr ? JSON.parse(listStr) : [];
+        if (!listStr) return [];
+        
+        let list = JSON.parse(listStr);
+        let needsMigration = false;
+        
+        // Strip heavy chapters array from older saved novels to drastically improve performance
+        // BUT make sure to save the full object to the separate key first!
+        for (let i = 0; i < list.length; i++) {
+            const novel = list[i];
+            if (novel.chapters) {
+                needsMigration = true;
+                
+                // Save to separate key if it doesn't already exist
+                const key = getNovelKey(novel.id);
+                const existing = await AsyncStorage.getItem(key);
+                if (!existing) {
+                    await AsyncStorage.setItem(key, JSON.stringify(novel));
+                }
+                
+                // Strip from summary list
+                const { chapters, ...rest } = novel;
+                list[i] = rest;
+            }
+        }
+        
+        if (needsMigration) {
+            // Fire and forget the save to not block the current read
+            AsyncStorage.setItem(NOVELS_KEY, JSON.stringify(list)).catch(() => {});
+        }
+        
+        return list;
     } catch (e) {
-
         return [];
     }
 };

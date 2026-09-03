@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveNovelToBookshelf, saveComicChapterData, saveComicImage, getNovelMetadata } from '../utils/storage';
@@ -449,25 +449,28 @@ export const ComicDownloadProvider = ({ children }) => {
         } catch (e) {}
     };
 
+    const contextValue = useMemo(() => ({
+        queue,
+        activeTask,
+        scrapeUrl,
+        scrapeMode,
+        scrapeId,
+        progressText,
+        bookshelfUpdated,
+        activeTaskProgress,
+        startDownload,
+        cancelDownload,
+        retryFailedChapters,
+        retryChapterDownload,
+        webViewRef,
+        onWebViewMessage
+    }), [queue, activeTask, scrapeUrl, scrapeMode, scrapeId, progressText, bookshelfUpdated, activeTaskProgress]);
+
     return (
-        <ComicDownloadContext.Provider value={{
-            queue,
-            activeTask,
-            scrapeUrl,
-            scrapeMode,
-            scrapeId,
-            progressText,
-            bookshelfUpdated,
-            activeTaskProgress,
-            startDownload,
-            cancelDownload,
-            retryFailedChapters,
-            retryChapterDownload,
-            webViewRef,
-            onWebViewMessage
-        }}>
+        <ComicDownloadContext.Provider value={contextValue}>
             {children}
-            <DescrambleWebView ref={descrambleWebViewRef} />
+            {/* P1-C: Only mount DescrambleWebView when actually needed (queue has items) */}
+            {(queue.length > 0 || activeTask !== null) && <DescrambleWebView ref={descrambleWebViewRef} />}
         </ComicDownloadContext.Provider>
     );
 };

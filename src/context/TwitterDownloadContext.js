@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useMemo } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -167,17 +167,19 @@ export const TwitterDownloadProvider = ({ children }) => {
         }
     };
 
+    const contextValue = useMemo(() => ({
+        twitterQueue,
+        activeTwitterTask,
+        twitterProgressText,
+        isDownloadingTwitter,
+        downloadTwitterVideo,
+        handleWebViewMessage,
+        cancelTwitterDownload: completeTask,
+        vaultMediaUpdated
+    }), [twitterQueue, activeTwitterTask, twitterProgressText, isDownloadingTwitter, vaultMediaUpdated]);
+
     return (
-        <TwitterDownloadContext.Provider value={{ 
-            twitterQueue, 
-            activeTwitterTask, 
-            twitterProgressText, 
-            isDownloadingTwitter, 
-            downloadTwitterVideo,
-            handleWebViewMessage,
-            cancelTwitterDownload: completeTask,
-            vaultMediaUpdated
-        }}>
+        <TwitterDownloadContext.Provider value={contextValue}>
             {children}
         </TwitterDownloadContext.Provider>
     );

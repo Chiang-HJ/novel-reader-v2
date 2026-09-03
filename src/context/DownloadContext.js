@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef } from 'react';
+import React, { createContext, useContext, useState, useRef, useMemo } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
@@ -880,31 +880,31 @@ export const DownloadProvider = ({ children }) => {
         }
     };
 
+    const contextValue = useMemo(() => ({
+        queue,
+        activeTask,
+        scrapeUrl,
+        setScrapeUrl,
+        scrapeMode,
+        setScrapeMode,
+        isCaptchaBlocked,
+        setIsCaptchaBlocked,
+        progressText,
+        downloadingNovelId,
+        bookshelfUpdated,
+        webViewRef,
+        startDownload,
+        cancelDownload,
+        onWebViewMessage,
+        pendingSelection,
+        activeTaskProgress,
+        resumeDownload,
+        cancelSelection,
+        retryChapterDownload,
+    }), [queue, activeTask, scrapeUrl, scrapeMode, isCaptchaBlocked, progressText, downloadingNovelId, bookshelfUpdated, pendingSelection, activeTaskProgress]);
+
     return (
-        <DownloadContext.Provider
-            value={{
-                queue,
-                activeTask,
-                scrapeUrl,
-                setScrapeUrl,
-                scrapeMode,
-                setScrapeMode,
-                isCaptchaBlocked,
-                setIsCaptchaBlocked,
-                progressText,
-                downloadingNovelId,
-                bookshelfUpdated,
-                webViewRef,
-                startDownload,
-                cancelDownload,
-                onWebViewMessage,
-                pendingSelection,
-                activeTaskProgress,
-                resumeDownload,
-                cancelSelection,
-                retryChapterDownload,
-            }}
-        >
+        <DownloadContext.Provider value={contextValue}>
             {children}
         </DownloadContext.Provider>
     );

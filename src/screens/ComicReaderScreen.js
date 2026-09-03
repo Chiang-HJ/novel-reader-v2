@@ -127,10 +127,7 @@ export default function ComicReaderScreen({ route, navigation }) {
             } else {
                 setIsLoading(false);
             }
-        };
-        InteractionManager.runAfterInteractions(() => {
-            loadInitialData();
-        });
+        loadInitialData();
     }, []);
 
     const loadChapter = async (index, novelData) => {
@@ -448,9 +445,9 @@ export default function ComicReaderScreen({ route, navigation }) {
                     }
                 />
             ) : (
-                // Vertical mode: native ScrollView with maximumZoomScale.
-                // iOS/Android native zoom supports free panning in ALL directions after zooming.
-                // No gesture conflicts — this is the same mechanism as Safari/Photos.
+                // Vertical mode: native ScrollView with maximumZoomScale for pinch-to-zoom.
+                // Inner FlatList provides item virtualization (windowSize=3) to prevent
+                // simultaneous instantiation of 60 BoyloveImage WebViews or 600+ image slices.
                 <ScrollView
                     ref={scrollViewRef}
                     style={{ flex: 1, width }}
@@ -469,13 +466,21 @@ export default function ComicReaderScreen({ route, navigation }) {
                         }
                     }}
                 >
-                    <View>
-                        {pages.map((rawItem, index) => (
+                    <FlatList
+                        data={pages}
+                        keyExtractor={(_, index) => index.toString()}
+                        renderItem={({ item, index }) => (
                             <View key={index}>
-                                {renderPage({ item: rawItem, index })}
+                                {renderPage({ item, index })}
                             </View>
-                        ))}
-                    </View>
+                        )}
+                        scrollEnabled={false}
+                        windowSize={3}
+                        initialNumToRender={3}
+                        maxToRenderPerBatch={2}
+                        removeClippedSubviews={true}
+                        updateCellsBatchingPeriod={100}
+                    />
                 </ScrollView>
             )}
 
