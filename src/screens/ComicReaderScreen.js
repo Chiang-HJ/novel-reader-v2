@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert, InteractionManager, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView, Image, TouchableWithoutFeedback, LayoutAnimation, UIManager, Platform, Alert, InteractionManager, Modal, Animated, PanResponder } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
@@ -107,6 +107,14 @@ export default function ComicReaderScreen({ route, navigation }) {
 
     const toggleHeader = () => setShowHeader(!showHeader);
     const toggleHeaderRef = useRef(toggleHeader);
+
+    // Slider state for chapter position indicator
+    const scrollContentHeight = useRef(0);   // total content height
+    const scrollViewHeight = useRef(height); // viewport height
+    const sliderAnim = useRef(new Animated.Value(0)).current; // 0–1 scroll progress
+    const sliderVisible = useRef(new Animated.Value(0)).current;
+    const sliderHideTimer = useRef(null);
+    const isLoadingNextChapter = useRef(false);
     useEffect(() => {
         toggleHeaderRef.current = toggleHeader;
     }, [showHeader]);
@@ -459,11 +467,42 @@ export default function ComicReaderScreen({ route, navigation }) {
                     minimumZoomScale={1}
                     bouncesZoom={true}
                     centerContent={true}
+                    onLayout={(e) => {
+                        scrollViewHeight.current = e.nativeEvent.layout.height;
+                    }}
+                    onContentSizeChange={(_, h) => {
+                        scrollContentHeight.current = h;
+                    }}
                     onScroll={(e) => {
-                        scrollY.current = e.nativeEvent.contentOffset.y;
-                        scrollX.current = e.nativeEvent.contentOffset.x;
+                        const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                        scrollY.current = contentOffset.y;
+                        scrollX.current = contentOffset.x;
                         if (e.nativeEvent.zoomScale !== undefined) {
                             currentZoom.current = e.nativeEvent.zoomScale;
+                        }
+
+                        // Update slider position (only at zoom=1 to avoid confusion)
+                        const totalScrollable = contentSize.height - layoutMeasurement.height;
+                        if (totalScrollable > 0) {
+                            const progress = Math.min(1, Math.max(0, contentOffset.y / totalScrollable));
+                            sliderAnim.setValue(progress);
+                        }
+
+                        // Show slider briefly when scrolling
+                        sliderVisible.setValue(1);
+                        if (sliderHideTimer.current) clearTimeout(sliderHideTimer.current);
+                        sliderHideTimer.current = setTimeout(() => {
+                            Animated.timing(sliderVisible, { toValue: 0, duration: 600, useNativeDriver: true }).start();
+                        }, 1200);
+
+                        // Auto-load next chapter when near bottom (within 120px)
+                        const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+                        const hasNextChapter = novel && currentChapterIndex < novel.chapters.length - 1;
+                        if (distanceFromBottom < 120 && hasNextChapter && !isLoadingNextChapter.current && !isLoading) {
+                            isLoadingNextChapter.current = true;
+                            loadChapter(currentChapterIndex + 1).finally(() => {
+                                isLoadingNextChapter.current = false;
+                            });
                         }
                     }}
                 >
@@ -483,6 +522,56 @@ export default function ComicReaderScreen({ route, navigation }) {
                         updateCellsBatchingPeriod={100}
                     />
                 </ScrollView>
+            )}
+
+            {/* Subtle chapter position slider — vertical mode only, fades in on scroll */}
+            {!isHorizontal && pages.length > 1 && (
+                <Animated.View
+                    pointerEvents="box-none"
+                    style={{
+                        position: 'absolute',
+                        right: 6,
+                        top: 80,
+                        bottom: 80,
+                        width: 20,
+                        alignItems: 'center',
+                        opacity: sliderVisible,
+                    }}
+                >
+                    {/* Track */}
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={{ flex: 1, width: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)' }}
+                        onPress={(e) => {
+                            // Tap on track to jump — calculate target scroll position
+                            const trackY = e.nativeEvent.locationY;
+                            const sv = scrollViewRef.current;
+                            if (!sv) return;
+                            const trackHeight = scrollViewHeight.current - 160; // top+bottom offset
+                            const fraction = Math.min(1, Math.max(0, trackY / trackHeight));
+                            const targetY = fraction * Math.max(0, scrollContentHeight.current - scrollViewHeight.current);
+                            sv.scrollTo({ y: targetY, animated: true });
+                        }}
+                    >
+                        {/* Thumb — positioned based on sliderAnim (0–1) */}
+                        <Animated.View
+                            style={{
+                                position: 'absolute',
+                                left: -3,
+                                width: 10,
+                                height: 32,
+                                borderRadius: 5,
+                                backgroundColor: 'rgba(255,255,255,0.7)',
+                                top: sliderAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: ['0%', '100%'],
+                                    extrapolate: 'clamp',
+                                }),
+                                marginTop: -16, // center the thumb on the position
+                            }}
+                        />
+                    </TouchableOpacity>
+                </Animated.View>
             )}
 
             {/* Footer */}
