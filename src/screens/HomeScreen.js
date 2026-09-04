@@ -503,10 +503,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.appHeader}>
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                         <TouchableOpacity onPress={unlockVault} activeOpacity={0.8} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Feather name="lock" size={14} color={colors.textSecondary} />
-                                <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
-                            </View>
+                            <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
                         </TouchableOpacity>
 
                         {sideloadDaysLeft !== null && (

@@ -153,7 +153,10 @@ export const TwitterDownloadProvider = ({ children }) => {
                     const newMedia = [...newlyAddedMedia, ...currentMedia];
                     await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
                     setVaultMediaUpdated(Date.now());
-                    Alert.alert('下載完成', `已成功加入 ${newlyAddedMedia.length} 個媒體檔案至私密金庫。`);
+                    // Invalidate storage usage cache (new files saved to vault)
+                    const { invalidateStorageCache } = require('../utils/storage');
+                    invalidateStorageCache();
+                    Alert.alert('下載完成', `已將 ${newlyAddedMedia.length} 個媒體檔案加入私密金庫。`);
                 } else {
                     Alert.alert('下載失敗', '沒有下載任何檔案。');
                 }
