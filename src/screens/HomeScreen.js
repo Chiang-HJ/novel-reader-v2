@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
 import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats, togglePinNovel } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
