@@ -1,4 +1,5 @@
-import React from 'react';
+﻿const fs = require('fs');
+const code = `import React from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet, Text, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -113,3 +114,5 @@ const styles = StyleSheet.create({
         elevation: 1,
     }
 });
+`;
+fs.writeFileSync('src/components/home/SearchBar.js', code, 'utf8');

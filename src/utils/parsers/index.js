@@ -3,13 +3,15 @@ import * as twkan from './twkan';
 import * as wyblogs from './wyblogs';
 import * as blogspot from './blogspot';
 import * as boylove from './boylove';
+import * as xbanxia from './xbanxia';
 
 export const parsers = [
     czbooks,
     twkan,
     wyblogs,
     blogspot,
-    boylove
+    boylove,
+    xbanxia
 ];
 
 export const getParserForUrl = (url) => {

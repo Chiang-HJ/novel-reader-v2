@@ -233,6 +233,7 @@ export const batchDeleteNovels = async (novelIds) => {
         for (const novelId of novelIds) {
             try {
                 const folderPath = `${FileSystem.documentDirectory}novels/${novelId}/`;
+                verifiedNovelDirs.delete(folderPath);
                 const info = await FileSystem.getInfoAsync(folderPath);
                 if (info.exists) {
                     await FileSystem.deleteAsync(folderPath, { idempotent: true });
@@ -268,14 +269,20 @@ export const ensureNovelDir = async (novelId) => {
 
 export const saveChapterText = async (novelId, chapterIndex, title, text) => {
     try {
-        const folderPath = await ensureNovelDir(novelId);
+        let folderPath = await ensureNovelDir(novelId);
         
         // We use chapterIndex for backward compatibility, but we should make sure it's safely written
         const fileId = typeof chapterIndex === 'number' ? chapterIndex.toString() : chapterIndex;
         const filePath = `${folderPath}${fileId}.json`;
         
         const data = { title, text, id: fileId };
-        await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+        try {
+            await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+        } catch (e) {
+            verifiedNovelDirs.delete(folderPath);
+            folderPath = await ensureNovelDir(novelId);
+            await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+        }
         // Invalidate storage usage cache (new file written to disk)
 
         return fileId;

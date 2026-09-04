@@ -19,6 +19,7 @@ import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/back
 import SearchBar from '../components/home/SearchBar';
 import NovelListItem from '../components/home/NovelListItem';
 import FolderListItem from '../components/home/FolderListItem';
+import DownloadProgress from '../components/home/DownloadProgress';
 
 export default function HomeScreen({ navigation }) {
     const { colors, isDark, themeName, availableThemes, changeTheme, themeId } = useTheme();
@@ -270,7 +271,7 @@ export default function HomeScreen({ navigation }) {
                 startDownload(input);
             }
         } else {
-            Alert.alert("輸入錯誤", "無效的網址，目前支援狂人小說與微風小說網址。(例如 czbooks, wyblogs 等)");
+            Alert.alert("輸入錯誤", "無效的網址，目前支援半夏小說、狂人小說與微風小說網址。(例如 xbanxia, czbooks, wyblogs 等)");
         }
         setSearchInput('');
     };
@@ -664,6 +665,17 @@ export default function HomeScreen({ navigation }) {
                         ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>您的書架空空如也，尚未新增任何書籍</Text>}
             />
             
+            <DownloadProgress
+                queue={queue}
+                activeTask={activeTask}
+                progressText={progressText}
+                cancelDownload={cancelDownload}
+                colors={colors}
+                activeTaskProgress={activeTaskProgress}
+                retryChapterDownload={retryChapterDownload}
+                novelId={downloadingNovelId}
+            />
+
             {/* Batch Action Bottom Bar */}
             {isSelectionMode && (
                 <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={{
@@ -787,9 +799,9 @@ export default function HomeScreen({ navigation }) {
                             <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>
                                 {sideloadDaysLeft !== null 
                                 ? (sideloadDaysLeft <= 0 
-                                  ? "゠️ 氽名已到期，請接上電腦重新驗證/簽名、"
-                                  : `剩��~刌珟時間: ${Math.floor(sideloadDaysLeft)} 天 ${Math.floor((sideloadDaysLeft % 1) * 24)} 小時`)
-                                : '訋算中...'}
+                                  ? "⚠️ 簽名已到期，請接上電腦重新驗證/簽名。"
+                                  : `剩餘到期時間: ${Math.floor(sideloadDaysLeft)} 天 ${Math.floor((sideloadDaysLeft % 1) * 24)} 小時`)
+                                : '計算中...'}
                             </Text>
                         </View>
                         <TouchableOpacity 
