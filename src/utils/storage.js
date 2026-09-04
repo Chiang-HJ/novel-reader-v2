@@ -124,6 +124,18 @@ export const getNovelMetadata = async (novelId) => {
     }
 };
 
+export const togglePinNovel = async (novelId) => {
+    const list = await getBookshelf();
+    const novel = list.find(n => n.id === novelId);
+    if (!novel) return;
+    const newPinned = !novel.isPinned;
+    await updateNovelMetadata(novelId, {
+        isPinned: newPinned,
+        pinnedAt: newPinned ? Date.now() : null,
+    });
+    return newPinned;
+};
+
 export const updateNovelMetadata = async (novelId, updates) => {
     return lockStorage(async () => {
         // Update full metadata

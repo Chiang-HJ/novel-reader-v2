@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats } from '../utils/storage';
+import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats, togglePinNovel } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import { createBackup, restoreBackup } from '../utils/BackupService';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -458,8 +458,19 @@ export default function HomeScreen({ navigation }) {
         }
     };
 
+    const handleTogglePin = async (novel) => {
+        try {
+            const newPinned = await togglePinNovel(novel.id);
+            await loadBookshelf();
+        } catch (e) {
+            Alert.alert('錯誤', '操作失敗');
+        }
+    };
+
+    const isUnlockingRef = useRef(false);
+
     const filteredBookshelf = React.useMemo(() => {
-        return bookshelf.filter(novel => {
+        const filtered = bookshelf.filter(novel => {
             // Apply search filter (unless searchInput is a URL)
             if (searchInput.trim() && !searchInput.trim().startsWith('http')) {
                 const query = searchInput.trim().toLowerCase();
@@ -467,6 +478,15 @@ export default function HomeScreen({ navigation }) {
                        (novel.author && novel.author.toLowerCase().includes(query));
             }
             return true;
+        });
+        // Sort: pinned books first (by pinnedAt desc), then rest in original order
+        return filtered.sort((a, b) => {
+            const aPin = a.isPinned ? (a.pinnedAt || 0) : 0;
+            const bPin = b.isPinned ? (b.pinnedAt || 0) : 0;
+            if (aPin && bPin) return bPin - aPin; // newer pin at top among pinned
+            if (aPin) return -1;
+            if (bPin) return 1;
+            return 0; // keep original order for unpinned
         });
     }, [bookshelf, searchInput]);
 
@@ -482,8 +502,11 @@ export default function HomeScreen({ navigation }) {
             <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={styles.pinnedHeader}>
                 <View style={styles.appHeader}>
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                        <TouchableOpacity onPress={unlockVault} activeOpacity={0.8}>
-                            <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
+                        <TouchableOpacity onPress={unlockVault} activeOpacity={0.8} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Feather name="lock" size={14} color={colors.textSecondary} />
+                                <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
+                            </View>
                         </TouchableOpacity>
 
                         {sideloadDaysLeft !== null && (
@@ -522,7 +545,29 @@ export default function HomeScreen({ navigation }) {
                 maxToRenderPerBatch={10}
                 windowSize={5}
                 removeClippedSubviews={true}
-                renderItem={({ item }) => (
+                onScroll={(e) => {
+                    const offsetY = e.nativeEvent.contentOffset.y;
+                    if (offsetY < -80 && !isUnlockingRef.current) {
+                        isUnlockingRef.current = true;
+                        unlockVault().finally(() => {
+                            setTimeout(() => { isUnlockingRef.current = false; }, 1000);
+                        });
+                    }
+                }}
+                scrollEventThrottle={16}
+                renderItem={({ item, index }) => {
+                    // Insert a divider before the first unpinned item when there are pinned items
+                    const hasPinned = filteredBookshelf.some(n => n.isPinned);
+                    const isFirstUnpinned = hasPinned && !item.isPinned && (index === 0 || filteredBookshelf[index - 1]?.isPinned);
+                    return (
+                    <>
+                        {isFirstUnpinned && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, marginTop: 4 }}>
+                                <View style={{ flex: 1, height: 1, backgroundColor: colors.border, opacity: 0.5 }} />
+                                <Text style={{ color: colors.textSecondary, fontSize: 11, marginHorizontal: 10, fontWeight: '500' }}>其他書籍</Text>
+                                <View style={{ flex: 1, height: 1, backgroundColor: colors.border, opacity: 0.5 }} />
+                            </View>
+                        )}
                     <NovelListItem 
                         item={item}
                         onPress={() => {
@@ -563,9 +608,24 @@ export default function HomeScreen({ navigation }) {
                             <View style={{ justifyContent: 'center', alignItems: 'center', flex: 1 }}>
                                 <Feather name={selectedIds.has(item.id) ? "check-square" : "square"} size={24} color={selectedIds.has(item.id) ? colors.primary : colors.textSecondary} />
                             </View>
-                        ) : null}
+                        ) : (
+                            <TouchableOpacity
+                                onPress={() => handleTogglePin(item)}
+                                style={{ justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6 }}
+                                hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
+                            >
+                                <Feather
+                                    name="bookmark"
+                                    size={20}
+                                    color={item.isPinned ? colors.primary : colors.border}
+                                    style={item.isPinned ? { opacity: 1 } : { opacity: 0.4 }}
+                                />
+                            </TouchableOpacity>
+                        )}
                     />
-                )}
+                    </>
+                    );
+                }}
                 ListHeaderComponent={
                     <View>
                         <View style={{ height: 10 }} />
