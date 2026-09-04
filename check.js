@@ -1,0 +1,1 @@
+﻿const fs = require("fs"); let lines = fs.readFileSync("src/screens/HomeScreen.js", "utf8").split("\n"); lines.forEach((l, i) => { let quotes = (l.match(/\x27/g) || []).length; if (quotes % 2 !== 0) console.log(i + 1, l.trim()); });

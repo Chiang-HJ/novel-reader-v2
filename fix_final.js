@@ -1,0 +1,1 @@
+﻿const fs = require("fs"); let lines = fs.readFileSync("src/screens/HomeScreen.js", "utf8").split("\n"); lines[675] = "                    <Text style={{ color: colors.text, fontWeight: \"bold\" }}>已選擇 {selectedIds.size} 本</Text>"; fs.writeFileSync("src/screens/HomeScreen.js", lines.join("\n"), "utf8");

@@ -1,0 +1,1 @@
+﻿const fs = require("fs"); let lines = fs.readFileSync("src/screens/HomeScreen.js", "utf8").split("\n"); let bad = 0; lines.forEach((l, i) => { let quotes = (l.match(/\x27/g) || []).length; if (quotes % 2 !== 0) { console.log(i + 1, l.trim()); bad++; } }); if (bad === 0) console.log("ALL QUOTES BALANCED!");

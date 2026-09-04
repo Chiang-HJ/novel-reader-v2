@@ -115,6 +115,31 @@ export default function ComicReaderScreen({ route, navigation }) {
     const sliderVisible = useRef(new Animated.Value(0)).current;
     const sliderHideTimer = useRef(null);
     const isLoadingNextChapter = useRef(false);
+
+    const sliderPanResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: () => true,
+            onPanResponderGrant: () => {
+                if (sliderHideTimer.current) clearTimeout(sliderHideTimer.current);
+                sliderVisible.setValue(1);
+            },
+            onPanResponderMove: (e, gestureState) => {
+                const sv = scrollViewRef.current;
+                if (!sv) return;
+                // Track top is at 80px from screen top
+                const trackHeight = scrollViewHeight.current - 160;
+                const fraction = Math.min(1, Math.max(0, (gestureState.moveY - 80) / trackHeight));
+                const targetY = fraction * Math.max(0, scrollContentHeight.current - scrollViewHeight.current);
+                sv.scrollTo({ y: targetY, animated: false }); // instant feedback while dragging
+            },
+            onPanResponderRelease: () => {
+                sliderHideTimer.current = setTimeout(() => {
+                    Animated.timing(sliderVisible, { toValue: 0, duration: 600, useNativeDriver: true }).start();
+                }, 1200);
+            }
+        })
+    ).current;
     useEffect(() => {
         toggleHeaderRef.current = toggleHeader;
     }, [showHeader]);
@@ -138,6 +163,8 @@ export default function ComicReaderScreen({ route, navigation }) {
         };
         loadInitialData();
     }, []);
+
+    const shouldScrollToBottomRef = useRef(false);
 
     const loadChapter = async (index, novelData) => {
         setIsLoading(true);
@@ -173,6 +200,23 @@ export default function ComicReaderScreen({ route, navigation }) {
             setChapterIsScrambled(undefined);
         } finally {
             setIsLoading(false);
+            
+            if (shouldScrollToBottomRef.current) {
+                // Wait briefly for layout then scroll to the absolute bottom
+                setTimeout(() => {
+                    if (scrollViewRef.current) {
+                        scrollViewRef.current.scrollToEnd({ animated: false });
+                    }
+                    shouldScrollToBottomRef.current = false;
+                }, 300);
+            } else {
+                // Reset scroll to top
+                setTimeout(() => {
+                    if (scrollViewRef.current) {
+                        scrollViewRef.current.scrollTo({ y: 0, animated: false });
+                    }
+                }, 50);
+            }
         }
     };
 
@@ -495,11 +539,23 @@ export default function ComicReaderScreen({ route, navigation }) {
                             Animated.timing(sliderVisible, { toValue: 0, duration: 600, useNativeDriver: true }).start();
                         }, 1200);
 
-                        // Auto-load next chapter when near bottom (within 120px)
+                        // Auto-load previous chapter when pulling down at the top (-60px)
+                        const distanceFromTop = contentOffset.y;
+                        const hasPrevChapter = novel && currentChapterIndex > 0;
+                        if (distanceFromTop < -60 && hasPrevChapter && !isLoadingNextChapter.current && !isLoading) {
+                            isLoadingNextChapter.current = true;
+                            shouldScrollToBottomRef.current = true; // Tell loadChapter to scroll to end
+                            loadChapter(currentChapterIndex - 1).finally(() => {
+                                isLoadingNextChapter.current = false;
+                            });
+                        }
+
+                        // Auto-load next chapter when pulling up past the bottom (-60px)
                         const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
                         const hasNextChapter = novel && currentChapterIndex < novel.chapters.length - 1;
-                        if (distanceFromBottom < 120 && hasNextChapter && !isLoadingNextChapter.current && !isLoading) {
+                        if (distanceFromBottom < -60 && hasNextChapter && !isLoadingNextChapter.current && !isLoading) {
                             isLoadingNextChapter.current = true;
+                            shouldScrollToBottomRef.current = false;
                             loadChapter(currentChapterIndex + 1).finally(() => {
                                 isLoadingNextChapter.current = false;
                             });
@@ -520,6 +576,24 @@ export default function ComicReaderScreen({ route, navigation }) {
                         maxToRenderPerBatch={2}
                         removeClippedSubviews={true}
                         updateCellsBatchingPeriod={100}
+                        ListHeaderComponent={
+                            pages.length > 0 && novel && currentChapterIndex > 0 ? (
+                                <View style={{ height: 80, justifyContent: 'center', alignItems: 'center' }}>
+                                    <Text style={{ color: '#666', fontSize: 13, marginTop: 10 }}>↑ 繼續下拉載入上一章 ↑</Text>
+                                </View>
+                            ) : null
+                        }
+                        ListFooterComponent={
+                            pages.length > 0 ? (
+                                <View style={{ height: 120, justifyContent: 'center', alignItems: 'center' }}>
+                                    {novel && currentChapterIndex < novel.chapters.length - 1 ? (
+                                        <Text style={{ color: '#666', fontSize: 13, marginBottom: 10 }}>↓ 繼續上拉載入下一章 ↓</Text>
+                                    ) : (
+                                        <Text style={{ color: '#666', fontSize: 13, marginBottom: 10 }}>已經是最後一章囉</Text>
+                                    )}
+                                </View>
+                            ) : null
+                        }
                     />
                 </ScrollView>
             )}
@@ -527,50 +601,37 @@ export default function ComicReaderScreen({ route, navigation }) {
             {/* Subtle chapter position slider — vertical mode only, fades in on scroll */}
             {!isHorizontal && pages.length > 1 && (
                 <Animated.View
-                    pointerEvents="box-none"
+                    {...sliderPanResponder.panHandlers}
                     style={{
                         position: 'absolute',
-                        right: 6,
+                        right: 0,
                         top: 80,
                         bottom: 80,
-                        width: 20,
+                        width: 40, // Wider touch area for easier grabbing
                         alignItems: 'center',
+                        justifyContent: 'center',
                         opacity: sliderVisible,
                     }}
                 >
                     {/* Track */}
-                    <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={{ flex: 1, width: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)' }}
-                        onPress={(e) => {
-                            // Tap on track to jump — calculate target scroll position
-                            const trackY = e.nativeEvent.locationY;
-                            const sv = scrollViewRef.current;
-                            if (!sv) return;
-                            const trackHeight = scrollViewHeight.current - 160; // top+bottom offset
-                            const fraction = Math.min(1, Math.max(0, trackY / trackHeight));
-                            const targetY = fraction * Math.max(0, scrollContentHeight.current - scrollViewHeight.current);
-                            sv.scrollTo({ y: targetY, animated: true });
+                    <View style={{ position: 'absolute', top: 0, bottom: 0, width: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)' }} />
+                    
+                    {/* Thumb — positioned based on sliderAnim (0–1) */}
+                    <Animated.View
+                        style={{
+                            position: 'absolute',
+                            width: 10,
+                            height: 32,
+                            borderRadius: 5,
+                            backgroundColor: 'rgba(255,255,255,0.7)',
+                            top: sliderAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: ['0%', '100%'],
+                                extrapolate: 'clamp',
+                            }),
+                            marginTop: -16, // center the thumb on the position
                         }}
-                    >
-                        {/* Thumb — positioned based on sliderAnim (0–1) */}
-                        <Animated.View
-                            style={{
-                                position: 'absolute',
-                                left: -3,
-                                width: 10,
-                                height: 32,
-                                borderRadius: 5,
-                                backgroundColor: 'rgba(255,255,255,0.7)',
-                                top: sliderAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: ['0%', '100%'],
-                                    extrapolate: 'clamp',
-                                }),
-                                marginTop: -16, // center the thumb on the position
-                            }}
-                        />
-                    </TouchableOpacity>
+                    />
                 </Animated.View>
             )}
 

@@ -45,7 +45,7 @@ export const TwitterDownloadProvider = ({ children }) => {
         if (watchdogTimerRef.current) clearTimeout(watchdogTimerRef.current);
         watchdogTimerRef.current = setTimeout(() => {
             if (activeTaskRef.current?.id === task.id) {
-                Alert.alert('下載逾時', '擷取推文逾時 (45秒)，請確認網路或手動重試。');
+                Alert.alert('下載超時', '下載任務已超時 (45秒)，請確認網路狀態後重試');
                 completeTask();
             }
         }, 45000);
@@ -67,7 +67,7 @@ export const TwitterDownloadProvider = ({ children }) => {
         const message = event.nativeEvent.data;
         
         if (message === 'TIMEOUT' || message.startsWith('ERROR')) {
-            const errorMsg = message === 'ERROR_NO_VIDEO' ? '找不到影片，若為私人推文請手動登入。' : '解析網頁時發生錯誤';
+            const errorMsg = message === 'ERROR_NO_VIDEO' ? '找不到影片，可能為私人推文或請先登入' : '解析網址發生錯誤';
             Alert.alert('下載失敗', errorMsg);
             completeTask();
             return;
@@ -80,6 +80,26 @@ export const TwitterDownloadProvider = ({ children }) => {
                 const data = JSON.parse(message);
                 if (data.error) {
                     Alert.alert('下載失敗', data.error);
+                    completeTask();
+                    return;
+                }
+                if (data.urls) urls = data.urls;
+                if (data.url) urls = [data.url];
+                if (data.text) textContent = data.text;
+            } catch(e) {}
+        } else if (message.startsWith('[')) {
+            try { urls = JSON.parse(message); } catch(e) {}
+        } else if (message.startsWith('http')) {
+            urls = [message];
+        }
+
+        if (urls.length > 0) {
+            let newlyAddedMedia = [];
+            try {
+                const vaultDir = FileSystem.documentDirectory + 'vault_media/';
+                const dirInfo = await FileSystem.getInfoAsync(vaultDir);
+                if (!dirInfo.exists) {
+                    await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
                     completeTask();
                     return;
                 }
@@ -113,8 +133,8 @@ export const TwitterDownloadProvider = ({ children }) => {
                         const fileName = uniqueId + '_twitter' + ext;
                         const destUri = vaultDir + fileName;
 
-                        const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => { 
-                            setTwitterProgressText(`下載中 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`); 
+                        const downloadResumable = FileSystem.createDownloadResumable(fileUrl, destUri, {}, (prog) => {
+                            setTwitterProgressText(`下載進度 ${i+1}/${urls.length}: ${Math.round((prog.totalBytesWritten / prog.totalBytesExpectedToWrite) * 100)}%`);
                         });
                         const downloadResult = await downloadResumable.downloadAsync();
                         if (!downloadResult || downloadResult.status !== 200) continue;
@@ -153,16 +173,12 @@ export const TwitterDownloadProvider = ({ children }) => {
                     const newMedia = [...newlyAddedMedia, ...currentMedia];
                     await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newMedia));
                     setVaultMediaUpdated(Date.now());
-                    // Invalidate storage usage cache (new files saved to vault)
-                    const { invalidateStorageCache } = require('../utils/storage');
-                    invalidateStorageCache();
                     Alert.alert('下載完成', `已將 ${newlyAddedMedia.length} 個媒體檔案加入私密金庫。`);
                 } else {
                     Alert.alert('下載失敗', '沒有下載任何檔案。');
                 }
             } catch (e) {
                 Alert.alert('下載錯誤', e.message);
-            } finally {
                 completeTask();
             }
         } else {

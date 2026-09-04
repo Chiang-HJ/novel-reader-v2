@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const NOVELS_KEY = '@novels_list';
-const STORAGE_CACHE_KEY = '@storage_usage_cache';
 
 // Helper to get individual novel key
 const getNovelKey = (id) => `@novel_meta_${id}`;
@@ -20,14 +19,6 @@ export const lockStorage = async (task) => {
     } finally {
         release();
     }
-};
-
-// Invalidate the cached storage usage so the next getStorageUsage() call recomputes it.
-// Call this whenever files are written or deleted.
-export const invalidateStorageCache = async () => {
-    try {
-        await AsyncStorage.removeItem(STORAGE_CACHE_KEY);
-    } catch (e) {}
 };
 
 export const saveNovelToBookshelf = async (novelInfo) => {
@@ -78,7 +69,7 @@ export const saveNovelToBookshelf = async (novelInfo) => {
         
         await AsyncStorage.setItem(getNovelKey(novelInfo.id), JSON.stringify(fullNovel));
         // Invalidate storage usage cache whenever a new book is saved
-        invalidateStorageCache();
+
     });
 };
 
@@ -249,58 +240,11 @@ export const batchDeleteNovels = async (novelIds) => {
             } catch (e) {}
         }
         // Invalidate storage usage cache after deletion (disk space freed)
-        invalidateStorageCache();
+
     });
 };
 
 export const getNovelById = getNovelMetadata;
-
-const getDirectorySizeRecursive = async (dirUri) => {
-    let size = 0;
-    try {
-        const dirInfo = await FileSystem.getInfoAsync(dirUri);
-        if (!dirInfo.exists) return 0;
-        const files = await FileSystem.readDirectoryAsync(dirUri);
-        for (const file of files) {
-            const fileUri = `${dirUri}${file}${file.endsWith('/') ? '' : '/'}`;
-            const fileInfo = await FileSystem.getInfoAsync(`${dirUri}${file}`);
-            if (fileInfo.isDirectory) {
-                size += await getDirectorySizeRecursive(fileUri);
-            } else {
-                size += fileInfo.size || 0;
-            }
-        }
-    } catch (e) {}
-    return size;
-};
-
-export const getStorageUsage = async () => {
-    try {
-        // Return cached result immediately if available (cache is invalidated on any save/delete)
-        const cached = await AsyncStorage.getItem(STORAGE_CACHE_KEY);
-        if (cached) return cached;
-
-        // Cache miss — do the full recursive scan
-        const novelDir = `${FileSystem.documentDirectory}novels/`;
-        const vaultDir = `${FileSystem.documentDirectory}vault_media/`;
-        let totalBytes = 0;
-
-        totalBytes += await getDirectorySizeRecursive(novelDir);
-        totalBytes += await getDirectorySizeRecursive(vaultDir);
-
-        let result;
-        if (totalBytes < 1024) result = `${totalBytes} B`;
-        else if (totalBytes < 1024 * 1024) result = `${(totalBytes / 1024).toFixed(1)} KB`;
-        else if (totalBytes < 1024 * 1024 * 1024) result = `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
-        else result = `${(totalBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-
-        // Persist the result so the next call is instant
-        await AsyncStorage.setItem(STORAGE_CACHE_KEY, result);
-        return result;
-    } catch (e) {
-        return '計算失敗';
-    }
-};
 
 export const getNovelDir = (novelId) => {
     return `${FileSystem.documentDirectory}novels/${novelId}/`;
@@ -333,7 +277,7 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
         const data = { title, text, id: fileId };
         await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
         // Invalidate storage usage cache (new file written to disk)
-        invalidateStorageCache();
+
         return fileId;
     } catch (e) {
         throw e;
@@ -373,7 +317,7 @@ export const saveComicImage = async (novelId, chapterId, imageIndex, imageData, 
             }
             const result = await FileSystem.downloadAsync(imageData, filePath, downloadOptions);
             if (result.status !== 200) {
-                throw new Error(`圖片下載失敗 (HTTP ${result.status}): ${imageData}`);
+            throw new Error(`圖片下載失敗 (HTTP ${result.status}): ${imageData}`);
             }
             return result.uri;
         } else {
@@ -407,7 +351,7 @@ export const saveComicChapterData = async (novelId, chapterIndex, title, pages, 
         }
         await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
         // Invalidate storage usage cache once per chapter completion
-        invalidateStorageCache();
+
         return fileId;
     } catch (e) {
         throw e;
@@ -741,4 +685,5 @@ export const getReadingStats = async () => {
         return statsStr ? JSON.parse(statsStr) : { totalSeconds: 0 };
     } catch(e) { return { totalSeconds: 0 }; }
 };
+
 

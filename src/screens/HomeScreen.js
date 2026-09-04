@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Button, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
-import { getBookshelf, deleteNovel, getStorageUsage, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats, togglePinNovel } from '../utils/storage';
+import { getBookshelf, deleteNovel, moveNovelToFolder, batchMoveNovels, batchDeleteNovels, saveNovelToBookshelf, saveChapterText, updateNovelMetadata, getReadingStats, togglePinNovel } from '../utils/storage';
 import { getFolders, createFolder } from '../utils/folderStorage';
 import { createBackup, restoreBackup } from '../utils/BackupService';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -27,7 +27,7 @@ export default function HomeScreen({ navigation }) {
     const [searchInput, setSearchInput] = useState('');
     const [bookshelf, setBookshelf] = useState([]);
     const [folders, setFolders] = useState([]);
-    const [storageUsage, setStorageUsage] = useState('計算中...');
+
     const [readingStats, setReadingStats] = useState({ totalSeconds: 0 });
     const [isBackingUp, setIsBackingUp] = useState(false);
     
@@ -59,7 +59,7 @@ export default function HomeScreen({ navigation }) {
         currentTitle: '',
         title: ''
     });
-    const [splitRegexStr, setSplitRegexStr] = useState('第[零一二三四五六七八九十百千0-9]+[章節][^\\n]*');
+    const [splitRegexStr, setSplitRegexStr] = useState('第[一二三四五六七八九十百千0-9]+[章節][^\\n]*');
     const [splitExampleStr, setSplitExampleStr] = useState('1.');
     const [splitMode, setSplitMode] = useState('regex');
 
@@ -113,9 +113,9 @@ export default function HomeScreen({ navigation }) {
             const AsyncStorage = require('@react-native-async-storage/async-storage').default;
             await AsyncStorage.setItem('@sideload_date', Date.now().toString());
             await loadSideloadTimer();
-            Alert.alert('已重置', '側載 7 天簽名倒數已重置為今天！');
+            Alert.alert("已重置", "側載 7 天簽名倒數已重置為今天。");
         } catch (e) {
-            Alert.alert('錯誤', '重置失敗: ' + e.message);
+            Alert.alert("錯誤", "重置失敗: " + e.message);
         }
     };
 
@@ -141,7 +141,6 @@ export default function HomeScreen({ navigation }) {
             const list = await getBookshelf();
             setBookshelf(list.filter(n => !n.folderId && !n.isHidden)); // Exclude hidden books and folders from main view
             setFolders(await getFolders());
-            setStorageUsage(await getStorageUsage());
             setReadingStats(await getReadingStats());
         } catch (error) {
             console.error('Failed to load bookshelf:', error);
@@ -164,16 +163,16 @@ export default function HomeScreen({ navigation }) {
                     navigation.navigate('Vault');
                 } else {
                     if (!supportedTypes.includes(2)) {
-                        Alert.alert('Face ID 未啟用', '系統偵測不到可用的 Face ID。請到 iPhone 的「設定」>「Expo Go」，確認是否已經允許取用「Face ID」。\n\n(若失敗，將改用密碼登入)');
+                        Alert.alert("Face ID 驗證失敗", "系統偵測不到可用的 Face ID，請至 iPhone 的「設定」>「Expo Go」中確認是否已允許使用 Face ID。\n\n(若失敗，將改以密碼登入)");
                     } else {
-                        Alert.alert('解鎖失敗', '生物辨識失敗。');
+                        Alert.alert("驗證失敗", "生物辨識失敗。");
                     }
                 }
             } else {
-                Alert.alert('解鎖失敗', '請先至系統設定中啟用生物辨識（Face ID / Touch ID）或設定密碼。');
+                Alert.alert("驗證失敗", "請至系統設定中啟用生物辨識（Face ID / Touch ID）或設定密碼。");
             }
         } catch (e) {
-            Alert.alert('解鎖發生錯誤', e.message);
+            Alert.alert('發生不明錯誤', e.message);
         }
     };
 
@@ -193,7 +192,7 @@ export default function HomeScreen({ navigation }) {
             setIsMoveModalVisible(false);
             await loadBookshelf();
         } catch (error) {
-            Alert.alert('錯誤', '建立資料夾失敗');
+            Alert.alert("錯誤", "建立資料夾失敗。");
         }
     };
 
@@ -210,14 +209,14 @@ export default function HomeScreen({ navigation }) {
             setIsMoveModalVisible(false);
             await loadBookshelf();
         } catch (error) {
-            Alert.alert('錯誤', '移動失敗');
+                Alert.alert('錯誤', '移動失敗');
         }
     };
 
     const confirmDelete = (novel) => {
         Alert.alert(
-            '刪除書籍',
-            `確定要從書櫃中刪除《${novel.title}》嗎？（已下載的章節也會一併刪除）`,
+            '刪除小說',
+            `確定要從書架中刪除 ${novel.title} 嗎？所有已下載的章節也將一併刪除。`,
             [
                 { text: '取消', style: 'cancel' },
                 { text: '刪除', style: 'destructive', onPress: async () => {
@@ -236,7 +235,7 @@ export default function HomeScreen({ navigation }) {
         if (selectedIds.size === 0) return;
         Alert.alert(
             '批次刪除',
-            `確定要刪除選取的 ${selectedIds.size} 本書籍嗎？`,
+            `確定要刪除選定的 ${selectedIds.size} 本書籍嗎？`,
             [
                 { text: '取消', style: 'cancel' },
                 { text: '刪除', style: 'destructive', onPress: async () => {
@@ -266,12 +265,12 @@ export default function HomeScreen({ navigation }) {
         
         if (input.startsWith('http://') || input.startsWith('https://')) {
             if (queue.some(q => q.url === input) || activeTask?.url === input) {
-                Alert.alert('提示', '這個網址已經在下載序列中了');
+                Alert.alert("提示", "這個網址已經在下載佇列中。");
             } else {
                 startDownload(input);
             }
         } else {
-            Alert.alert('輸入錯誤', '這不是網址，目前支援從狂人網與微風小說網下載 (例如 czbooks, wyblogs 等)。');
+            Alert.alert("輸入錯誤", "無效的網址，目前支援狂人小說與微風小說網址。(例如 czbooks, wyblogs 等)");
         }
         setSearchInput('');
     };
@@ -280,7 +279,7 @@ export default function HomeScreen({ navigation }) {
     const handleEditNovel = async () => {
         if (!selectedNovel) return;
         if (!editTitle.trim()) {
-            Alert.alert('提示', '書名不能為空');
+            Alert.alert('提示', '網址不能為空');
             return;
         }
         try {
@@ -303,7 +302,7 @@ export default function HomeScreen({ navigation }) {
         setImportProgress({
             isVisible: true,
             percent: 0,
-            statusText: '正在分析章節目錄結構...',
+                statusText: '正在解析章節與內容結構...',
             current: 0,
             total: 0,
             currentTitle: '',
@@ -332,10 +331,10 @@ export default function HomeScreen({ navigation }) {
             setImportProgress(prev => ({ ...prev, isVisible: false }));
             setImportTitle('');
             setImportText('');
-            Alert.alert('匯入成功', `《${result.title}》已成功匯入書櫃，共 ${result.chapterCount} 章！`);
+            Alert.alert('匯入成功', `小說 ${result.title} 已成功匯入書架，共 ${result.chapterCount} 章節`);
         } catch (error) {
             setImportProgress(prev => ({ ...prev, isVisible: false }));
-            Alert.alert('匯入失敗', error.message || '處理檔案時發生錯誤');
+            Alert.alert("匯入失敗", error.message || "讀取檔案時發生錯誤。");
         } finally {
             setIsImporting(false);
             stopBackgroundKeepAlive('txt_import');
@@ -344,7 +343,7 @@ export default function HomeScreen({ navigation }) {
 
     const handleImportText = () => {
         if (!importTitle.trim()) {
-            Alert.alert('提示', '請輸入小說名稱');
+            Alert.alert("提示", "請輸入小說書名。");
             return;
         }
         if (!importText.trim()) {
@@ -373,7 +372,7 @@ export default function HomeScreen({ navigation }) {
                 setImportProgress({
                     isVisible: true,
                     percent: 5,
-                    statusText: '正在解析 EPUB 結構...',
+                    statusText: '正在讀取 EPUB 結構...',
                     current: 0,
                     total: 0,
                     currentTitle: '',
@@ -402,7 +401,7 @@ export default function HomeScreen({ navigation }) {
                             setImportProgress({
                                 isVisible: true,
                                 percent: 50 + Math.round(((i + 1) / total) * 50),
-                                statusText: `正在寫入章節 (${i + 1} / ${total})`,
+                        statusText: `正在寫入章節 (${i + 1} / ${total})`,
                                 current: i + 1,
                                 total,
                                 currentTitle: parsed.chapters[i].title,
@@ -426,10 +425,10 @@ export default function HomeScreen({ navigation }) {
                     await saveNovelToBookshelf(novelInfo);
                     await loadBookshelf();
                     setImportProgress(prev => ({ ...prev, isVisible: false }));
-                    Alert.alert('成功', `EPUB《${parsed.title}》匯入完成！`);
+                    Alert.alert('成功', `EPUB 小說 ${parsed.title} 匯入成功`);
                 } catch (e) {
                     setImportProgress(prev => ({ ...prev, isVisible: false }));
-                    Alert.alert('錯誤', '無法解析 EPUB 檔案: ' + e.message);
+                    Alert.alert('錯誤', '讀取或解析 EPUB 檔案失敗: ' + e.message);
                 } finally {
                     stopBackgroundKeepAlive('txt_import');
                 }
@@ -439,7 +438,7 @@ export default function HomeScreen({ navigation }) {
                 setImportProgress({
                     isVisible: true,
                     percent: 2,
-                    statusText: '正在讀取文字檔內容...',
+                statusText: '正在讀取文字內容...',
                     current: 0,
                     total: 0,
                     currentTitle: '',
@@ -450,11 +449,11 @@ export default function HomeScreen({ navigation }) {
                 const txtContent = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
                 await processLargeTextImport(baseName, txtContent);
             } else {
-                Alert.alert('不支援的格式', '目前只支援 .txt 與 .epub 檔案');
+                Alert.alert('不支援的檔案格式', '目前僅支援 .txt 或是 .epub 檔案');
             }
         } catch (error) {
             setImportProgress(prev => ({ ...prev, isVisible: false }));
-            Alert.alert('錯誤', '選取檔案時發生問題: ' + error.message);
+            Alert.alert('錯誤', '讀取檔案時發生例外: ' + error.message);
         }
     };
 
@@ -463,7 +462,7 @@ export default function HomeScreen({ navigation }) {
             const newPinned = await togglePinNovel(novel.id);
             await loadBookshelf();
         } catch (e) {
-            Alert.alert('錯誤', '操作失敗');
+            Alert.alert('錯誤', '處理失敗');
         }
     };
 
@@ -503,7 +502,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.appHeader}>
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                         <TouchableOpacity onPress={unlockVault} activeOpacity={0.8} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
-                            <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
+                    <Text style={[styles.appTitle, { color: colors.text }]}>聽小說</Text>
                         </TouchableOpacity>
 
                         {sideloadDaysLeft !== null && (
@@ -519,7 +518,7 @@ export default function HomeScreen({ navigation }) {
                                         fontSize: 12,
                                         fontWeight: 'bold'
                                     }}>
-                                        憑證: {Math.max(0, sideloadDaysLeft).toFixed(1)} 天
+                                剩餘天數: {Math.max(0, sideloadDaysLeft).toFixed(1)} 天
                                     </Text>
                                 </View>
                             </TouchableOpacity>
@@ -528,7 +527,7 @@ export default function HomeScreen({ navigation }) {
                     <View style={styles.headerActions}>
                         <TouchableOpacity onPress={() => setIsSettingsModalVisible(true)} style={[styles.themeBtn, { backgroundColor: colors.surface }]}>
                             <Feather name="settings" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>設定</Text>
+                                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>設定</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -561,7 +560,7 @@ export default function HomeScreen({ navigation }) {
                         {isFirstUnpinned && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, marginTop: 4 }}>
                                 <View style={{ flex: 1, height: 1, backgroundColor: colors.border, opacity: 0.5 }} />
-                                <Text style={{ color: colors.textSecondary, fontSize: 11, marginHorizontal: 10, fontWeight: '500' }}>其他書籍</Text>
+                                <Text style={{ color: colors.textSecondary, fontSize: 11, marginHorizontal: 10, fontWeight: '500' }}>新增與匯入</Text>
                                 <View style={{ flex: 1, height: 1, backgroundColor: colors.border, opacity: 0.5 }} />
                             </View>
                         )}
@@ -589,8 +588,8 @@ export default function HomeScreen({ navigation }) {
                         onMove={() => { setSelectedNovel(item); setIsMoveModalVisible(true); }}
                         onDelete={() => confirmDelete(item)}
                         onAuthorPress={(author) => {
-                            if (item.type === 'comic' || item.id.includes('comic') || item.id.includes('香香')) {
-                                if (item.id.includes('boylove') || item.id.includes('香香')) {
+            if (item.type === 'comic' || item.id.includes('comic') || item.id.includes('boylove')) {
+                if (item.id.includes('boylove')) {
                                     navigation.navigate('BoyloveFeed', { initialQuery: author });
                                 } else {
                                     navigation.navigate('JMComicFeed', { initialQuery: author });
@@ -640,11 +639,10 @@ export default function HomeScreen({ navigation }) {
 
                         <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
                             <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書架</Text>
+                        <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>我的書架</Text>
                             </View>
                             
                             <View style={{flexDirection: 'row', alignItems: 'center', gap: 16}}>
-                                <Text style={[styles.storageText, { color: colors.textSecondary, marginBottom: 0 }]}>使用空間: {storageUsage}</Text>
                                 <TouchableOpacity onPress={() => setIsSelectionMode(!isSelectionMode)}>
                                     <Text style={{ color: isSelectionMode ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>
                                         {isSelectionMode ? '取消選取' : '批次管理'}
@@ -663,7 +661,7 @@ export default function HomeScreen({ navigation }) {
                         ))}
                     </View>
                 }
-                ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>書櫃目前沒有尚未分類的小數。</Text>}
+                        ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>您的書架空空如也，尚未新增任何書籍</Text>}
             />
             
             {/* Batch Action Bottom Bar */}
@@ -675,21 +673,21 @@ export default function HomeScreen({ navigation }) {
                     borderTopColor: colors.border,
                     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'
                 }}>
-                    <Text style={{ color: colors.text, fontWeight: 'bold' }}>已選取 {selectedIds.size} 本</Text>
+                    <Text style={{ color: colors.text, fontWeight: "bold" }}>已選擇 {selectedIds.size} 本</Text>
                     <View style={{ flexDirection: 'row', gap: 16 }}>
                         <TouchableOpacity 
                             style={{ padding: 15, backgroundColor: colors.surface, borderRadius: 8 }}
                             disabled={selectedIds.size === 0}
                             onPress={() => { setIsMoveModalVisible(true); }}
                         >
-                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>移動至</Text>
+                                    <Text style={{ color: colors.primary, fontWeight: 'bold' }}>移動到</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                             style={{ padding: 15, backgroundColor: '#FF3B30', borderRadius: 8 }}
                             disabled={selectedIds.size === 0}
                             onPress={confirmBatchDelete}
                         >
-                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>批次刪除</Text>
+                                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>批次刪除</Text>
                         </TouchableOpacity>
                     </View>
                 </BlurView>
@@ -699,21 +697,21 @@ export default function HomeScreen({ navigation }) {
             <Modal visible={isMoveModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
-                        <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>移動《{selectedNovel?.title || (selectedIds.size > 0 ? selectedIds.size + ' 本選取書籍' : '')}》</Text>
+                                <Text style={[styles.modalTitle, { color: colors.text }]} numberOfLines={1}>移動到：{selectedNovel?.title || (selectedIds.size > 0 ? selectedIds.size + " 本選中書籍" : "")}</Text>
                         
                         <View style={{ flexDirection: 'row', marginBottom: 16 }}>
                             <TextInput 
                                 style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
-                                placeholder="新增資料夾..."
+                            placeholder="新建資料夾..."
                                 placeholderTextColor={colors.textSecondary}
                                 value={newFolderName}
                                 onChangeText={setNewFolderName}
                             />
-                            <Button title="新增" onPress={handleCreateFolder} color={colors.primary} />
+                        <Button title="建立" onPress={handleCreateFolder} color={colors.primary} />
                         </View>
                         
                         <FlatList 
-                            data={[{ id: 'vault', name: '㊙️ 隱藏金庫 (需解鎖)' }, ...folders]}
+                        data={[{ id: 'vault', name: '🔒 私密金庫 (需解鎖)' }, ...folders]}
                             keyExtractor={item => item.id}
                             style={{ maxHeight: 200 }}
                             renderItem={({ item }) => (
@@ -736,7 +734,7 @@ export default function HomeScreen({ navigation }) {
             <Modal visible={isSettingsModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
-                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>外觀主題</Text>
+                    <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>外觀主題</Text>
                         {availableThemes.map(t => (
                             <TouchableOpacity 
                                 key={t.id}
@@ -748,13 +746,13 @@ export default function HomeScreen({ navigation }) {
                             </TouchableOpacity>
                         ))}
                         
-                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>閱讀統計</Text>
+                    <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>閱讀統計</Text>
                         <View style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}>
                             <Feather name="clock" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                            <Text style={{ color: colors.text, fontSize: 16 }}>總閱讀時間: {Math.floor(readingStats.totalSeconds / 3600)}小時 {Math.floor((readingStats.totalSeconds % 3600) / 60)}分鐘</Text>
+                        <Text style={{ color: colors.text, fontSize: 16 }}>總閱讀時間: {Math.floor(readingStats.totalSeconds / 3600)}小時 {Math.floor((readingStats.totalSeconds % 3600) / 60)}分鐘</Text>
                         </View>
                         
-                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>資料與備份</Text>
+                    <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>資料備份與還原</Text>
                         <TouchableOpacity 
                             style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}
                             onPress={async () => {
@@ -766,7 +764,7 @@ export default function HomeScreen({ navigation }) {
                             disabled={isBackingUp}
                         >
                             <Feather name="upload-cloud" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                            <Text style={{ color: colors.text, fontSize: 16 }}>{isBackingUp ? '備份中...' : '備份書架與設定'}</Text>
+                                    <Text style={{ color: colors.text, fontSize: 16 }}>{isBackingUp ? "備份中..." : "備份書架與設定"}</Text>
                         </TouchableOpacity>
                         
                         <TouchableOpacity 
@@ -780,18 +778,18 @@ export default function HomeScreen({ navigation }) {
                             }}
                         >
                             <Feather name="download-cloud" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                            <Text style={{ color: colors.text, fontSize: 16 }}>從備份檔還原</Text>
+                                <Text style={{ color: colors.text, fontSize: 16 }}>從備份檔還原</Text>
                         </TouchableOpacity>
 
-                        <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>側載簽名管理 (7天驗證)</Text>
+                    <Text style={[styles.modalTitle, { color: colors.text, marginTop: 24, marginBottom: 16 }]}>側載簽名管理 (7天倒數)</Text>
                         <View style={[styles.modalFolderItem, { borderBottomColor: colors.border, paddingHorizontal: 12 }]}>
                             <Feather name="shield" size={20} color={sideloadDaysLeft !== null && sideloadDaysLeft <= 2 ? '#FF3B30' : colors.primary} style={{ marginRight: 12 }} />
                             <Text style={{ color: colors.text, fontSize: 15, flex: 1 }}>
                                 {sideloadDaysLeft !== null 
-                                    ? (sideloadDaysLeft <= 0 
-                                        ? '⚠️ 簽名已到期，請接電腦重新驗證/簽名！' 
-                                        : `剩餘時間: ${Math.floor(sideloadDaysLeft)} 天 ${Math.floor((sideloadDaysLeft % 1) * 24)} 小時`)
-                                    : '計算中...'}
+                                ? (sideloadDaysLeft <= 0 
+                                  ? "゠️ 氽名已到期，請接上電腦重新驗證/簽名、"
+                                  : `剩��~刌珟時間: ${Math.floor(sideloadDaysLeft)} 天 ${Math.floor((sideloadDaysLeft % 1) * 24)} 小時`)
+                                : '訋算中...'}
                             </Text>
                         </View>
                         <TouchableOpacity 
@@ -799,11 +797,11 @@ export default function HomeScreen({ navigation }) {
                             onPress={handleResetSideloadTimer}
                         >
                             <Feather name="refresh-cw" size={20} color={colors.primary} style={{ marginRight: 12 }} />
-                            <Text style={{ color: colors.primary, fontSize: 16, fontWeight: '600' }}>插電腦重簽完成，重置 7 天倒數</Text>
+                                <Text style={{ color: colors.primary, fontSize: 16, fontWeight: '600' }}>連上電腦重新簽名後，點此重置 7 天倒數</Text>
                         </TouchableOpacity>
                         
                         <View style={{ marginTop: 24 }}>
-                            <Button title="關閉" onPress={() => setIsSettingsModalVisible(false)} color={colors.textSecondary} />
+                        <Button title="關閉" onPress={() => setIsSettingsModalVisible(false)} color={colors.textSecondary} />
                         </View>
                     </View>
                 </BlurView>
@@ -813,7 +811,7 @@ export default function HomeScreen({ navigation }) {
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, height: '80%', padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>手動匯入小說</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>手動匯入小說</Text>
                             <TouchableOpacity onPress={() => setIsImportModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
                                 <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
@@ -821,7 +819,7 @@ export default function HomeScreen({ navigation }) {
                         <View style={{flex: 1, width: '100%'}}>
                             <TextInput
                                 style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
-                                placeholder="請輸入小說名稱..."
+                        placeholder="請輸入小說書名..."
                                 placeholderTextColor={colors.textSecondary}
                                 value={importTitle}
                                 onChangeText={setImportTitle}
@@ -831,22 +829,22 @@ export default function HomeScreen({ navigation }) {
                                     style={{ flex: 1, padding: 8, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'regex' ? colors.primary : 'transparent' }}
                                     onPress={() => setSplitMode('regex')}
                                 >
-                                    <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
+                                <Text style={{ color: splitMode === 'regex' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>規則分割</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity 
                                     style={{ flex: 1, padding: 8, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: splitMode === 'example' ? colors.primary : 'transparent' }}
                                     onPress={() => setSplitMode('example')}
                                 >
-                                    <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
+                                <Text style={{ color: splitMode === 'example' ? colors.primary : colors.textSecondary, fontWeight: 'bold' }}>範例分割</Text>
                                 </TouchableOpacity>
                             </View>
 
                             {splitMode === 'example' ? (
                                 <>
-                                    <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>請輸入章節的編號範例 (例如: 1. 或 第1章)：</Text>
+                                <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>請輸入章節的編號範例 (例如: 1. 或 第一章)</Text>
                                     <TextInput
                                         style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
-                                        placeholder="例如: 1."
+                                placeholder="例如: 1."
                                         placeholderTextColor={colors.textSecondary}
                                         value={splitExampleStr}
                                         onChangeText={setSplitExampleStr}
@@ -854,10 +852,10 @@ export default function HomeScreen({ navigation }) {
                                 </>
                             ) : (
                                 <>
-                                    <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>章節分割規則 (Regular Expression)：</Text>
+                                <Text style={{ color: colors.textSecondary, marginBottom: 5, fontSize: 12 }}>章節分割規則 (Regular Expression)：</Text>
                                     <TextInput
                                         style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 40, borderRadius: 8, paddingHorizontal: 15 }]}
-                                        placeholder="正則表達式"
+                                placeholder="正規表達式"
                                         placeholderTextColor={colors.textSecondary}
                                         value={splitRegexStr}
                                         onChangeText={setSplitRegexStr}
@@ -866,7 +864,7 @@ export default function HomeScreen({ navigation }) {
                             )}
                             <TextInput
                                 style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, flex: 1, textAlignVertical: 'top', padding: 15, borderRadius: 8, marginBottom: 15 }]}
-                                placeholder={"請貼上整本小說的純文字內容...\n(系統將自動依據『第X章』來切割章節)"}
+                        placeholder={"請貼上整本小說的純文字內容...\n(系統將自動根據『第X章』來分割章節)"}
                                 placeholderTextColor={colors.textSecondary}
                                 value={importText}
                                 onChangeText={setImportText}
@@ -878,7 +876,7 @@ export default function HomeScreen({ navigation }) {
                                 disabled={isImporting}
                             >
                                 <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>
-                                    {isImporting ? '解析並匯入中...' : '開始解析並匯入'}
+                                        {isImporting ? "解析並匯入中..." : "解析網址並匯入"}
                                 </Text>
                             </TouchableOpacity>
                         </View>
@@ -891,17 +889,17 @@ export default function HomeScreen({ navigation }) {
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>選擇下載章節</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>接續下載章節</Text>
                         </View>
                         
                         <Text style={{color: colors.textSecondary, marginBottom: 10, fontSize: 14}}>
-                            《{pendingSelection?.novelInfo?.title}》共 {pendingSelection?.novelInfo?.chapters?.length} 章
+                        《{pendingSelection?.novelInfo?.title}》 共 {pendingSelection?.novelInfo?.chapters?.length} 章
                         </Text>
                         
                         {pendingSelection?.existing && (pendingSelection.existing.downloadedChapters > 0) && (
                             <View style={{ backgroundColor: colors.primary + '20', padding: 8, borderRadius: 6, marginBottom: 15 }}>
                                 <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>
-                                    ✨ 上次已下載至第 {pendingSelection.existing.downloadedChapters} 章（已為您自動接續）
+                            💡 上次已下載至第 {pendingSelection.existing.downloadedChapters} 章，已為您自動接續。
                                 </Text>
                             </View>
                         )}
@@ -914,14 +912,14 @@ export default function HomeScreen({ navigation }) {
                                 onChangeText={setSelectStartChapter}
                                 keyboardType="number-pad"
                             />
-                            <Text style={{color: colors.text}}>章，到第</Text>
+                    <Text style={{color: colors.text}}>章節：第</Text>
                             <TextInput
                                 style={[{ flex: 1, color: colors.text, borderColor: colors.border, borderWidth: 1, height: 40, borderRadius: 8, paddingHorizontal: 10, textAlign: 'center' }]}
                                 value={selectEndChapter}
                                 onChangeText={setSelectEndChapter}
                                 keyboardType="number-pad"
                             />
-                            <Text style={{color: colors.text}}>章</Text>
+                    <Text style={{color: colors.text}}>章</Text>
                         </View>
 
                         <View style={{flexDirection: 'row', gap: 10}}>
@@ -929,13 +927,13 @@ export default function HomeScreen({ navigation }) {
                                 style={[{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
                                 onPress={cancelSelection}
                             >
-                                <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>取消</Text>
+                            <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>取消</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
                                 style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
                                 onPress={handleSubmitChapterSelection}
                             >
-                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>確定下載</Text>
+                            <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>確認下載</Text>
                             </TouchableOpacity>
                         </View>
                     </TouchableOpacity>
@@ -947,20 +945,20 @@ export default function HomeScreen({ navigation }) {
                     <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsOptionsModalVisible(false)} />
                     <TouchableOpacity activeOpacity={1} onPress={Keyboard.dismiss} style={[styles.modalContent, { backgroundColor: colors.surface, padding: 20 }]}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
-                            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯書籍資訊</Text>
+                        <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]} numberOfLines={1}>編輯小說資訊</Text>
                             <TouchableOpacity onPress={() => setIsOptionsModalVisible(false)} style={{padding: 5}} hitSlop={{top:15,bottom:15,left:15,right:15}}>
                                 <Feather name="x" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>書名</Text>
+                    <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>書名</Text>
                         <TextInput
                             style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 15, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
                             value={editTitle}
                             onChangeText={setEditTitle}
                         />
 
-                        <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>作者</Text>
+                    <Text style={{color: colors.textSecondary, marginBottom: 8, fontSize: 14}}>作者</Text>
                         <TextInput
                             style={[{ color: colors.text, borderColor: colors.border, borderWidth: 1, marginBottom: 20, height: 50, borderRadius: 8, paddingHorizontal: 15 }]}
                             value={editAuthor}
@@ -972,7 +970,7 @@ export default function HomeScreen({ navigation }) {
                                 style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
                                 onPress={handleEditNovel}
                             >
-                                <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>儲存變更</Text>
+                            <Text style={{ color: "white", fontSize: 16, fontWeight: 'bold' }}>儲存變更</Text>
                             </TouchableOpacity>
                         </View>
                     </TouchableOpacity>
@@ -988,11 +986,11 @@ export default function HomeScreen({ navigation }) {
                         </View>
                         
                         <Text style={[styles.modalTitle, { color: colors.text, fontSize: 18, marginBottom: 8, textAlign: 'center' }]} numberOfLines={1}>
-                            正在匯入《{importProgress.title}》
+                        正在匯入《{importProgress.title}》
                         </Text>
                         
                         <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
-                            {importProgress.statusText || '正在處理中...'}
+                        {importProgress.statusText || '正在處理中...'}
                         </Text>
 
                         {/* Progress Bar */}
@@ -1006,7 +1004,7 @@ export default function HomeScreen({ navigation }) {
                             </Text>
                             {importProgress.total > 0 && (
                                 <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-                                    {importProgress.current} / {importProgress.total} 章
+                                {importProgress.current} / {importProgress.total} 章
                                 </Text>
                             )}
                         </View>
@@ -1014,13 +1012,13 @@ export default function HomeScreen({ navigation }) {
                         {importProgress.currentTitle ? (
                             <View style={{ backgroundColor: colors.background, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, width: '100%', marginTop: 4 }}>
                                 <Text style={{ color: colors.textSecondary, fontSize: 12 }} numberOfLines={1}>
-                                    📝 當前：{importProgress.currentTitle}
+                                📑 目前章節：{importProgress.currentTitle}
                                 </Text>
                             </View>
                         ) : null}
 
                         <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 16, textAlign: 'center' }}>
-                            🌙 已啟用防休眠保護，請稍候片刻...
+                        💡 已開啟防休眠保護，請稍候...
                         </Text>
                     </View>
                 </BlurView>

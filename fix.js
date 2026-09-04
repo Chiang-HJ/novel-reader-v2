@@ -1,0 +1,1 @@
+﻿const fs = require("fs"); let lines = fs.readFileSync("src/screens/HomeScreen.js", "utf8").split("\n"); lines[115] = "            Alert.alert(\"已重置\", \"側載 7 天簽名倒數已重置為今天。\");"; lines[117] = "            Alert.alert(\"錯誤\", \"重置失敗: \" + e.message);"; fs.writeFileSync("src/screens/HomeScreen.js", lines.join("\n"), "utf8");
