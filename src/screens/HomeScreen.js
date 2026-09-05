@@ -665,16 +665,18 @@ export default function HomeScreen({ navigation }) {
                         ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textSecondary }]}>您的書架空空如也，尚未新增任何書籍</Text>}
             />
             
-            <DownloadProgress
-                queue={queue}
-                activeTask={activeTask}
-                progressText={progressText}
-                cancelDownload={cancelDownload}
-                colors={colors}
-                activeTaskProgress={activeTaskProgress}
-                retryChapterDownload={retryChapterDownload}
-                novelId={downloadingNovelId}
-            />
+                        <View style={{ position: 'absolute', bottom: isSelectionMode ? 120 : 30, left: 0, right: 0, zIndex: 50 }}>
+                <DownloadProgress
+                    queue={queue}
+                    activeTask={activeTask}
+                    progressText={progressText}
+                    cancelDownload={cancelDownload}
+                    colors={colors}
+                    activeTaskProgress={activeTaskProgress}
+                    retryChapterDownload={retryChapterDownload}
+                    novelId={downloadingNovelId}
+                />
+            </View>
 
             {/* Batch Action Bottom Bar */}
             {isSelectionMode && (

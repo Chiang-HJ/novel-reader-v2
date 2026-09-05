@@ -563,9 +563,13 @@ export const DownloadProvider = ({ children }) => {
             downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);
             setProgressText('無需要下載的章節');
+        setTimeout(() => {
             setActiveTask(null);
             activeTaskRef.current = null;
+            setProgressText('');
+            setActiveTaskProgress(null);
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+        }, 3000);
             stopBackgroundKeepAlive('novel_download');
             return;
         }
@@ -794,9 +798,13 @@ export const DownloadProvider = ({ children }) => {
         downloadingNovelIdRef.current = null;
         setDownloadingNovelId(null);
         setProgressText(`🎉 下載完成！共下載 ${completedCount} 個章節`);
-        setActiveTask(null);
-        activeTaskRef.current = null;
-        setQueue(prev => prev.filter(q => q.url !== task?.url));
+        setTimeout(() => {
+            setActiveTask(null);
+            activeTaskRef.current = null;
+            setProgressText('');
+            setActiveTaskProgress(null);
+            setQueue(prev => prev.filter(q => q.url !== task?.url));
+        }, 3000);
         stopBackgroundKeepAlive('novel_download');
         
         } catch (e) {
@@ -805,9 +813,13 @@ export const DownloadProvider = ({ children }) => {
             downloadingNovelIdRef.current = null;
             setDownloadingNovelId(null);
             setProgressText(`下載失敗: ${e.message}`);
+        setTimeout(() => {
             setActiveTask(null);
             activeTaskRef.current = null;
+            setProgressText('');
+            setActiveTaskProgress(null);
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+        }, 3000);
             stopBackgroundKeepAlive('novel_download');
         }
     };
