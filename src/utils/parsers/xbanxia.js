@@ -16,7 +16,7 @@ export const parseInfo = (html, url = '') => {
     const imgMatch = html.match(/<div class="book-img"[^>]*>[\s\S]*?<img[^>]+data-original="([^"]+)"/i) || html.match(/<div class="book-img"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"/i);
     let cover = imgMatch ? imgMatch[1].trim() : null;
     if (cover && cover.startsWith('/')) {
-        cover = 'http://www.xbanxia.cc' + cover;
+        cover = 'https://www.xbanxia.cc' + cover;
     }
     
     const chapters = [];
@@ -31,7 +31,7 @@ export const parseInfo = (html, url = '') => {
             let text = match[2].replace(/<[^>]+>/g, '').trim();
             
             if (!href.startsWith('http')) {
-                if (href.startsWith('/')) href = 'http://www.xbanxia.cc' + href;
+                if (href.startsWith('/')) href = 'https://www.xbanxia.cc' + href;
                 else {
                     const baseUrl = url.split('/').slice(0, -1).join('/');
                     href = baseUrl + '/' + href;
