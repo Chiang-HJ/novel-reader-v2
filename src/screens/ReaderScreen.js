@@ -779,7 +779,7 @@ export default function ReaderScreen({ route, navigation }) {
                     }, pauseTime);
                 }
             },
-            onStopped: () => {},
+            onStopped: () => { if (playId === playIdRef.current && isPlayingRef.current) { setPlayingState(false); } },
             onError: () => {
                 if (playId === playIdRef.current) {
                     setPlayingState(false);
@@ -831,6 +831,7 @@ export default function ReaderScreen({ route, navigation }) {
 
     const toggleFullScreen = useCallback(() => setIsFullScreen(prev => !prev), []);
 
+    const wasPlayingBeforeDuckRef = useRef(false);
     useTrackPlayerEvents([
         Event.RemotePlay,
         Event.RemotePause,

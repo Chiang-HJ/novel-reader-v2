@@ -281,7 +281,8 @@ export const saveChapterText = async (novelId, chapterIndex, title, text) => {
         } catch (e) {
             verifiedNovelDirs.delete(folderPath);
             folderPath = await ensureNovelDir(novelId);
-            await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data), { encoding: 'utf8' });
+            const newFilePath = `${folderPath}${fileId}.json`;
+            await FileSystem.writeAsStringAsync(newFilePath, JSON.stringify(data), { encoding: 'utf8' });
         }
         // Invalidate storage usage cache (new file written to disk)
 
