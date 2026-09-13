@@ -31,6 +31,7 @@ export default function ReaderScreen({ route, navigation }) {
     const chapterIndexRef = useRef(0);
     const [chapterData, setChapterData] = useState(null);
     const [sentences, setSentences] = useState([]);
+    const sentencesRef = useRef([]);
     const [errorLog, setErrorLog] = useState(null);
     const [scrapeUrl, setScrapeUrl] = useState(null);
     const [isScraping, setIsScraping] = useState(false);
@@ -442,7 +443,7 @@ export default function ReaderScreen({ route, navigation }) {
             await TrackPlayer.setupPlayer();
             await TrackPlayer.updateOptions({
                 stopWithApp: false,
-                alwaysPauseOnInterruption: true,
+                alwaysPauseOnInterruption: false,
                 capabilities: [
                     Capability.Play,
                     Capability.Pause,
@@ -569,6 +570,7 @@ export default function ReaderScreen({ route, navigation }) {
                 newSents.push(currentStr.trim());
             }
 
+            sentencesRef.current = newSents;
             setSentences(newSents);
             setCurrentSentenceIndex(sentenceIdx);
             
@@ -646,6 +648,9 @@ export default function ReaderScreen({ route, navigation }) {
                 Speech.stop();
                 setPlayingState(false);
             } else {
+                Speech.stop();
+                await new Promise(r => setTimeout(r, 150));
+
                 await setupAudio();
                 setPlayingState(true);
                 if (isSpeechPausedRef.current) {
@@ -653,7 +658,12 @@ export default function ReaderScreen({ route, navigation }) {
                 } else {
                     playIdRef.current += 1;
                     isSpeechPausedRef.current = false;
-                    playFromIndex(currentSentenceIndex, sentences, playIdRef.current);
+                    const newPlayId = playIdRef.current;
+                    setTimeout(() => {
+                        if (newPlayId === playIdRef.current && isPlayingRef.current) {
+                            playFromIndex(currentSentenceIndex, sentencesRef.current, newPlayId);
+                        }
+                    }, 100);
                 }
             }
         } finally {
@@ -761,12 +771,15 @@ export default function ReaderScreen({ route, navigation }) {
             }
         });
 
+        let utteranceDone = false;
         Speech.speak(text, {
             language: 'zh-TW',
             voice: selectedVoice || undefined,
             rate,
             pitch,
             onDone: () => {
+                if (utteranceDone) return;
+                utteranceDone = true;
                 if (playId === playIdRef.current && isPlayingRef.current) {
                     const lastChar = text.trim().slice(-1);
                     const isLongPause = ['。', '！', '？', '!', '?', '…'].includes(lastChar);
@@ -779,7 +792,14 @@ export default function ReaderScreen({ route, navigation }) {
                     }, pauseTime);
                 }
             },
-            onStopped: () => { if (playId === playIdRef.current && isPlayingRef.current) { setPlayingState(false); } },
+            onStopped: () => {
+                if (utteranceDone) return; // onDone already handled this
+                utteranceDone = true;
+                // If speech was stopped externally while we think we're playing, stop cleanly
+                if (playId === playIdRef.current && isPlayingRef.current) {
+                    setPlayingState(false);
+                }
+            },
             onError: () => {
                 if (playId === playIdRef.current) {
                     setPlayingState(false);
@@ -795,7 +815,7 @@ export default function ReaderScreen({ route, navigation }) {
             Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
+            setTimeout(() => playFromIndex(currentSentenceIndex, sentencesRef.current, currentPlayId), 100);
         }
     };
 
@@ -806,7 +826,7 @@ export default function ReaderScreen({ route, navigation }) {
             Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
+            setTimeout(() => playFromIndex(currentSentenceIndex, sentencesRef.current, currentPlayId), 100);
         }
     };
 
@@ -1281,7 +1301,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     Speech.stop();
                                     isSpeechPausedRef.current = false;
                                     setCurrentSentenceIndex(data.index);
-                                    if (isPlayingRef.current) playFromIndex(data.index, sentences, playIdRef.current);
+                                    if (isPlayingRef.current) playFromIndex(data.index, sentencesRef.current, playIdRef.current);
                                 } else if (data.type === 'tap') {
                                     const { x, y, w, h } = data;
                                     
@@ -1399,7 +1419,7 @@ export default function ReaderScreen({ route, navigation }) {
                                     playIdRef.current += 1;
                                     Speech.stop();
                                     setCurrentSentenceIndex(i);
-                                    if (isPlayingRef.current) playFromIndex(i, sentences, playIdRef.current);
+                                    if (isPlayingRef.current) playFromIndex(i, sentencesRef.current, playIdRef.current);
                                 }}
                             >
                                 {sent}
@@ -1491,7 +1511,7 @@ export default function ReaderScreen({ route, navigation }) {
                                 if (isPlayingRef.current) {
                                     playIdRef.current += 1;
                                     Speech.stop();
-                                    setTimeout(() => playFromIndex(idx, sentences, playIdRef.current), 100);
+                                    setTimeout(() => playFromIndex(idx, sentencesRef.current, playIdRef.current), 100);
                                 }
                             }}
                         />
@@ -1858,7 +1878,7 @@ export default function ReaderScreen({ route, navigation }) {
                                                 playIdRef.current += 1;
                                                 Speech.stop();
                                                 const currentPlayId = playIdRef.current;
-                                                setTimeout(() => playFromIndex(currentSentenceIndex, sentences, currentPlayId), 100);
+                                                setTimeout(() => playFromIndex(currentSentenceIndex, sentencesRef.current, currentPlayId), 100);
                                             }
                                         }}
                                     >
