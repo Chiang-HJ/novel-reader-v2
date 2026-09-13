@@ -245,13 +245,7 @@ export default function ReaderScreen({ route, navigation }) {
     const setPlayingState = (state) => {
         setIsPlaying(state);
         isPlayingRef.current = state;
-        if (silentSoundRef.current) {
-            if (state) {
-                silentSoundRef.current.playAsync().catch(() => {});
-            } else {
-                silentSoundRef.current.pauseAsync().catch(() => {});
-            }
-        }
+        // silentSoundRef is managed in playFromIndex and useFocusEffect cleanup
     };
 
     useFocusEffect(
@@ -340,7 +334,7 @@ export default function ReaderScreen({ route, navigation }) {
             playIdRef.current += 1;
             Speech.stop();
             isSpeechPausedRef.current = false;
-            loadChapter(novelRef.current || novel, chapterIndexRef.current - 1, 0);
+            loadChapter(novelRef.current || novel, chapterIndexRef.current - 1, -1);
         } else {
             Alert.alert('提示', '已經是第一章了');
         }
@@ -402,6 +396,7 @@ export default function ReaderScreen({ route, navigation }) {
     };
 
     const setupAudio = async () => {
+        if (silentSoundRef.current) return; // Already initialized, prevent duplicate
         try {
             await Audio.setAudioModeAsync({
                 playsInSilentModeIOS: true,
@@ -761,6 +756,15 @@ export default function ReaderScreen({ route, navigation }) {
         }
 
         let text = sents[index];
+        // Skip blank or whitespace-only sentences
+        if (!text || !text.trim()) {
+            setTimeout(() => {
+                if (playId === playIdRef.current && isPlayingRef.current) {
+                    playFromIndex(index + 1, sents, playId);
+                }
+            }, 0);
+            return;
+        }
         // Apply pronunciation corrections
         pronunciationDictRef.current.forEach(dict => {
             if (dict.target && dict.replacement) {
@@ -792,7 +796,7 @@ export default function ReaderScreen({ route, navigation }) {
         let utteranceDone = false;
         
         // Watchdog timer to catch iOS TTS silent hangs
-        const maxExpectedDurationMs = Math.max(8000, text.length * 400); // 400ms per char max
+        const maxExpectedDurationMs = Math.max(8000, text.length * 80); // ~80ms per char at 1x zh-TW speed
         const watchdogTimer = setTimeout(() => {
             if (!utteranceDone && playId === playIdRef.current && isPlayingRef.current) {
                 console.log('Speech watchdog triggered for text:', text);
@@ -808,13 +812,13 @@ export default function ReaderScreen({ route, navigation }) {
             rate,
             pitch,
             onDone: () => {
+                clearTimeout(watchdogTimer); // CRITICAL-3: cancel watchdog on natural completion
                 if (utteranceDone) return;
                 utteranceDone = true;
                 if (playId === playIdRef.current && isPlayingRef.current) {
                     const lastChar = text.trim().slice(-1);
                     const isLongPause = ['。', '！', '？', '!', '?', '…'].includes(lastChar);
                     const pauseTime = smartPauseEnabled ? (isLongPause ? 600 : 200) : 0;
-                    
                     setTimeout(() => {
                         if (playId === playIdRef.current && isPlayingRef.current) {
                             playFromIndex(index + 1, sents, playId);
@@ -827,9 +831,7 @@ export default function ReaderScreen({ route, navigation }) {
                 utteranceDone = true;
                 clearTimeout(watchdogTimer);
                 if (playId === playIdRef.current && isPlayingRef.current) {
-                    // If we are still supposed to be playing, but the engine stopped unexpectedly
-                    // (e.g. iOS TTS aborted due to invalid text or interruption),
-                    // we should NOT pause the app. We should skip to the next sentence!
+                    // Engine stopped unexpectedly -- skip to next sentence, do NOT stop playback
                     console.log('Speech stopped unexpectedly. Skipping to next sentence.');
                     setTimeout(() => {
                         if (playId === playIdRef.current && isPlayingRef.current) {
@@ -839,12 +841,12 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             },
             onError: (error) => {
+                // CRITICAL-1: Single onError handler -- skips sentence, does NOT stop playback
                 if (utteranceDone) return;
                 utteranceDone = true;
                 clearTimeout(watchdogTimer);
                 console.log('Speech error:', error, 'on text:', text);
                 if (playId === playIdRef.current && isPlayingRef.current) {
-                    // Skip the problematic sentence and continue
                     setTimeout(() => {
                         if (playId === playIdRef.current && isPlayingRef.current) {
                             playFromIndex(index + 1, sents, playId);
@@ -852,11 +854,6 @@ export default function ReaderScreen({ route, navigation }) {
                     }, 100);
                 }
             },
-            onError: () => {
-                if (playId === playIdRef.current) {
-                    setPlayingState(false);
-                }
-            }
         });
     };
 
@@ -867,7 +864,7 @@ export default function ReaderScreen({ route, navigation }) {
             Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(currentSentenceIndex, sentencesRef.current, currentPlayId), 100);
+            setTimeout(() => playFromIndex(currentSentenceIndexRef.current, sentencesRef.current, currentPlayId), 100);
         }
     };
 
@@ -878,7 +875,7 @@ export default function ReaderScreen({ route, navigation }) {
             Speech.stop();
             isSpeechPausedRef.current = false;
             const currentPlayId = playIdRef.current;
-            setTimeout(() => playFromIndex(currentSentenceIndex, sentencesRef.current, currentPlayId), 100);
+            setTimeout(() => playFromIndex(currentSentenceIndexRef.current, sentencesRef.current, currentPlayId), 100);
         }
     };
 
