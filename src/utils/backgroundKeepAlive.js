@@ -1,4 +1,4 @@
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
+import { Audio } from './safeAudio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as FileSystem from 'expo-file-system/legacy';
 import { silentAudioBase64 } from './silentAudio';
@@ -45,8 +45,8 @@ export async function startBackgroundKeepAlive(tag = 'default') {
             staysActiveInBackground: true,
             playsInSilentModeIOS: true,
             shouldDuckAndroid: true,
-            interruptionModeIOS: InterruptionModeIOS?.MixWithOthers ?? 1,
-            interruptionModeAndroid: InterruptionModeAndroid?.DuckOthers ?? 2,
+            interruptionModeIOS: 1,
+            interruptionModeAndroid: 2,
         });
 
         const uri = await ensureSilentFile();

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, Image, Modal, PanResponder, Dimensions, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
 import { getBookshelf, deleteNovel, updateNovelMetadata } from '../utils/storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/safeAudio';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Modal, InteractionManager } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import * as Speech from 'expo-speech';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/safeAudio';
 import { getChapterText, getNovelById, updateReadingProgress, saveChapterText, addReadingTime } from '../utils/storage';
 import { getDictionaries } from '../utils/dictionaryStorage';
 import { parseChapterText } from '../utils/scraper';
@@ -772,6 +772,18 @@ export default function ReaderScreen({ route, navigation }) {
         });
 
         let utteranceDone = false;
+        
+        // Watchdog timer to catch iOS TTS silent hangs
+        const maxExpectedDurationMs = Math.max(8000, text.length * 400); // 400ms per char max
+        const watchdogTimer = setTimeout(() => {
+            if (!utteranceDone && playId === playIdRef.current && isPlayingRef.current) {
+                console.log('Speech watchdog triggered for text:', text);
+                utteranceDone = true;
+                Speech.stop();
+                playFromIndex(index + 1, sents, playId);
+            }
+        }, maxExpectedDurationMs);
+
         Speech.speak(text, {
             language: 'zh-TW',
             voice: selectedVoice || undefined,
@@ -793,11 +805,25 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             },
             onStopped: () => {
-                if (utteranceDone) return; // onDone already handled this
+                if (utteranceDone) return;
                 utteranceDone = true;
-                // If speech was stopped externally while we think we're playing, stop cleanly
+                clearTimeout(watchdogTimer);
                 if (playId === playIdRef.current && isPlayingRef.current) {
                     setPlayingState(false);
+                }
+            },
+            onError: (error) => {
+                if (utteranceDone) return;
+                utteranceDone = true;
+                clearTimeout(watchdogTimer);
+                console.log('Speech error:', error, 'on text:', text);
+                if (playId === playIdRef.current && isPlayingRef.current) {
+                    // Skip the problematic sentence and continue
+                    setTimeout(() => {
+                        if (playId === playIdRef.current && isPlayingRef.current) {
+                            playFromIndex(index + 1, sents, playId);
+                        }
+                    }, 100);
                 }
             },
             onError: () => {

@@ -50,11 +50,12 @@
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "15.5"
+            "deploymentTarget": "16.4"
           }
         }
       ],
-      "./plugins/withFmtFix"
+      "./plugins/withFmtFix",
+      "expo-audio"
     ]
   }
 }
