@@ -21,7 +21,6 @@
     "chinese-s2t": "^1.0.0",
     "expo": "~57.0.22",
     "expo-audio": "~57.0.5",
-    "expo-av": "~16.0.8",
     "expo-blur": "~57.0.3",
     "expo-brightness": "~57.0.2",
     "expo-build-properties": "~57.0.17",
