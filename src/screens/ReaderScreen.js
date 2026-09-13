@@ -784,6 +784,11 @@ export default function ReaderScreen({ route, navigation }) {
             }
         });
 
+        // Strip any residual HTML tags from TTS string to prevent SSML parsing crashes in iOS
+        text = text.replace(/<[^>]*>?/gm, '');
+        // Neutralize smart quotes to prevent NLP loop crashes in iOS 16+
+        text = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
         let utteranceDone = false;
         
         // Watchdog timer to catch iOS TTS silent hangs
@@ -892,7 +897,7 @@ export default function ReaderScreen({ route, navigation }) {
             playIdRef.current += 1;
             Speech.stop();
             isSpeechPausedRef.current = false;
-            loadChapter(n, chapterIndexRef.current - 1, 0);
+            loadChapter(n, chapterIndexRef.current - 1, -1);
         }
     };
 
@@ -1421,7 +1426,7 @@ export default function ReaderScreen({ route, navigation }) {
                                         Speech.stop();
                                         isSpeechPausedRef.current = false;
                                         const n = novelRef.current || novel;
-                                        loadChapter(n, chapterIndexRef.current - 1, 0);
+                                        loadChapter(n, chapterIndexRef.current - 1, -1);
                                     } else {
                                         Alert.alert('提示', '已經是第一章，無法再往前了');
                                     }
@@ -1487,7 +1492,7 @@ export default function ReaderScreen({ route, navigation }) {
                                 playIdRef.current += 1;
                                 Speech.stop();
                                 isSpeechPausedRef.current = false;
-                                loadChapter(n, chapterIndexRef.current - 1, 0);
+                                loadChapter(n, chapterIndexRef.current - 1, -1);
                             }
                         } else if (contentOffset.y + layoutMeasurement.height > contentSize.height + 120) {
                             const n = novelRef.current || novel;
