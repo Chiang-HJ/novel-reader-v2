@@ -16,15 +16,19 @@ let Audio = {
         }
     },
     Sound: {
-        createAsync: async ({ uri }) => {
+        createAsync: async ({ uri }, options = {}) => {
             try {
                 const player = createAudioPlayer(uri);
+                if (options.isLooping !== undefined) player.loop = options.isLooping;
+                if (options.volume !== undefined) player.volume = options.volume;
+                
                 return {
                     sound: {
                         playAsync: async () => player.play(),
                         pauseAsync: async () => player.pause(),
                         unloadAsync: async () => player.release(),
-                        stopAsync: async () => { player.pause(); player.seekTo(0); }
+                        stopAsync: async () => { player.pause(); player.seekTo(0); },
+                        setIsLoopingAsync: async (loop) => { player.loop = loop; }
                     }
                 };
             } catch (e) {

@@ -715,6 +715,19 @@ export default function ReaderScreen({ route, navigation }) {
     const playFromIndex = async (index, sents, playId) => {
         if (playId !== playIdRef.current) return;
         
+        // Await TrackPlayer audio session activation BEFORE speaking, 
+        // otherwise activating it asynchronously while speaking causes the TTS to fade out and abort!
+        if (isPlayingRef.current) {
+            try {
+                await TrackPlayer.play();
+                if (silentSoundRef.current) {
+                    await silentSoundRef.current.playAsync();
+                }
+
+            } catch(e) {}
+        }
+
+        
         if (index >= sents.length) {
             // Chapter finished
             if (sleepTimerMinutesRef.current === -1) {
@@ -809,7 +822,15 @@ export default function ReaderScreen({ route, navigation }) {
                 utteranceDone = true;
                 clearTimeout(watchdogTimer);
                 if (playId === playIdRef.current && isPlayingRef.current) {
-                    setPlayingState(false);
+                    // If we are still supposed to be playing, but the engine stopped unexpectedly
+                    // (e.g. iOS TTS aborted due to invalid text or interruption),
+                    // we should NOT pause the app. We should skip to the next sentence!
+                    console.log('Speech stopped unexpectedly. Skipping to next sentence.');
+                    setTimeout(() => {
+                        if (playId === playIdRef.current && isPlayingRef.current) {
+                            playFromIndex(index + 1, sents, playId);
+                        }
+                    }, 100);
                 }
             },
             onError: (error) => {
