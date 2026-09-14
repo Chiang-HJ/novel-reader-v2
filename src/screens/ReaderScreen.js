@@ -790,13 +790,15 @@ export default function ReaderScreen({ route, navigation }) {
 
         // Strip any residual HTML tags from TTS string to prevent SSML parsing crashes in iOS
         text = text.replace(/<[^>]*>?/gm, '');
+        // Strip leftover HTML entities (like &#160;, &emsp;) which TTS might read out loud as "m160" or weird codes
+        text = text.replace(/&[#a-zA-Z0-9]+;/g, ' ');
         // Neutralize smart quotes to prevent NLP loop crashes in iOS 16+
         text = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 
         let utteranceDone = false;
         
         // Watchdog timer to catch iOS TTS silent hangs
-        const maxExpectedDurationMs = Math.max(8000, text.length * 80); // ~80ms per char at 1x zh-TW speed
+        const maxExpectedDurationMs = Math.max(15000, text.length * 500); // 500ms per char max to prevent cutting off slow speech // ~80ms per char at 1x zh-TW speed
         const watchdogTimer = setTimeout(() => {
             if (!utteranceDone && playId === playIdRef.current && isPlayingRef.current) {
                 console.log('Speech watchdog triggered for text:', text);
