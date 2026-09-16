@@ -433,9 +433,13 @@ export default function ReaderScreen({ route, navigation }) {
         }
     };
     
-    const updateLockScreenMeta = async (n, title) => {
+    const updateLockScreenMeta = async (n, title, duration = 0) => {
         try {
-            await TrackPlayer.setupPlayer();
+            try {
+                await TrackPlayer.setupPlayer();
+            } catch (setupError) {
+                // Ignore "already initialized" error
+            }
             await TrackPlayer.updateOptions({
                 stopWithApp: false,
                 alwaysPauseOnInterruption: false,
@@ -443,19 +447,21 @@ export default function ReaderScreen({ route, navigation }) {
                     Capability.Play,
                     Capability.Pause,
                     Capability.Stop,
+                    Capability.SeekTo,
                 ],
                 compactCapabilities: [Capability.Play, Capability.Pause],
             });
             await TrackPlayer.reset();
             await TrackPlayer.add({
                 id: '1',
-                url: 'http://', 
+                url: 'http://dummy.url', 
                 title: title,
                 artist: n.title,
-                artwork: n.coverUrl || undefined
+                artwork: n.coverUrl || undefined,
+                duration: duration > 0 ? duration : undefined
             });
         } catch (e) {
-            console.log('TrackPlayer setup failed', e);
+            console.log('TrackPlayer update failed', e);
         }
     };
 
@@ -505,7 +511,7 @@ export default function ReaderScreen({ route, navigation }) {
                 }
             }
             
-            updateLockScreenMeta(n, data.title || n.chapters?.[idx]?.title || `第 ${idx+1} 章`);
+            updateLockScreenMeta(n, data.title || n.chapters?.[idx]?.title || `第 ${idx+1} 章`, data.text ? data.text.split(/[。！？!?…\n]+/).length : 0);
             applyChapterData(data, n.id, idx, sentenceIdx);
         } catch (e) {
             setErrorLog(`讀取章節失敗: ${e.message}`);
@@ -755,6 +761,9 @@ export default function ReaderScreen({ route, navigation }) {
             `);
         }
 
+        // Update lock screen progress
+        TrackPlayer.seekTo(index).catch(() => {});
+
         let text = sents[index];
         // Skip blank or whitespace-only sentences
         if (!text || !text.trim()) {
@@ -922,6 +931,18 @@ export default function ReaderScreen({ route, navigation }) {
             skipNext();
         } else if (event.type === Event.RemotePrevious) {
             skipPrev();
+        } else if (event.type === Event.RemoteSeek && event.position !== undefined) {
+            let newIndex = Math.floor(event.position);
+            if (newIndex < 0) newIndex = 0;
+            if (newIndex >= sentencesRef.current.length) newIndex = sentencesRef.current.length - 1;
+            setCurrentSentenceIndex(newIndex);
+            
+            if (isPlayingRef.current) {
+                playIdRef.current += 1;
+                Speech.stop();
+                isSpeechPausedRef.current = false;
+                playFromIndex(newIndex, sentencesRef.current, playIdRef.current);
+            }
         } else if (event.type === Event.RemoteDuck) {
             if (event.paused && isPlayingRef.current) {
                 togglePlay();
@@ -1079,7 +1100,9 @@ export default function ReaderScreen({ route, navigation }) {
             // Initialize anchor on load
             setTimeout(updateAnchor, 100);
 
-            function highlightSentence(index) {
+            let lastTTSTargetPage = -1;
+
+            function highlightSentence(index, forceScroll = false) {
                 document.querySelectorAll('p').forEach(p => p.classList.remove('active'));
                 const el = document.getElementById('s' + index);
                 if(el) {
@@ -1093,9 +1116,13 @@ export default function ReaderScreen({ route, navigation }) {
                     const targetPage = Math.floor(Math.max(0, absoluteLeft) / window.innerWidth);
                     const newLeft = targetPage * window.innerWidth;
                     
-                    window.scrollTo({ left: newLeft, behavior: 'auto' });
-                    document.documentElement.scrollLeft = newLeft;
-                    document.body.scrollLeft = newLeft;
+                    // Only force scroll if the TTS naturally moved to a new page, OR if forceScroll is true
+                    if (targetPage !== lastTTSTargetPage || forceScroll) {
+                        window.scrollTo({ left: newLeft, behavior: 'auto' });
+                        document.documentElement.scrollLeft = newLeft;
+                        document.body.scrollLeft = newLeft;
+                        lastTTSTargetPage = targetPage;
+                    }
                     
                     reportPage();
                     setTimeout(() => { ignoreScrollEvent = false; }, 300);

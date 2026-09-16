@@ -37,6 +37,7 @@ let Event = {
     RemoteNext: 'remote-next',
     RemotePrevious: 'remote-previous',
     RemoteDuck: 'remote-duck',
+    RemoteSeek: 'remote-seek',
 };
 
 let useTrackPlayerEvents = () => {};

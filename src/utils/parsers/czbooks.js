@@ -36,7 +36,7 @@ export const parseInfo = (html, url = '') => {
     const authorMatch = html.match(/<span class="author">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i) || html.match(/<span class="author">([\s\S]*?)<\/span>/i);
     const author = authorMatch ? authorMatch[1].replace(/<[^>]+>/g, '').trim() : '未知作者';
 
-    const imgMatch = html.match(/<div class="thumbnail">.*?<img src="(https:\/\/img\.czbooks\.net.+?)"/);
+    const imgMatch = html.match(/<div class="thumbnail"[^>]*>[\\s\\S]*?<img[^>]+src=["\']([^"\']+)["\']/i);
     const cover = imgMatch ? imgMatch[1] : null;
     
     const chapters = [];
