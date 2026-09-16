@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="utf-8">
+    <title>EasyGPSMock - 路線與地點分享</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="/js/qrcode.min.js"></script>
+    <!-- Fallback CDN in case of local load issue -->
+    <script>
+        if (typeof QRCode === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>');
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #qrcode img,
+        #qrcode canvas {
+            margin: 0 auto;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-blue-200 min-h-screen flex flex-col justify-between p-4 sm:p-8">
+    <div class="max-w-md w-full mx-auto my-auto">
+        <div class="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden relative transition-all">
+            <!-- 頂部漸層條 -->
+            <div class="h-2.5 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600"></div>
+
+            <div class="p-6 sm:p-8 text-center">
+                <!-- App 圖示 -->
+                <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-sm border border-blue-100">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                </div>
+
+                <h1 class="text-2xl font-black text-slate-900 tracking-tight">EasyGPSMock</h1>
+                <p class="text-xs text-slate-500 font-medium mt-0.5 mb-6">路線與地點分享 · Route Sharing</p>
+
+                <!-- 狀態與引導區塊 (動態注入) -->
+                <div id="content-card" class="space-y-5">
+                    <div class="flex items-center justify-center py-8">
+                        <div class="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                    </div>
+                </div>
+
+                <!-- 底部版權宣告與隱私條款 -->
+                <div class="mt-8 pt-5 border-t border-slate-100 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400 font-medium">
+                    <a href="/privacy.html" class="hover:text-blue-600 transition-colors">隱私權政策</a>
+                    <span>·</span>
+                    <a href="/terms.html" class="hover:text-blue-600 transition-colors">服務條款</a>
+                    <span>·</span>
+                    <a href="https://play.google.com/store/apps/details?id=com.easytoolsstudio.easygpsmock" target="_blank" rel="noopener noreferrer" class="hover:text-blue-600 transition-colors">Google Play</a>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-center text-xs text-slate-400 mt-6">&copy; 2026 EasyTools Studio. All rights reserved.</p>
+    </div>
+
+    <!-- 複製成功 Toast 提示 -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-5 py-2.5 rounded-full text-sm font-semibold shadow-2xl transition-all duration-300 opacity-0 pointer-events-none translate-y-4 flex items-center gap-2 z-50">
+        <i class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span>連結已成功複製至剪貼簿！</span>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const d = urlParams.get('d');
+        const p = urlParams.get('p');
+        const s = urlParams.get('s');
+        const playStoreUrl = "https://play.google.com/store/apps/details?id=com.easytoolsstudio.easygpsmock";
+
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+        let paramKey = "";
+        let paramVal = "";
+
+        if (s) {
+            paramKey = "s";
+            paramVal = s;
+        } else if (p) {
+            paramKey = "p";
+            paramVal = p;
+        } else if (d) {
+            paramKey = "d";
+            paramVal = d;
+        }
+
+        const contentCard = document.getElementById('content-card');
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            if (message) {
+                toast.querySelector('span').innerText = message;
+            }
+            toast.classList.remove('opacity-0', 'translate-y-4', 'pointer-events-none');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-4', 'pointer-events-none');
+            }, 2500);
+        }
+
+        function copyCurrentUrl() {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(canonicalShareUrl).then(() => {
+                    showToast("連結已成功複製至剪貼簿！");
+                }).catch(() => {
+                    fallbackCopyText(canonicalShareUrl);
+                });
+            } else {
+                fallbackCopyText(canonicalShareUrl);
+            }
+        }
+
+        function fallbackCopyText(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast("連結已成功複製至剪貼簿！");
+            } catch (err) {
+                showToast("複製失敗，請手動複製網址列");
+            }
+            document.body.removeChild(textArea);
+        }
+
+        let canonicalShareUrl = window.location.href;
+        if (paramKey && paramVal) {
+            const encodedVal = encodeURIComponent(paramVal);
+            canonicalShareUrl = "https://easygpsmock.web.app/share?" + paramKey + "=" + encodedVal;
+            const customSchemeUri = "easygpsmock://import?" + paramKey + "=" + encodedVal;
+            const chromeIntentUri = "intent://import?" + paramKey + "=" + encodedVal +
+                "#Intent;scheme=easygpsmock;package=com.easytoolsstudio.easygpsmock;S.browser_fallback_url=" +
+                encodeURIComponent(playStoreUrl) + ";end";
+            const targetUri = isAndroid ? chromeIntentUri : customSchemeUri;
+
+            if (isAndroid) {
+                const isShortCode = (paramKey === "s");
+                const initialBtnText = isShortCode ?
+                    '<i class="fa-solid fa-spinner fa-spin"></i> <span>載入路線中...</span>' :
+                    '<i class="fa-solid fa-play"></i> <span>開啟 EasyGPSMock 匯入</span>';
+
+                const initialInfoBox = isShortCode ? `
+                    <div id="status-box" class="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 text-blue-900 text-sm leading-relaxed">
+                        <div class="inline-flex items-center gap-1.5 font-bold text-blue-700 mb-1">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i>
+                            <span>正在同步幽靈路線...</span>
+                        </div>
+                        <p class="text-xs text-blue-800/80">正在為您安全建立幽靈路徑會話，就緒後將自動為您開啟 App。</p>
+                    </div>
+                ` : `
+                    <div id="status-box" class="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 text-blue-900 text-sm leading-relaxed">
+                        <div class="inline-flex items-center gap-1.5 font-bold text-blue-700 mb-1">
+                            <i class="fa-solid fa-route"></i>
+                            <span>路線資料已就緒</span>
+                        </div>
+                        <p class="text-xs text-blue-800/80">點擊下方按鈕即可立即開啟 EasyGPSMock 並匯入此路線。</p>
+                    </div>
+                `;
+
+                contentCard.innerHTML = `
+                    ${initialInfoBox}
+
+                    <div class="space-y-3 pt-2">
+                        <a id="btn-open-app" href="${isShortCode ? 'javascript:void(0)' : targetUri}" class="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 text-base transition-all active:scale-[0.98]">
+                            ${initialBtnText}
+                        </a>
+
+                        <button onclick="copyCurrentUrl()" class="w-full py-3 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl flex items-center justify-center gap-2 text-sm transition-all active:scale-[0.98]">
+                            <i class="fa-regular fa-copy"></i>
+                            <span>複製分享連結</span>
+                        </button>
+                    </div>
+
+                    <!-- 摺疊或提供 QR Code 供副機掃描 -->
+                    <div class="pt-4 border-t border-slate-100">
+                        <details class="group text-left">
+                            <summary class="flex items-center justify-between text-xs font-semibold text-slate-500 cursor-pointer hover:text-slate-800 list-none py-1">
+                                <span class="flex items-center gap-1.5"><i class="fa-solid fa-qrcode text-slate-400"></i> 使用其他裝置掃描 QR Code</span>
+                                <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 transition-transform group-open:rotate-180"></i>
+                            </summary>
+                            <div class="pt-4 pb-2 text-center">
+                                <div id="qrcode" class="p-3 bg-white inline-block border border-slate-200 rounded-2xl shadow-sm"></div>
+                                <p class="text-[11px] text-slate-400 mt-2">使用另一台 Android 手機掃描即可快速載入</p>
+                            </div>
+                        </details>
+                    </div>
+
+                    <div class="text-xs text-slate-400 pt-1">
+                        尚未安裝？<a href="${playStoreUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 font-semibold hover:underline">前往 Google Play 下載</a>
+                    </div>
+                `;
+
+                // 🚀 若為已就緒參數 (d 或 p)，僅嘗試以自定義協議靜默喚起 (絕不帶 fallback url，防 Chrome 誤入商店)
+                if (!isShortCode) {
+                    try {
+                        const silentFrame = document.createElement("iframe");
+                        silentFrame.style.display = "none";
+                        silentFrame.src = customSchemeUri;
+                        document.body.appendChild(silentFrame);
+                        setTimeout(() => {
+                            try { document.body.removeChild(silentFrame); } catch (_) {}
+                        }, 1000);
+                    } catch (_) {}
+                }
+            } else {
+                // iOS (iPhone / iPad) 或 電腦瀏覽器視圖
+                contentCard.innerHTML = `
+                    <div class="bg-amber-50/80 border border-amber-200/60 rounded-2xl p-4 text-amber-950 text-left">
+                        <div class="flex items-center gap-2 font-bold text-amber-800 text-sm mb-1.5">
+                            <i class="fa-brands fa-android text-base text-emerald-600"></i>
+                            <span>Android 專屬模擬路線</span>
+                        </div>
+                        <p class="text-xs text-amber-900/80 leading-relaxed">
+                            本工具為 Android 專屬 GPS 定位模擬軟體。請使用已安裝 EasyGPSMock 的 <b>Android 手機</b> 掃描下方 QR Code 進行匯入。
+                        </p>
+                    </div>
+
+                    <!-- QR Code 展示區 -->
+                    <div class="py-2">
+                        <div class="p-3.5 bg-white inline-block border border-slate-200 rounded-2xl shadow-md">
+                            <div id="qrcode"></div>
+                        </div>
+                        <p class="text-xs font-semibold text-slate-500 mt-3 flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-camera text-blue-500"></i>
+                            <span>使用 Android 相機或 App 掃描</span>
+                        </p>
+                    </div>
+
+                    <!-- 動作按鈕 -->
+                    <div class="space-y-3 pt-2">
+                        <button onclick="copyCurrentUrl()" class="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 text-sm transition-all active:scale-[0.98]">
+                            <i class="fa-regular fa-copy"></i>
+                            <span>複製分享連結</span>
+                        </button>
+
+                        <a href="${playStoreUrl}" target="_blank" rel="noopener noreferrer" class="w-full py-3 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl flex items-center justify-center gap-2 text-xs transition-all">
+                            <i class="fa-brands fa-google-play text-slate-500"></i>
+                            <span>在 Google Play 商店查看 EasyGPSMock</span>
+                        </a>
+                    </div>
+                `;
+            }
+
+            // 生成 QR Code (尺寸 180x180, 容錯率 M)
+            setTimeout(() => {
+                const qrContainer = document.getElementById("qrcode");
+                if (qrContainer && typeof QRCode !== 'undefined') {
+                    qrContainer.innerHTML = "";
+                    new QRCode(qrContainer, {
+                        text: canonicalShareUrl,
+                        width: 180,
+                        height: 180,
+                        colorDark: "#0f172a",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                }
+            }, 50);
+
+            if (paramKey === "s" && paramVal && paramVal.length === 10) {
+                const bucket = paramVal.substring(0, 4).toLowerCase();
+                const id = paramVal.substring(4).toLowerCase();
+                const rtdbUrl = "https://easygpsmock-default-rtdb.asia-southeast1.firebasedatabase.app/ghost_shares/" + bucket + "/" + id + ".json";
+                const btn = document.getElementById("btn-open-app");
+                let isPrefetchDone = false;
+
+                if (btn) {
+                    btn.addEventListener("click", function(e) {
+                        if (!isPrefetchDone) {
+                            e.preventDefault();
+                            showToast("正在同步路線資料，請稍候...");
+                        }
+                    });
+                }
+
+                fetch(rtdbUrl)
+                    .then(res => res.json())
+                    .then(data => {
+                        isPrefetchDone = true;
+                        if (data && data.p) {
+                            const queryParam = "s=" + encodeURIComponent(paramVal) + "&p=" + encodeURIComponent(data.p);
+                            const updatedCustomUri = "easygpsmock://import?" + queryParam;
+                            const updatedChromeIntentUri = "intent://import?" + queryParam +
+                                "#Intent;scheme=easygpsmock;package=com.easytoolsstudio.easygpsmock;S.browser_fallback_url=" +
+                                encodeURIComponent(playStoreUrl) + ";end";
+                            const finalUri = isAndroid ? updatedChromeIntentUri : updatedCustomUri;
+
+                            const statusBox = document.getElementById("status-box");
+                            if (statusBox) {
+                                statusBox.innerHTML = `
+                                    <div class="inline-flex items-center gap-1.5 font-bold text-blue-700 mb-1">
+                                        <i class="fa-solid fa-route"></i>
+                                        <span>路線資料已就緒</span>
+                                    </div>
+                                    <p class="text-xs text-blue-800/80">路線已同步完成，請點擊下方按鈕開啟 EasyGPSMock 路線。</p>
+                                `;
+                            }
+
+                            if (btn) {
+                                btn.href = finalUri;
+                                btn.innerHTML = '<i class="fa-solid fa-play"></i> <span>開啟 EasyGPSMock 路線</span>';
+                            }
+
+                            // 🚀 核心加固：僅嘗試以純自定義協議靜默喚起 (絕不帶 fallback url，防止 Chrome 阻擋後誤跳 Google Play)
+                            if (isAndroid) {
+                                try {
+                                    const silentFrame = document.createElement("iframe");
+                                    silentFrame.style.display = "none";
+                                    silentFrame.src = updatedCustomUri;
+                                    document.body.appendChild(silentFrame);
+                                    setTimeout(() => {
+                                        try { document.body.removeChild(silentFrame); } catch (_) {}
+                                    }, 1000);
+                                } catch (_) {}
+                            }
+                        } else {
+                            // 路線不存在或已過期
+                            const statusBox = document.getElementById("status-box");
+                            if (statusBox) {
+                                statusBox.className = "bg-amber-50/80 border border-amber-200 rounded-2xl p-4 text-amber-950 text-sm leading-relaxed";
+                                statusBox.innerHTML = `
+                                    <div class="inline-flex items-center gap-1.5 font-bold text-amber-800 mb-1">
+                                        <i class="fa-solid fa-clock-rotate-left"></i>
+                                        <span>此幽靈路線分享已過期或不存在</span>
+                                    </div>
+                                    <p class="text-xs text-amber-900/80">幽靈路徑具備時效保護，時間結束後將自動自伺服器完全抹除以保障隱私。請聯繫分享者重新產生路線。</p>
+                                `;
+                            }
+                            if (btn) {
+                                btn.classList.add("opacity-50", "cursor-not-allowed");
+                                btn.innerHTML = '<i class="fa-solid fa-ban"></i> <span>路線已過期</span>';
+                                btn.onclick = function(e) {
+                                    e.preventDefault();
+                                    showToast("此幽靈路線已過期或不存在");
+                                };
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        isPrefetchDone = true;
+                        console.warn("RTDB prefetch error:", err);
+                        const statusBox = document.getElementById("status-box");
+                        if (statusBox) {
+                            statusBox.innerHTML = `
+                                <div class="inline-flex items-center gap-1.5 font-bold text-amber-700 mb-1">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <span>網路連線異常</span>
+                                </div>
+                                <p class="text-xs text-amber-800/80">無法連線至伺服器同步路線，請檢查網路連線後重新整理。</p>
+                            `;
+                        }
+                    });
+            }
+
+        } else {
+            // 無資料之空狀態
+            contentCard.innerHTML = `
+                <div class="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-slate-600 text-sm space-y-2">
+                    <i class="fa-solid fa-circle-info text-2xl text-slate-400"></i>
+                    <p class="font-medium text-slate-700">未偵測到路線分享資料</p>
+                    <p class="text-xs text-slate-500">如需下載或了解 EasyGPSMock 定位模擬工具，請前往 Google Play 商店。</p>
+                </div>
+
+                <div class="pt-3">
+                    <a href="${playStoreUrl}" target="_blank" rel="noopener noreferrer" class="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 text-sm transition-all">
+                        <i class="fa-brands fa-google-play"></i>
+                        <span>前往 Google Play 下載 App</span>
+                    </a>
+                </div>
+            `;
+        }
+    </script>
+</body>
+
+</html>

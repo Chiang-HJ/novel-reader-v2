@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Suderpanda種花.採果GPX路徑生成工具 v6.2</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐼</text></svg>">
+    
+    <style>
+        :root { --primary: #6c5ce7; --success: #00b894; --warning: #e67e22; --danger: #d35400; --bg: #f8f9fa; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); padding: 15px; color: #2d3436; margin: 0; }
+        .card { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { text-align: center; color: var(--primary); font-size: 18px; margin-bottom: 12px; }
+        textarea { width: 100%; height: 80px; border: 2px solid #e2e8f0; border-radius: 12px; padding: 8px; box-sizing: border-box; font-size: 12px; margin-bottom: 10px; }
+        
+        .stats-panel { background: #f1f2f6; padding: 12px; border-radius: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px; }
+        .stats-row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+        .stats-row b { color: var(--primary); font-size: 16px; }
+        #speedInput { width: 50px; padding: 4px; border: 2px solid var(--primary); border-radius: 8px; text-align: center; font-weight: bold; outline: none; }
+
+        .map-container { width: 100%; background: #1e272e; border-radius: 16px; margin-bottom: 15px; height: 320px; overflow: hidden; border: 1px solid #dcdde1; position: relative; }
+        canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+        
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+        button { padding: 12px 2px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 13px; color: white; transition: 0.2s; }
+        button:active { transform: scale(0.95); opacity: 0.8; }
+
+        .btn-analyze { background: var(--success); }
+        .btn-rotate { background: var(--warning); }
+        .btn-copy { background: #0984e3; }
+        .btn-download { background: var(--primary); }
+        .btn-undo, .btn-redo { background: #636e72; }
+
+        .jump-section { border: 2px dashed var(--danger); padding: 10px; border-radius: 12px; margin-top: 10px; }
+        select { width: 100%; padding: 8px; border-radius: 10px; border: 2px solid #e2e8f0; font-size: 13px; margin-bottom: 8px; }
+
+        #sortableList { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 10px; padding: 0; margin: 0; }
+        .sort-item { background: #fff; border: 2px solid #eee; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: bold; color: var(--primary); list-style: none; cursor: grab; }
+        .sort-item.selected { border-color: var(--primary); background-color: #e0e0ff; }
+        
+        #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 8px 20px; border-radius: 20px; font-size: 13px; opacity: 0; transition: 0.3s; z-index: 1000; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>🐼 Suderpanda種花.採果GPX路徑生成工具 v6.2 🐼</h1>
+    <textarea id="coordsInput" placeholder="在此貼上原始苗點座標組..."></textarea>
+
+    <div class="stats-panel">
+        <div class="stats-row">
+            <span>載入中心點：<b id="pointCount">0</b></span>
+            <div>
+                <label style="font-size: 11px; font-weight: bold; color: #ff4444; opacity: 0.8;">🚨時速區塊僅供行走路徑估算</label>
+                <div>設定時速：<input type="number" id="speedInput" value="19" oninput="updateStats()"> km/h</div>
+            </div>
+        </div>
+        <div class="stats-row" style="border-top: 1px solid #ddd; padding-top: 5px;">
+            <span>預估路徑距離：<b id="totalDist">0.00</b> km</span>
+            <span>預計耗時：<b id="totalTime">0</b> 分鐘</span>
+        </div>
+    </div>
+
+    <div style="margin-bottom: 10px;"> 
+        <label style="font-size: 11px; font-weight: bold; color: #ff4444; opacity: 0.8;">💡路徑模式選擇💡</label>
+         <label style="font-size: 11px; font-weight: bold; color: #ff4444; opacity: 0.8;">🚨跳躍模式為app內部設定請參照各家app是否支援</label>
+        <select id="pathMode" onchange="renderAll(true)">  
+             <option value="doubleLoop">跳躍路徑2.0(建議帶滿40隻皮）</option> 
+            <option value="interact20">行走路徑</option>
+            <option value="surroundJump">跳躍路徑1.0</option>
+        </select>
+    </div>
+
+    <div style="margin-bottom: 10px;">
+        <label style="font-size: 13px; font-weight: bold; color: var(--primary);">輸出格式：</label>
+        <select id="gpxFormat">
+            <option value="arflash">ARflash </option>
+            <option value="joystick">JoyStick</option>
+            <option value="phantom">魅影 </option>
+            <option value="fakegps">Fake GPS </option>
+            <option value="ianygo">iAnyGo </option>
+        </select>
+    </div>
+
+    <button style="background: #636e72; width: 100%; padding: 10px; border-radius: 10px; font-size: 13px; color: white; margin-bottom: 10px; font-weight: bold; border: none; cursor: pointer;" onclick="clearAllFields()">
+        🗑️ 一鍵清空所有欄位與地圖
+    </button>
+    
+    <div class="btn-group">
+        <button class="btn-analyze" onclick="analyzePoints()">🔍 分析排序</button>
+        <button class="btn-copy" onclick="copyToClipboard()">📋 複製GPX</button>
+        <button class="btn-download" onclick="downloadFinalGPX()">💾 下載檔案</button>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-rotate" onclick="rotateSelected()">🔄 旋轉組別</button>
+        <button class="btn-undo" onclick="undo()">↩️ 撤銷 (Undo)</button>
+        <button class="btn-redo" onclick="redo()">↪️ 重做 (Redo)</button>
+    </div>
+
+    <div class="map-container"><canvas id="mapCanvas"></canvas></div>
+    <ul id="sortableList"></ul>
+</div>
+
+<div class="jump-section">
+    <label style="font-size: 13px; font-weight: bold; color: var(--danger); display: block; margin-bottom: 10px;">⚡ 跳躍採果座標轉換器</label>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <button style="background: #2980b9; font-size: 11px; padding: 10px;" onclick="importFrom('original')">📥 從上方導入座標</button>
+        <button style="background: #a29bfe; color: #2d3436; font-size: 11px; padding: 10px;" onclick="transformToRandom()">🎲 執行隨機座標轉換</button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <textarea id="jumpInput" style="height: 120px;" placeholder="[輸入] 座標..."></textarea>
+        <textarea id="randomResult" style="height: 120px; background: #f0fdf4;" readonly placeholder="[結果] 隨機化..."></textarea>
+    </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 8px; margin-bottom: 8px;">
+    <button style="background: #ff9f43; padding: 10px 2px; border-radius: 10px; font-size: 11px; font-weight: bold; color: white;" onclick="pasteToJumpInput()">📋 貼上</button>
+    
+    <button style="background: #3498db; padding: 10px 2px; border-radius: 10px; font-size: 11px; font-weight: bold; color: white;" onclick="copySourceContent()">📋 複製排序</button>
+    
+    <button style="background: #27ae60; padding: 10px 2px; border-radius: 10px; font-size: 11px; font-weight: bold; color: white;" onclick="copyRandomContent()">📋 複製隨機座標文本</button>
+</div>
+
+
+    <select id="jumpGpxFormat" style="margin-bottom: 8px;">
+        <option value="arflash">ARflash (WPT)</option>
+        <option value="joystick">JoyStick (TRK)</option>
+        <option value="phantom">魅影 (WPT)</option>
+        <option value="fakegps">Fake GPS (WPT)</option>
+        <option value="ianygo">iAnyGo (TRK)</option>
+    </select>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+        <button style="background: #0984e3; padding: 12px; border-radius: 10px; font-size: 11px;" onclick="copyJumpGPX()">📋 複製採果GPX</button>
+        <button style="background: var(--danger); padding: 12px; border-radius: 10px; font-size: 11px;" onclick="downloadJumpGPX()">💾 下載採果GPX</button>
+    </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// --- 全域變數與規則 (保留原始設定) ---
+let masterCenters = [];
+let mapScale = 1; let offsetX = 0; let offsetY = 0;
+let isDragging = false; let lastMouseX = 0; let lastMouseY = 0;
+let initialPinchDist = 0; let initialScale = 1;
+let selectedIndex = null; let lastClickTime = 0;
+let historyStack = []; let redoStack = [];
+const MAX_HISTORY = 30; const RADIUS = 36; const LAT_M_PER_DEG = 111132;
+const RULES = { "NE_SE": [45, 315, "01", 225, 135], "NE_SW": [45, 315, "01", 135, 225], "NE_NW": [45, 135, "01", 225, 315], "NW_NE": [315, 225, "01", 135, 45], "NW_SE": [315, 45, "01", 225, 135], "NW_SW": [315, 45, "01", 135, 225], "SE_SW": [135, 45, "01", 315, 225], "SE_NW": [135, 225, "01", 45, 315], "SE_NE": [135, 225, "01", 315, 45], "SW_NW": [225, 135, "01", 45, 315], "SW_NE": [225, 135, "01", 315, 45], "SW_SE": [225, 315, "01", 45, 135] };
+
+let canvas, ctx;
+
+window.onload = () => {
+    canvas = document.getElementById('mapCanvas');
+    ctx = canvas.getContext('2d');
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    canvas.addEventListener('touchstart', (e) => { 
+        if (e.touches.length === 2) { 
+            initialPinchDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY); 
+            initialScale = mapScale; 
+        } else if (e.touches.length === 1) { 
+            isDragging = true; 
+            lastMouseX = e.touches[0].pageX; lastMouseY = e.touches[0].pageY; 
+        } 
+    });
+    canvas.addEventListener('touchmove', (e) => { 
+        e.preventDefault(); 
+        if (e.touches.length === 2) { 
+            const currentDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY); 
+            mapScale = Math.min(Math.max(initialScale * (currentDist / initialPinchDist), 0.5), 8); 
+            renderAll(); 
+        } else if (isDragging) { 
+            offsetX += (e.touches[0].pageX - lastMouseX) / mapScale; 
+            offsetY += (e.touches[0].pageY - lastMouseY) / mapScale; 
+            lastMouseX = e.touches[0].pageX; lastMouseY = e.touches[0].pageY; 
+            renderAll(); 
+        } 
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => isDragging = false);
+    canvas.addEventListener('mousedown', (e) => { isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; });
+    window.addEventListener('mousemove', (e) => { 
+        if (isDragging) { 
+            offsetX += (e.clientX - lastMouseX) / mapScale; 
+            offsetY += (e.clientY - lastMouseY) / mapScale; 
+            lastMouseX = e.clientX; lastMouseY = e.clientY; 
+            renderAll(); 
+        } 
+    });
+    window.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        handleMapSingleClick(e.clientX - rect.left, e.clientY - rect.top);
+    });
+};
+
+function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    renderAll();
+}
+
+function clearAllFields() {
+    if (confirm("確定要清空所有內容嗎？")) {
+        document.getElementById('coordsInput').value = "";
+        document.getElementById('jumpInput').value = "";
+        document.getElementById('randomResult').value = "";
+        masterCenters = []; historyStack = []; redoStack = []; selectedIndex = null;
+        renderAll(); showToast("🧹 已清空");
+    }
+}
+
+function analyzePoints() {
+    const inputStr = document.getElementById('coordsInput').value.trim();
+    if (!inputStr) return;
+    let raw = [];
+    inputStr.split('\n').forEach(line => {
+        let p = line.trim().split(/[,|\s\t]+/);
+        if (p.length >= 2) {
+            let lat = parseFloat(p[0]), lon = parseFloat(p[1]);
+            if (!isNaN(lat) && !isNaN(lon)) raw.push({ lat, lon, rotation: 0 });
+        }
+    });
+    if (raw.length === 0) return;
+    raw = raw.filter((p, i, self) => i === self.findIndex(t => Math.abs(t.lat - p.lat) < 1e-7 && Math.abs(t.lon - p.lon) < 1e-7));
+    
+    const laneWidth = 0.0007; 
+    let lons = raw.map(p => p.lon);
+    let maxLon = Math.max(...lons);
+    let groups = {};
+    raw.forEach(p => {
+        let col = Math.floor((maxLon - p.lon) / laneWidth);
+        if (!groups[col]) groups[col] = [];
+        groups[col].push(p);
+    });
+    let sortedResult = [];
+    let cols = Object.keys(groups).sort((a, b) => a - b);
+    cols.forEach((col, index) => {
+        let columnPoints = groups[col];
+        if (index % 2 === 0) columnPoints.sort((a, b) => b.lat - a.lat);
+        else columnPoints.sort((a, b) => a.lat - b.lat);
+        sortedResult.push(...columnPoints);
+    });
+    masterCenters = sortedResult;
+    saveState(); renderAll(); showToast("🐍 蛇行路徑完成");
+}
+
+function toScreen(lat, lon) {
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    if (masterCenters.length === 0) return { x: w/2, y: h/2 };
+    const lats = masterCenters.map(p => p.lat);
+    const lons = masterCenters.map(p => p.lon);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+    const lonMod = Math.cos(lats[0] * Math.PI / 180);
+    const baseScale = Math.min((w - 80) / (((maxLon - minLon) * lonMod) || 0.0001), (h - 80) / ((maxLat - minLat) || 0.0001));
+    let x = w/2 + (lon - (minLon + maxLon) / 2) * lonMod * baseScale;
+    let y = h/2 - (lat - (minLat + maxLat) / 2) * baseScale;
+    return { x: (x - w/2) * mapScale + w/2 + offsetX * mapScale, y: (y - h/2) * mapScale + h/2 + offsetY * mapScale };
+}
+
+function getAllSteps() {
+    let all = [];
+    const mode = document.getElementById('pathMode').value;
+    const latM = 0.000009;
+    if (mode === 'doubleLoop') {
+        masterCenters.forEach((c, i) => {
+            const prefix = `Z${String(i + 1).padStart(2, '0')}-R1`;
+            const oM = latM / Math.cos(c.lat * Math.PI / 180);
+            const R = 30;
+            for (let j = 0; j < 6; j++) {
+                let a = (j * 60) * Math.PI / 180;
+                let na = ((j + 1) * 60) * Math.PI / 180;
+                all.push({ lat: c.lat + R * Math.cos(a) * latM, lon: c.lon + R * Math.sin(a) * oM, name: `${prefix}-${j*2+1}` });
+                all.push({ lat: c.lat + (R*Math.cos(a)+R*Math.cos(na))/2*latM, lon: c.lon + (R*Math.sin(a)+R*Math.sin(na))/2*oM, name: `${prefix}-${j*2+2}` });
+            }
+            all.push({ lat: c.lat + 15*latM, lon: c.lon, name: `${prefix}-13` });
+            all.push({ lat: c.lat, lon: c.lon, name: `${prefix}-14` });
+            all.push({ lat: c.lat - 15*latM, lon: c.lon, name: `${prefix}-15` });
+        });
+        masterCenters.forEach((c, i) => {
+            const prefix = `Z${String(i + 1).padStart(2, '0')}-R2`;
+            const oM = latM / Math.cos(c.lat * Math.PI / 180);
+            const d = 15;
+            [[d,0],[d,d],[0,d],[-d,d],[-d,0],[-d,-d],[0,-d],[d,-d],[d,0]].forEach((pos, idx) => {
+                all.push({ lat: c.lat + pos[0]*latM, lon: c.lon + pos[1]*oM, name: `${prefix}-${idx+1}` });
+            });
+        });
+    } else {
+        masterCenters.forEach((c, i) => {
+            const oM = latM / Math.cos(c.lat * Math.PI / 180);
+            if (mode === 'interact20') {
+                let prev = masterCenters[i > 0 ? i - 1 : masterCenters.length - 1];
+                let next = masterCenters[i < masterCenters.length - 1 ? i + 1 : 0];
+                const getQ = (curr, target) => {
+                    let dL = target.lat - curr.lat, dO = target.lon - curr.lon;
+                    return (dL >= 0 && dO >= 0) ? "NE" : (dL >= 0 && dO < 0) ? "NW" : (dL < 0 && dO < 0) ? "SW" : "SE";
+                };
+                let base = (RULES[`${getQ(c, prev)}_${getQ(c, next)}`] || [45, 135, "01", 225, 315]);
+                let rot = (c.rotation || 0) * 45;
+                base.forEach((s, sub) => {
+                    let lat = c.lat, lon = c.lon;
+                    if (s !== "01") {
+                        let r = (s + rot) * Math.PI / 180;
+                        lat += (36 * Math.cos(r) / 111132);
+                        lon += (36 * Math.sin(r) / (111132 * Math.cos(c.lat * Math.PI / 180)));
+                    }
+                    all.push({ lat, lon, name: `Z${i+1}-${sub+1}` });
+                });
+            } else if (mode === 'surroundJump') {
+                const R = 30;
+                let v = [];
+                for (let j=0; j<6; j++) v.push({ lat: c.lat+(R*Math.cos(j*60*Math.PI/180)*latM), lon: c.lon+(R*Math.sin(j*60*Math.PI/180)*oM) });
+                for (let j=0; j<6; j++) {
+                    all.push({ lat: v[j].lat, lon: v[j].lon, name: `Z${i+1}-${j*2+1}` });
+                    all.push({ lat: (v[j].lat+v[(j+1)%6].lat)/2, lon: (v[j].lon+v[(j+1)%6].lon)/2, name: `Z${i+1}-${j*2+2}` });
+                }
+                all.push({ lat: c.lat+15*latM, lon: c.lon, name: `Z${i+1}-13` });
+                all.push({ lat: c.lat, lon: c.lon, name: `Z${i+1}-14` });
+                all.push({ lat: c.lat-15*latM, lon: c.lon, name: `Z${i+1}-15` });
+            }
+        });
+    }
+    return all;
+}
+
+function handleMapSingleClick(x, y) {
+    const mode = document.getElementById('pathMode').value;
+    const pG = (mode==='doubleLoop') ? 24 : (mode==='interact20'?5:15);
+    const steps = getAllSteps();
+    let idx = -1;
+    for(let i=0; i<steps.length; i++) {
+        let s = toScreen(steps[i].lat, steps[i].lon);
+        if(Math.hypot(s.x-x, s.y-y) < 15) { idx = Math.floor(i/pG); break; }
+    }
+    if(idx!==-1) {
+        if(selectedIndex===null) selectedIndex=idx;
+        else if(selectedIndex===idx) selectedIndex=null;
+        else { saveState(); let it = masterCenters.splice(selectedIndex,1)[0]; masterCenters.splice(idx,0,it); selectedIndex=null; }
+        renderAll();
+    }
+}
+
+function renderAll(clear = false) {
+    if(clear) selectedIndex = null;
+    if(!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const steps = getAllSteps();
+    if(steps.length===0) return;
+    ctx.beginPath(); ctx.strokeStyle="rgba(255,68,68,0.6)"; ctx.lineWidth=2;
+    steps.forEach((p, i) => { let s = toScreen(p.lat, p.lon); if(i===0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y); });
+    ctx.stroke();
+    steps.forEach((p, i) => {
+        let s = toScreen(p.lat, p.lon);
+        ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI*2);
+        ctx.fillStyle = (Math.floor(i/(steps.length/masterCenters.length))===selectedIndex) ? "#0f0" : "#fff";
+        ctx.fill(); ctx.stroke();
+    });
+    renderList(); updateStats();
+}
+
+function renderList() {
+    const list = document.getElementById('sortableList'); list.innerHTML = "";
+    masterCenters.forEach((p, i) => {
+        const li = document.createElement('li'); li.className = 'sort-item' + (selectedIndex === i ? ' selected' : '');
+        li.innerText = i + 1; li.onclick = () => {
+            if (selectedIndex === null) selectedIndex = i;
+            else if (selectedIndex === i) selectedIndex = null;
+            else { saveState(); let it = masterCenters.splice(selectedIndex, 1)[0]; masterCenters.splice(i, 0, it); selectedIndex = null; }
+            renderAll();
+        };
+        list.appendChild(li);
+    });
+}
+
+function updateStats() {
+    const speed = parseFloat(document.getElementById('speedInput').value) || 19;
+    document.getElementById('pointCount').innerText = masterCenters.length;
+    const steps = getAllSteps(); let dist = 0;
+    for (let i = 1; i < steps.length; i++) {
+        const dLat = (steps[i].lat - steps[i - 1].lat) * LAT_M_PER_DEG;
+        const dLon = (steps[i].lon - steps[i - 1].lon) * LAT_M_PER_DEG * Math.cos(steps[i].lat * Math.PI / 180);
+        dist += Math.hypot(dLat, dLon);
+    }
+    const km = dist / 1000;
+    document.getElementById('totalDist').innerText = km.toFixed(2);
+    document.getElementById('totalTime').innerText = Math.round((km / speed) * 60);
+}
+
+function importFrom(s) {
+    document.getElementById('jumpInput').value = masterCenters.map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`).join('\n');
+    showToast("✅ 已導入座標");
+}
+
+function transformToRandom() {
+    const raw = document.getElementById('jumpInput').value.trim();
+    if (!raw) return;
+    let res = [];
+    raw.split('\n').forEach(line => {
+        let p = line.split(/[,|\s\t]+/);
+        if (p.length >= 2) {
+            let lat = parseFloat(p[0]), lon = parseFloat(p[1]);
+            
+            // 隨機方向不變
+            let angle = Math.random() * Math.PI * 2; 
+            
+            // --- 核心修改：距離限制在 45m 以上、60m 以下 ---
+            // 基礎值 45 + (隨機 0~1 * 區間長度 15)
+            let dist = 45 + (Math.random() * 15);
+            
+            let oLat = (dist * Math.cos(angle)) / LAT_M_PER_DEG;
+            let oLon = (dist * Math.sin(angle)) / (LAT_M_PER_DEG * Math.cos(lat * Math.PI / 180));
+            
+            res.push(`${(lat + oLat).toFixed(6)},${(lon + oLon).toFixed(6)}`);
+        }
+    });
+    document.getElementById('randomResult').value = res.join('\n');
+}
+
+// --- 修正後的 GPX 生成與功能邏輯 ---
+
+function generateGPX(points, format) {
+    if (!points || points.length === 0) return "";
+    const now = new Date();
+    const dateStr = (now.getMonth() + 1).toString().padStart(2, '0') + now.getDate().toString().padStart(2, '0');
+    const routeName = `Suderpanda_${dateStr}`;
+
+    // TRK 模式 (iAnyGo, JoyStick TRK)
+    if (format === 'ianygo' || format === 'joystick') {
+        let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Suderpanda">\n`;
+        gpx += `  <trk><name>${routeName}</name><trkseg>\n`;
+        points.forEach(p => {
+            gpx += `    <trkpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"></trkpt>\n`;
+        });
+        gpx += `  </trkseg></trk>\n</gpx>`;
+        return gpx;
+    }
+
+    // WPT 模式 (ARflash, 魅影, FakeGPS)
+    let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Suderpanda">\n`;
+    gpx += `  <metadata><name>${routeName}</name></metadata>\n`;
+    points.forEach((p, i) => { 
+        gpx += `  <wpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"><name>${p.name || 'P'+(i+1)}</name></wpt>\n`; 
+    });
+    gpx += `</gpx>`;
+    return gpx;
+}
+
+function copyToClipboard() {
+    const pts = getAllSteps();
+    if (pts.length === 0) return showToast("⚠️ 無資料");
+    const gpx = generateGPX(pts, document.getElementById('gpxFormat').value);
+    navigator.clipboard.writeText(gpx).then(() => showToast("✅ GPX已複製"));
+}
+
+function downloadFinalGPX() {
+    const pts = getAllSteps();
+    if (pts.length === 0) return showToast("⚠️ 無資料");
+    const gpx = generateGPX(pts, document.getElementById('gpxFormat').value);
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Suderpanda_${Date.now()}.gpx`;
+    a.click();
+    showToast("💾 下載中");
+}
+
+function getJumpPoints() {
+    const raw = document.getElementById('randomResult').value || document.getElementById('jumpInput').value;
+    if (!raw.trim()) return [];
+
+    let pts = [];
+    const lines = raw.trim().split('\n');
+
+    lines.forEach((line, i) => {
+        const parts = line.trim().split(/[,|\s\t]+/);
+        if (parts.length >= 2) {
+            const lat = parseFloat(parts[0]);
+            const lon = parseFloat(parts[1]);
+            
+            if (!isNaN(lat) && !isNaN(lon)) {
+                // --- 核心修改：10 公尺的經度偏移量 ---
+                const lonOffset10m = 10 / (111132 * Math.cos(lat * Math.PI / 180));
+                
+                const prefix = `J${i + 1}`;
+                // 產生三點序列：西(W) -> 中(C) -> 東(E)，點與點間距為 10m
+                pts.push({ lat: lat, lon: lon - lonOffset10m, name: `${prefix}W` });
+                pts.push({ lat: lat, lon: lon, name: `${prefix}C` });
+                pts.push({ lat: lat, lon: lon + lonOffset10m, name: `${prefix}E` });
+            }
+        }
+    });
+    return pts;
+}
+
+function copyJumpGPX() {
+    const pts = getJumpPoints();
+    if (pts.length === 0) return showToast("⚠️ 無座標");
+    const gpx = generateGPX(pts, document.getElementById('jumpGpxFormat').value);
+    navigator.clipboard.writeText(gpx).then(() => showToast("✅ 跳躍GPX已複製"));
+}
+async function pasteToJumpInput() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+            document.getElementById('jumpInput').value = text;
+            showToast("📥 已貼上內容");
+        } else {
+            showToast("⚠️ 剪貼簿是空的");
+        }
+    } catch (err) {
+        showToast("❌ 瀏覽器限制，請長按貼上");
+    }
+}
+
+function downloadJumpGPX() {
+    const pts = getJumpPoints();
+    if (pts.length === 0) return showToast("⚠️ 無座標");
+    const gpx = generateGPX(pts, document.getElementById('jumpGpxFormat').value);
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Jump_${Date.now()}.gpx`;
+    a.click();
+    showToast("💾 下載中");
+}
+
+function copySourceContent() { navigator.clipboard.writeText(document.getElementById('jumpInput').value).then(() => showToast("📋 已複製")); }
+function copyRandomContent() { navigator.clipboard.writeText(document.getElementById('randomResult').value).then(() => showToast("📋 已複製")); }
+function saveState() { historyStack.push(JSON.stringify(masterCenters)); if (historyStack.length > MAX_HISTORY) historyStack.shift(); }
+function undo() { if (historyStack.length > 1) { historyStack.pop(); masterCenters = JSON.parse(historyStack[historyStack.length-1]); renderAll(); } }
+function redo() { showToast("目前不支援重做"); }
+function rotateSelected() { if(selectedIndex!==null){ saveState(); masterCenters[selectedIndex].rotation=((masterCenters[selectedIndex].rotation||0)+1)%8; renderAll(); } }
+function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.style.opacity = "1"; setTimeout(() => t.style.opacity = "0", 2000); }
+</script>
+</body>
+</html>
