@@ -78,10 +78,14 @@ export const ComicDownloadProvider = ({ children }) => {
         
         try {
             const parser = getParserForUrl(task.url);
-            const isJMComic = parser && parser.domain && (parser.domain.includes('18comic') || parser.domain.includes('jmcomic'));
+            const isJMComic = Boolean(
+                (task.url && (task.url.includes('18comic') || task.url.includes('jmcomic'))) ||
+                (task.id && (task.id.includes('18comic') || task.id.includes('jmcomic'))) ||
+                (parser && parser.domain && (parser.domain.includes('18comic') || parser.domain.includes('jmcomic')))
+            );
             
             // Prevent double prefixing if task.id already has the prefix
-            const novelId = task.id.startsWith('comic_') ? task.id : 'comic_' + (parser ? parser.name : '18comic') + '_' + task.id;
+            const novelId = task.id.startsWith('comic_') ? task.id : 'comic_' + (isJMComic ? '18comic' : (parser ? parser.name : '18comic')) + '_' + task.id;
             const existingNovel = await getNovelMetadata(novelId);
             const initialDownloadedCount = existingNovel ? (existingNovel.downloadedChapters || 0) : 0;
             
@@ -187,7 +191,7 @@ export const ComicDownloadProvider = ({ children }) => {
                     let chapterResult = null;
                     let fetchResult = null;
                     if (isJMComic) {
-                        const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.org';
+                        const taskDomain = task.url ? task.url.split('/').slice(0, 3).join('/') : 'https://18comic.ink';
                         const chapterUrl = chapter.url.startsWith('http') ? chapter.url : (taskDomain + chapter.url);
                         chapterResult = await fetchHtmlViaWebView(chapterUrl, 'photo');
                         if (chapterResult.error) throw new Error(chapterResult.error);
@@ -379,7 +383,7 @@ export const ComicDownloadProvider = ({ children }) => {
 
     const parseAlbumChapters = (html, taskUrl) => {
         const chapters = [];
-        const taskUrlDomain = taskUrl ? taskUrl.split('/').slice(0, 3).join('/') : 'https://18comic.org';
+        const taskUrlDomain = taskUrl ? taskUrl.split('/').slice(0, 3).join('/') : 'https://18comic.ink';
         
         // Extract album ID from task URL
         const albumIdMatch = taskUrl ? taskUrl.match(/\/album\/(\d+)/) : null;

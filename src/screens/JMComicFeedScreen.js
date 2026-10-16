@@ -8,12 +8,27 @@ import { Feather } from '@expo/vector-icons';
 import DownloadProgress from '../components/home/DownloadProgress';
 
 const FALLBACK_DOMAINS = [
+    'https://18comic.ink',
     'https://18comic.vip',
-    'https://jmcomic.me',
-    'https://jmcomic1.me',
-    'https://jmcomic.mobi',
-    'https://18comic.org'
+    'https://jmcomic-zzz.org',
+    'https://comic18j-guta.site'
 ];
+
+const resolveQuery = (q) => {
+    if (!q) return '耽美';
+    if (q.toLowerCase() === 'yaoi') return '耽美';
+    return q;
+};
+
+const buildUrl = (domain, query) => {
+    if (!query || query === 'all') {
+        return domain + '/albums?o=mr';
+    }
+    if (query === '男男') {
+        return domain + '/search/photos?search_query=' + encodeURIComponent('男男') + '&main_tag=3';
+    }
+    return domain + '/search/photos?search_query=' + encodeURIComponent(query);
+};
 
 export default function JMComicFeedScreen({ navigation, route }) {
     const { colors, isDark } = useTheme();
@@ -21,11 +36,15 @@ export default function JMComicFeedScreen({ navigation, route }) {
     const webviewRef = useRef(null);
     const domainIndexRef = useRef(0);
     
-    const initialQuery = route?.params?.initialQuery || 'Yaoi';
+    const initialParamQuery = route?.params?.initialQuery;
+    const defaultQuery = resolveQuery(initialParamQuery);
     
     const [currentDomain, setCurrentDomain] = useState(FALLBACK_DOMAINS[0]);
-    const [url, setUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=' + encodeURIComponent(initialQuery));
-    const [baseUrl, setBaseUrl] = useState(FALLBACK_DOMAINS[0] + '/search/photos?search_query=' + encodeURIComponent(initialQuery));
+    const [activeTag, setActiveTag] = useState(initialParamQuery ? null : '耽美');
+    const currentQueryRef = useRef(defaultQuery);
+    
+    const [url, setUrl] = useState(() => buildUrl(FALLBACK_DOMAINS[0], defaultQuery));
+    const [baseUrl, setBaseUrl] = useState(() => buildUrl(FALLBACK_DOMAINS[0], defaultQuery));
     const [currentPage, setCurrentPage] = useState(1);
     const [isFetchingMore, setIsFetchingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -33,7 +52,7 @@ export default function JMComicFeedScreen({ navigation, route }) {
     const [comics, setComics] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showBrowser, setShowBrowser] = useState(false);
-    const [inputUrl, setInputUrl] = useState(route?.params?.initialQuery ? route.params.initialQuery : '');
+    const [inputUrl, setInputUrl] = useState(initialParamQuery ? initialParamQuery : '');
     const [switchInfo, setSwitchInfo] = useState('');
 
     // Injected JS that scrapes the search results page
@@ -48,6 +67,13 @@ export default function JMComicFeedScreen({ navigation, route }) {
                             clearInterval(_checkInterval);
                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CLOUDFLARE_TIMEOUT' }));
                         }
+                        return;
+                    }
+
+                    // Check if 18comic returned "no results found"
+                    if (document.body && (document.body.innerText.includes('找不到和') || document.body.innerText.includes('找不到與') || document.body.innerText.includes('找不到相符'))) {
+                        clearInterval(_checkInterval);
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COMIC_LIST', data: [], url: window.location.href, noResults: true }));
                         return;
                     }
 
@@ -109,8 +135,7 @@ export default function JMComicFeedScreen({ navigation, route }) {
             setCurrentDomain(nextDomain);
             setSwitchInfo('(' + nextIndex + '/' + (FALLBACK_DOMAINS.length - 1) + ') ' + reason);
 
-            
-            const nextBaseUrl = nextDomain + '/search/photos?search_query=Yaoi';
+            const nextBaseUrl = buildUrl(nextDomain, currentQueryRef.current);
             setBaseUrl(nextBaseUrl);
             setCurrentPage(1);
             setHasMore(true);
@@ -135,6 +160,9 @@ export default function JMComicFeedScreen({ navigation, route }) {
                 
                 if (data.data.length === 0) {
                     setHasMore(false);
+                    if (currentPage === 1) {
+                        setComics([]);
+                    }
                 } else {
                     setComics(prev => {
                         // If it's the first page or it's a completely new URL load
@@ -197,13 +225,72 @@ export default function JMComicFeedScreen({ navigation, route }) {
         setUrl(nextUrl);
     };
 
+    const handleTagPress = (tagKey) => {
+        setActiveTag(tagKey);
+        setInputUrl('');
+        setComics([]);
+        setIsLoading(true);
+        setCurrentPage(1);
+        setHasMore(true);
+        domainIndexRef.current = 0;
+        
+        currentQueryRef.current = tagKey;
+        const newBaseUrl = buildUrl(currentDomain, tagKey);
+        setBaseUrl(newBaseUrl);
+        setUrl(newBaseUrl);
+    };
+
+    const handleSearchSubmit = () => {
+        if (!inputUrl.trim()) return;
+
+        let searchDomain = currentDomain;
+        if (inputUrl.startsWith('http')) {
+            searchDomain = inputUrl.split('/').slice(0, 3).join('/');
+        }
+
+        if (inputUrl.includes('18comic') || inputUrl.includes('jmcomic')) {
+            const idMatch = inputUrl.match(/\/(?:photo|album)\/(\d+)/);
+            if (idMatch) {
+                const id = idMatch[1];
+                startDownload({ id, title: 'ID: ' + id, cover: '', url: searchDomain + '/album/' + id });
+                setInputUrl('');
+                return;
+            }
+        }
+
+        // Treat as search query
+        setComics([]);
+        let queryText = inputUrl.trim();
+        if (queryText.startsWith('http')) {
+            try {
+                const urlObj = new URL(queryText);
+                queryText = urlObj.searchParams.get('search_query') || '';
+            } catch(e) {
+                queryText = '';
+                console.error('URL parse error:', e);
+            }
+        }
+        
+        // Map yaoi to 耽美 so 18comic doesn't return 0 results and fallback to straight recommendations
+        const resolved = resolveQuery(queryText);
+        setActiveTag(null);
+        currentQueryRef.current = resolved;
+        
+        const nextBaseUrl = buildUrl(searchDomain, resolved);
+        setBaseUrl(nextBaseUrl);
+        setCurrentPage(1);
+        setHasMore(true);
+        setUrl(nextBaseUrl);
+        setIsLoading(true);
+    };
+
     const handleDownload = (comic) => {
         startDownload(comic);
     };
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
-            <View style={[styles.searchContainer, { backgroundColor: colors.card }]}>
+            <View style={[styles.searchContainer, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
                 <View style={{ width: '100%', marginBottom: 8, flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={{ color: colors.text + '80', fontSize: 12 }}>
                         {'分流: ' + currentDomain}
@@ -217,53 +304,12 @@ export default function JMComicFeedScreen({ navigation, route }) {
                         placeholderTextColor={colors.text + '80'}
                         value={inputUrl}
                         onChangeText={setInputUrl}
+                        returnKeyType="search"
+                        onSubmitEditing={handleSearchSubmit}
                     />
                     <TouchableOpacity 
                         style={[styles.btn, { backgroundColor: colors.primary }]}
-                        onPress={() => {
-                            if (!inputUrl.trim()) return;
-                            
-                            let searchDomain = currentDomain;
-                            if (inputUrl.startsWith('http')) {
-                                searchDomain = inputUrl.split('/').slice(0, 3).join('/');
-                            }
-
-                            if (inputUrl.includes('18comic') || inputUrl.includes('jmcomic')) {
-                                const idMatch = inputUrl.match(/\/(?:photo|album)\/(\d+)/);
-                                if (idMatch) {
-                                    const id = idMatch[1];
-                                    startDownload({ id, title: 'ID: ' + id, cover: '', url: searchDomain + '/album/' + id });
-                                    setInputUrl('');
-                                    
-                                    // Also update the feed to use this working domain
-                                    setCurrentDomain(searchDomain);
-                                    domainIndexRef.current = 0;
-                                    setUrl(searchDomain + '/search/photos?search_query=Yaoi');
-                                    setIsLoading(true);
-                                    return;
-                                }
-                            }
-                            
-                            // Treat as search query
-                            setComics([]);
-                            let queryText = inputUrl;
-                            if (inputUrl.startsWith('http')) {
-                                try {
-                                    const urlObj = new URL(inputUrl);
-                                    queryText = urlObj.searchParams.get('search_query') || '';
-                                } catch(e) { 
-                                    queryText = ''; 
-                                    console.error('URL parse error:', e);
-                                }
-                            }
-                            
-                            const nextBaseUrl = searchDomain + '/search/photos?search_query=' + encodeURIComponent(queryText);
-                            setBaseUrl(nextBaseUrl);
-                            setCurrentPage(1);
-                            setHasMore(true);
-                            setUrl(nextBaseUrl);
-                            setIsLoading(true);
-                        }}
+                        onPress={handleSearchSubmit}
                     >
                         <Text style={styles.btnText}>執行</Text>
                     </TouchableOpacity>
@@ -272,6 +318,33 @@ export default function JMComicFeedScreen({ navigation, route }) {
                         onPress={() => setShowBrowser(true)}
                     >
                         <Feather name="globe" size={18} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+                {/* Category tag chips */}
+                <View style={styles.tagChipsRow}>
+                    <TouchableOpacity 
+                        style={[styles.tagChip, { backgroundColor: activeTag === '耽美' ? colors.primary : colors.card, borderColor: activeTag === '耽美' ? colors.primary : colors.border }]}
+                        onPress={() => handleTagPress('耽美')}
+                    >
+                        <Text style={[styles.tagChipText, { color: activeTag === '耽美' ? '#fff' : colors.text }]}>耽美 (Yaoi)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.tagChip, { backgroundColor: activeTag === 'BL' ? colors.primary : colors.card, borderColor: activeTag === 'BL' ? colors.primary : colors.border }]}
+                        onPress={() => handleTagPress('BL')}
+                    >
+                        <Text style={[styles.tagChipText, { color: activeTag === 'BL' ? '#fff' : colors.text }]}>BL</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.tagChip, { backgroundColor: activeTag === '男男' ? colors.primary : colors.card, borderColor: activeTag === '男男' ? colors.primary : colors.border }]}
+                        onPress={() => handleTagPress('男男')}
+                    >
+                        <Text style={[styles.tagChipText, { color: activeTag === '男男' ? '#fff' : colors.text }]}>男男</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.tagChip, { backgroundColor: activeTag === 'all' ? colors.primary : colors.card, borderColor: activeTag === 'all' ? colors.primary : colors.border }]}
+                        onPress={() => handleTagPress('all')}
+                    >
+                        <Text style={[styles.tagChipText, { color: activeTag === 'all' ? '#fff' : colors.text }]}>全部最新</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -340,7 +413,11 @@ export default function JMComicFeedScreen({ navigation, route }) {
                             // Reload the feed after manual browsing
                             domainIndexRef.current = 0;
                             setIsLoading(true);
-                            setUrl(currentDomain + '/search/photos?search_query=Yaoi');
+                            const nextBaseUrl = buildUrl(currentDomain, currentQueryRef.current);
+                            setBaseUrl(nextBaseUrl);
+                            setCurrentPage(1);
+                            setHasMore(true);
+                            setUrl(nextBaseUrl);
                         }}>
                             <Feather name="x" size={24} color={colors.text} />
                         </TouchableOpacity>
@@ -395,6 +472,9 @@ const styles = StyleSheet.create({
     input: { flex: 1, height: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, marginRight: 8 },
     btn: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, borderRadius: 8, height: 40 },
     btnText: { color: '#fff', fontWeight: 'bold' },
+    tagChipsRow: { flexDirection: 'row', marginTop: 10, gap: 8 },
+    tagChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
+    tagChipText: { fontSize: 13, fontWeight: '600' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     card: { flex: 1, margin: 4, borderRadius: 8, borderWidth: 1, overflow: 'hidden', maxWidth: '48%' },
     cover: { width: '100%', height: 220 },
