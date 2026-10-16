@@ -13,6 +13,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { BlurView } from 'expo-blur';
 
 import NovelListItem from '../components/home/NovelListItem';
+import { exportNovels } from '../utils/novelExportService';
 import DownloadProgress from '../components/home/DownloadProgress';
 import { useTwitterDownload } from '../context/TwitterDownloadContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
@@ -38,6 +39,11 @@ export default function VaultScreen({ navigation }) {
     const [selectedNovel, setSelectedNovel] = useState(null);
     const [isNovelSelectionMode, setIsNovelSelectionMode] = useState(false);
     const [selectedNovelIds, setSelectedNovelIds] = useState(new Set());
+    const [exportProgress, setExportProgress] = useState({
+        isVisible: false,
+        percent: 0,
+        statusText: ''
+    });
     
     // Media tools state
     const [selectedMedia, setSelectedMedia] = useState(null);
@@ -805,6 +811,71 @@ export default function VaultScreen({ navigation }) {
         }
     };
 
+    const handleBatchExportNovels = async () => {
+        if (selectedNovelIds.size === 0) return;
+        const ids = Array.from(selectedNovelIds);
+
+        setExportProgress({
+            isVisible: true,
+            percent: 0,
+            statusText: '正在準備匯出...'
+        });
+
+        try {
+            const result = await exportNovels(ids, (statusText, percent) => {
+                setExportProgress({
+                    isVisible: true,
+                    percent: Math.round(percent * 100),
+                    statusText
+                });
+            });
+
+            if (!result.success) {
+                Alert.alert('匯出提示', result.message || '匯出失敗');
+            } else {
+                setIsNovelSelectionMode(false);
+                setSelectedNovelIds(new Set());
+                if (result.skippedCount > 0) {
+                    Alert.alert('匯出完成', `已成功匯出 ${result.exportedCount} 本小說。\n(另有 ${result.skippedCount} 本因未下載章節或非文字小說已略過)`);
+                }
+            }
+        } catch (err) {
+            Alert.alert('匯出錯誤', err.message || '發生未知錯誤');
+        } finally {
+            setExportProgress(prev => ({ ...prev, isVisible: false }));
+        }
+    };
+
+    const handleSingleExportNovel = async () => {
+        if (!selectedNovel) return;
+        const novelToExport = selectedNovel;
+        setIsOptionsModalVisible(false);
+
+        setExportProgress({
+            isVisible: true,
+            percent: 0,
+            statusText: `正在準備匯出《${novelToExport.title}》...`
+        });
+
+        try {
+            const result = await exportNovels([novelToExport.id], (statusText, percent) => {
+                setExportProgress({
+                    isVisible: true,
+                    percent: Math.round(percent * 100),
+                    statusText
+                });
+            });
+
+            if (!result.success) {
+                Alert.alert('匯出提示', result.message || '匯出失敗');
+            }
+        } catch (err) {
+            Alert.alert('匯出錯誤', err.message || '發生未知錯誤');
+        } finally {
+            setExportProgress(prev => ({ ...prev, isVisible: false }));
+        }
+    };
+
     const toggleNovelSelection = (id) => {
         const newSet = new Set(selectedNovelIds);
         if (newSet.has(id)) newSet.delete(id);
@@ -1139,15 +1210,25 @@ export default function VaultScreen({ navigation }) {
                     {isNovelSelectionMode && (
                         <BlurView intensity={isDark ? 80 : 50} tint={isDark ? 'dark' : 'light'} style={{
                             position: 'absolute', bottom: 0, left: 0, right: 0,
-                            padding: 20, paddingBottom: 40,
+                            padding: 16, paddingBottom: 40,
                             borderTopWidth: StyleSheet.hairlineWidth,
                             borderTopColor: colors.border,
                             flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'
                         }}>
-                            <Text style={{ color: colors.text, fontWeight: 'bold' }}>已選取 {selectedNovelIds.size} 本</Text>
-                            <View style={{ flexDirection: 'row', gap: 16 }}>
+                            <Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 15 }}>已選取 {selectedNovelIds.size} 本</Text>
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                                {novelFilter !== 'comic' && (
+                                    <TouchableOpacity 
+                                        style={{ paddingVertical: 12, paddingHorizontal: 16, backgroundColor: colors.primary, borderRadius: 8, flexDirection: 'row', alignItems: 'center', opacity: selectedNovelIds.size === 0 ? 0.5 : 1 }}
+                                        disabled={selectedNovelIds.size === 0}
+                                        onPress={handleBatchExportNovels}
+                                    >
+                                        <Feather name="share" size={16} color="#fff" style={{ marginRight: 6 }} />
+                                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>匯出</Text>
+                                    </TouchableOpacity>
+                                )}
                                 <TouchableOpacity 
-                                    style={{ padding: 15, backgroundColor: '#FF3B30', borderRadius: 8 }}
+                                    style={{ paddingVertical: 12, paddingHorizontal: 16, backgroundColor: '#FF3B30', borderRadius: 8, opacity: selectedNovelIds.size === 0 ? 0.5 : 1 }}
                                     disabled={selectedNovelIds.size === 0}
                                     onPress={() => {
                                         if (selectedNovelIds.size === 0) return;
@@ -1456,6 +1537,35 @@ export default function VaultScreen({ navigation }) {
                 </KeyboardAvoidingView>
             </Modal>
             
+                        {/* Live Export Progress Modal */}
+            <Modal visible={exportProgress.isVisible} transparent={true} animationType="fade">
+                <BlurView intensity={isDark ? 80 : 60} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface, padding: 24, borderRadius: 20, alignItems: 'center' }]}>
+                        <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                            <Feather name="share" size={28} color={colors.primary} />
+                        </View>
+                        
+                        <Text style={[styles.modalTitle, { color: colors.text, fontSize: 18, marginBottom: 8, textAlign: 'center' }]} numberOfLines={1}>
+                            正在匯出小說
+                        </Text>
+                        
+                        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center' }}>
+                            {exportProgress.statusText || '正在處理中...'}
+                        </Text>
+
+                        {/* Progress Bar */}
+                        <View style={{ width: '100%', height: 8, backgroundColor: colors.background, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+                            <View style={{ width: `${exportProgress.percent}%`, height: '100%', backgroundColor: colors.primary, borderRadius: 4 }} />
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', width: '100%', marginBottom: 8 }}>
+                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+                                {exportProgress.percent}%
+                            </Text>
+                        </View>
+                    </View>
+                </BlurView>
+            </Modal>
             {/* Novel Options Modal */}
             <Modal visible={isOptionsModalVisible} transparent={true} animationType="fade">
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
@@ -1483,6 +1593,15 @@ export default function VaultScreen({ navigation }) {
                         />
 
                         <View style={{flexDirection: 'row', gap: 10, marginBottom: 15}}>
+                            {selectedNovel?.type !== 'comic' && (
+                                <TouchableOpacity 
+                                    style={[{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center', flexDirection: 'row' }]} 
+                                    onPress={handleSingleExportNovel}
+                                >
+                                    <Feather name="share" size={16} color={colors.text} style={{ marginRight: 6 }} />
+                                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: 'bold' }}>匯出文字檔</Text>
+                                </TouchableOpacity>
+                            )}
                             <TouchableOpacity 
                                 style={[{ flex: 1, backgroundColor: colors.primary, borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' }]} 
                                 onPress={handleEditNovel}
