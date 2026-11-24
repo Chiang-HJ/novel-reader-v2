@@ -267,6 +267,7 @@ export default function ReaderScreen({ route, navigation }) {
                     silentSoundRef.current.unloadAsync().catch(() => {});
                     silentSoundRef.current = null;
                 }
+                TrackPlayer.pause().catch(() => {});
             };
         }, [])
     );
@@ -415,6 +416,13 @@ export default function ReaderScreen({ route, navigation }) {
         } catch (e) {
             console.warn('Failed to setup audio:', e);
         }
+    };
+
+    const pauseKeepAliveAudio = () => {
+        if (silentSoundRef.current) {
+            silentSoundRef.current.pauseAsync().catch(() => {});
+        }
+        TrackPlayer.pause().catch(() => {});
     };
 
     const loadNovel = async () => {
@@ -702,6 +710,7 @@ export default function ReaderScreen({ route, navigation }) {
             if (isPlayingRef.current) {
                 togglePlay(); // Pause
             }
+            pauseKeepAliveAudio();
             setSleepTimerMinutes(0);
         }
     }, [sleepTimerRemaining, sleepTimerMinutes]);
@@ -727,13 +736,14 @@ export default function ReaderScreen({ route, navigation }) {
 
             } catch(e) {}
         }
+        if (playId !== playIdRef.current) return;
 
-        
         if (index >= sents.length) {
             // Chapter finished
             if (sleepTimerMinutesRef.current === -1) {
                 isPlayingRef.current = false;
                 setPlayingState(false);
+                pauseKeepAliveAudio();
                 setSleepTimerMinutes(0); // Timer finished
                 // Still load the next chapter, but it won't auto-play because isPlayingRef is false
                 loadChapter(novel, chapterIndexRef.current + 1, 0);
@@ -743,6 +753,7 @@ export default function ReaderScreen({ route, navigation }) {
             if (!isContinuousModeRef.current) {
                 isPlayingRef.current = false;
                 setPlayingState(false);
+                pauseKeepAliveAudio();
             }
             loadChapter(novel, chapterIndexRef.current + 1, 0);
             return;
@@ -920,10 +931,12 @@ export default function ReaderScreen({ route, navigation }) {
         Event.RemoteDuck
     ], (event) => {
         if (event.type === Event.RemotePlay) {
+            wasPlayingBeforeDuckRef.current = false;
             if (!isPlayingRef.current) {
                 togglePlay();
             }
         } else if (event.type === Event.RemotePause) {
+            wasPlayingBeforeDuckRef.current = false;
             if (isPlayingRef.current) {
                 togglePlay();
             }
@@ -944,8 +957,16 @@ export default function ReaderScreen({ route, navigation }) {
                 playFromIndex(newIndex, sentencesRef.current, playIdRef.current);
             }
         } else if (event.type === Event.RemoteDuck) {
-            if (event.paused && isPlayingRef.current) {
-                togglePlay();
+            if (event.paused) {
+                if (isPlayingRef.current) {
+                    wasPlayingBeforeDuckRef.current = true;
+                    togglePlay();
+                }
+            } else if (wasPlayingBeforeDuckRef.current) {
+                wasPlayingBeforeDuckRef.current = false;
+                if (!isPlayingRef.current) {
+                    togglePlay();
+                }
             }
         }
     });

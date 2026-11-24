@@ -540,14 +540,16 @@ export const DownloadProvider = ({ children }) => {
             });
             
             if (!selection) {
-                setScrapeUrl(null);
-                downloadingNovelIdRef.current = null;
-                setDownloadingNovelId(null);
-                setProgressText('');
-                setActiveTask(null);
-                activeTaskRef.current = null;
                 setQueue(prev => prev.filter(q => q.url !== task?.url));
-                stopBackgroundKeepAlive('novel_download');
+                if (!activeTaskRef.current || activeTaskRef.current.url === task?.url) {
+                    setScrapeUrl(null);
+                    downloadingNovelIdRef.current = null;
+                    setDownloadingNovelId(null);
+                    setProgressText('');
+                    setActiveTask(null);
+                    activeTaskRef.current = null;
+                    stopBackgroundKeepAlive('novel_download');
+                }
                 return;
             }
             
@@ -620,6 +622,7 @@ export const DownloadProvider = ({ children }) => {
         const isSessionMode = domainSessionModeRef.current.get(domain) === 'webview' || domain.includes('czbooks.net');
 
         let completedCount = 0;
+        let successCount = 0;
 
         for (let i = 0; i < totalToDownload; i++) {
             if (cancelFlagRef.current.has(task?.url)) break;
@@ -741,11 +744,12 @@ export const DownloadProvider = ({ children }) => {
             });
 
             completedCount++;
+            if (!isFailed) successCount++;
 
             setProgressText(`下載進度: ${completedCount}/${totalToDownload} 章 (${ch.title})`);
 
             if (completedCount % 5 === 0 || completedCount === totalToDownload) {
-                let currentDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+                let currentDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + successCount;
                 if (isOverwriting && initialDownloadedCount > currentDownloaded) {
                     currentDownloaded = initialDownloadedCount;
                 }
@@ -769,18 +773,20 @@ export const DownloadProvider = ({ children }) => {
 
         if (cancelFlagRef.current.has(task?.url)) {
             cancelFlagRef.current.delete(task?.url);
-            setScrapeUrl(null);
-            downloadingNovelIdRef.current = null;
-            setDownloadingNovelId(null);
-            setProgressText('');
-            setActiveTask(null);
-            activeTaskRef.current = null;
             setQueue(prev => prev.filter(q => q.url !== task?.url));
-            stopBackgroundKeepAlive('novel_download');
+            if (!activeTaskRef.current || activeTaskRef.current.url === task?.url) {
+                setScrapeUrl(null);
+                downloadingNovelIdRef.current = null;
+                setDownloadingNovelId(null);
+                setProgressText('');
+                setActiveTask(null);
+                activeTaskRef.current = null;
+                stopBackgroundKeepAlive('novel_download');
+            }
             return;
         }
 
-        let finalDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + completedCount;
+        let finalDownloaded = (isAppending ? existing.chapters.length : (isOverwriting ? startIndex : 0)) + successCount;
         if (isOverwriting && initialDownloadedCount > finalDownloaded) {
             finalDownloaded = initialDownloadedCount;
         }
@@ -797,30 +803,36 @@ export const DownloadProvider = ({ children }) => {
         setScrapeUrl(null);
         downloadingNovelIdRef.current = null;
         setDownloadingNovelId(null);
-        setProgressText(`🎉 下載完成！共下載 ${completedCount} 個章節`);
+        setProgressText(`🎉 下載完成！共下載 ${successCount}/${totalToDownload} 個章節`);
         setTimeout(() => {
-            setActiveTask(null);
-            activeTaskRef.current = null;
-            setProgressText('');
-            setActiveTaskProgress(null);
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+            if (!activeTaskRef.current || activeTaskRef.current.url === task?.url) {
+                setActiveTask(null);
+                activeTaskRef.current = null;
+                setProgressText('');
+                setActiveTaskProgress(null);
+            }
         }, 3000);
         stopBackgroundKeepAlive('novel_download');
         
         } catch (e) {
             console.error("handleNovelInfoReady error:", e);
-            setScrapeUrl(null);
-            downloadingNovelIdRef.current = null;
-            setDownloadingNovelId(null);
-            setProgressText(`下載失敗: ${e.message}`);
+            if (!activeTaskRef.current || activeTaskRef.current.url === task?.url) {
+                setScrapeUrl(null);
+                downloadingNovelIdRef.current = null;
+                setDownloadingNovelId(null);
+                setProgressText(`下載失敗: ${e.message}`);
+                stopBackgroundKeepAlive('novel_download');
+            }
         setTimeout(() => {
-            setActiveTask(null);
-            activeTaskRef.current = null;
-            setProgressText('');
-            setActiveTaskProgress(null);
             setQueue(prev => prev.filter(q => q.url !== task?.url));
+            if (!activeTaskRef.current || activeTaskRef.current.url === task?.url) {
+                setActiveTask(null);
+                activeTaskRef.current = null;
+                setProgressText('');
+                setActiveTaskProgress(null);
+            }
         }, 3000);
-            stopBackgroundKeepAlive('novel_download');
         }
     };
 

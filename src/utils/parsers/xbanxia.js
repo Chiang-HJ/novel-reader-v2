@@ -122,7 +122,10 @@ export const parseChapter = (html) => {
     content = content.replace(/<br\s*\/?>/gi, '\n');
     content = content.replace(/<\/p>/gi, '\n');
     content = content.replace(/<\/div>/gi, '\n');
-    // HTML Entity Decoding first, so escaped HTML tags become real tags
+    // Strip real HTML tags first
+    content = content.replace(/<[^>]+>/g, '');
+    
+    // HTML Entity Decoding
     content = content.replace(/&nbsp;/gi, ' ');
     content = content.replace(/&lt;/gi, '<');
     content = content.replace(/&gt;/gi, '>');
@@ -131,8 +134,8 @@ export const parseChapter = (html) => {
     content = content.replace(/&#39;/gi, "'");
     content = content.replace(/&apos;/gi, "'");
     
-    // Now strip all HTML tags (including those that were just unescaped)
-    content = content.replace(/<[^>]+>/g, '');
+    // Strip only escaped HTML tags (preserving kaomoji and <...> story text)
+    content = content.replace(/<\/?(?:a|abbr|b|big|blockquote|br|center|code|del|div|em|font|h[1-6]|hr|i|img|ins|li|ol|p|pre|s|small|span|strike|strong|sub|sup|table|tbody|td|th|tr|u|ul|script|style)\b[^>]*>/gi, '');
     
     content = content.replace(/[\r\n]+/g, '\n').trim();
 

@@ -167,15 +167,17 @@ export default function ComicReaderScreen({ route, navigation }) {
     const shouldScrollToBottomRef = useRef(false);
 
     const loadChapter = async (index, novelData) => {
+        const hasCurrentPages = pages.length > 0;
         setIsLoading(true);
-        setCurrentChapterIndex(index);
-        setPages([]);                     // clear stale pages immediately
-        setChapterIsScrambled(undefined); // reset scramble flag immediately
-        updateReadingProgress(novelId, index);
+        let didSwitch = false;
         
         try {
             const chapterData = await getChapterText(novelId, index.toString());
             if (chapterData && chapterData.pages && chapterData.pages.length > 0) {
+                didSwitch = true;
+                setCurrentChapterIndex(index);
+                setChapterIsScrambled(undefined);
+                updateReadingProgress(novelId, index);
                 // Fix absolute paths that might have broken due to UUID changes on iOS
                 const fixedPages = chapterData.pages.map(p => {
                     if (typeof p === 'string' && !p.startsWith('http')) {
@@ -191,31 +193,43 @@ export default function ComicReaderScreen({ route, navigation }) {
                 });
                 setPages(fixedPages);
                 setChapterIsScrambled(chapterData.isScrambled);
+            } else if (hasCurrentPages) {
+                shouldScrollToBottomRef.current = false;
+                Alert.alert('章節尚未下載', '此章節目前沒有離線檔案，無法載入。');
             } else {
+                setCurrentChapterIndex(index);
                 setPages([]);
                 setChapterIsScrambled(undefined);
             }
         } catch (e) {
-            setPages([]);
-            setChapterIsScrambled(undefined);
+            if (hasCurrentPages) {
+                shouldScrollToBottomRef.current = false;
+                Alert.alert('載入失敗', '無法讀取該章節檔案。');
+            } else {
+                setCurrentChapterIndex(index);
+                setPages([]);
+                setChapterIsScrambled(undefined);
+            }
         } finally {
             setIsLoading(false);
             
-            if (shouldScrollToBottomRef.current) {
-                // Wait briefly for layout then scroll to the absolute bottom
-                setTimeout(() => {
-                    if (scrollViewRef.current) {
-                        scrollViewRef.current.scrollToEnd({ animated: false });
-                    }
-                    shouldScrollToBottomRef.current = false;
-                }, 300);
-            } else {
-                // Reset scroll to top
-                setTimeout(() => {
-                    if (scrollViewRef.current) {
-                        scrollViewRef.current.scrollTo({ y: 0, animated: false });
-                    }
-                }, 50);
+            if (didSwitch) {
+                if (shouldScrollToBottomRef.current) {
+                    // Wait briefly for layout then scroll to the absolute bottom
+                    setTimeout(() => {
+                        if (scrollViewRef.current) {
+                            scrollViewRef.current.scrollToEnd({ animated: false });
+                        }
+                        shouldScrollToBottomRef.current = false;
+                    }, 300);
+                } else {
+                    // Reset scroll to top
+                    setTimeout(() => {
+                        if (scrollViewRef.current) {
+                            scrollViewRef.current.scrollTo({ y: 0, animated: false });
+                        }
+                    }, 50);
+                }
             }
         }
     };
@@ -380,6 +394,7 @@ export default function ComicReaderScreen({ route, navigation }) {
                             screenHeight={height} 
                             screenWidth={width}
                             algorithmMode={algorithmMode > 0 ? algorithmMode : 0}
+                            onRetry={handleImageErrorRetry}
                         />
                     ) : (
                         <AutoHeightImage 

@@ -100,26 +100,6 @@ export const TwitterDownloadProvider = ({ children }) => {
                 const dirInfo = await FileSystem.getInfoAsync(vaultDir);
                 if (!dirInfo.exists) {
                     await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
-                    completeTask();
-                    return;
-                }
-                if (data.urls) urls = data.urls;
-                if (data.url) urls = [data.url];
-                if (data.text) textContent = data.text;
-            } catch(e) {}
-        } else if (message.startsWith('[')) {
-            try { urls = JSON.parse(message); } catch(e) {}
-        } else if (message.startsWith('http')) {
-            urls = [message];
-        }
-
-        if (urls.length > 0) {
-            let newlyAddedMedia = [];
-            try {
-                const vaultDir = FileSystem.documentDirectory + 'vault_media/';
-                const dirInfo = await FileSystem.getInfoAsync(vaultDir);
-                if (!dirInfo.exists) {
-                    await FileSystem.makeDirectoryAsync(vaultDir, { intermediates: true });
                 }
 
                 for (let i = 0; i < urls.length; i++) {
@@ -179,6 +159,7 @@ export const TwitterDownloadProvider = ({ children }) => {
                 }
             } catch (e) {
                 Alert.alert('下載錯誤', e.message);
+            } finally {
                 completeTask();
             }
         } else {

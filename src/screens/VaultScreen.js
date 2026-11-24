@@ -45,11 +45,24 @@ export default function VaultScreen({ navigation }) {
         statusText: ''
     });
     
+    const resolveVaultPath = (path) => {
+        if (typeof path === 'string' && path.includes('/vault_media/')) {
+            const parts = path.split('/vault_media/');
+            if (parts.length > 1) {
+                return FileSystem.documentDirectory + 'vault_media/' + parts[1];
+            }
+        }
+        return path;
+    };
+
     // Media tools state
     const [selectedMedia, setSelectedMedia] = useState(null);
-    const player = useVideoPlayer(selectedMedia?.uri || null, (player) => {
+    const videoSourceUri = selectedMedia?.type === 'video' ? resolveVaultPath(selectedMedia.uri) : null;
+    const player = useVideoPlayer(videoSourceUri, (player) => {
         player.loop = false;
-        player.play();
+        if (videoSourceUri) {
+            player.play();
+        }
     });
     
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -146,7 +159,15 @@ export default function VaultScreen({ navigation }) {
     const loadMedia = async () => {
         try {
             const listStr = await AsyncStorage.getItem(VAULT_MEDIA_KEY);
-            if (listStr) setMediaList(JSON.parse(listStr));
+            if (listStr) {
+                const parsed = JSON.parse(listStr);
+                const resolved = Array.isArray(parsed) ? parsed.map(item => ({
+                    ...item,
+                    uri: resolveVaultPath(item.uri),
+                    thumbnailUri: item.thumbnailUri ? resolveVaultPath(item.thumbnailUri) : null
+                })) : [];
+                setMediaList(resolved);
+            }
             
             const tagsStr = await AsyncStorage.getItem(VAULT_TAGS_KEY);
             if (tagsStr) setAvailableTags(JSON.parse(tagsStr));
@@ -668,8 +689,8 @@ export default function VaultScreen({ navigation }) {
                                 const item = remaining.find(m => m.id === id);
                                 if (item) {
                                     try {
-                                        await FileSystem.deleteAsync(item.uri);
-                                        if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri);
+                                        await FileSystem.deleteAsync(resolveVaultPath(item.uri), { idempotent: true });
+                                        if (item.thumbnailUri) await FileSystem.deleteAsync(resolveVaultPath(item.thumbnailUri), { idempotent: true });
                                     } catch(e) {}
                                     remaining = remaining.filter(m => m.id !== id);
                                 }
@@ -762,8 +783,8 @@ export default function VaultScreen({ navigation }) {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await FileSystem.deleteAsync(item.uri, { idempotent: true });
-                            if (item.thumbnailUri) await FileSystem.deleteAsync(item.thumbnailUri, { idempotent: true });
+                            await FileSystem.deleteAsync(resolveVaultPath(item.uri), { idempotent: true });
+                            if (item.thumbnailUri) await FileSystem.deleteAsync(resolveVaultPath(item.thumbnailUri), { idempotent: true });
                             const newList = mediaList.filter(m => m.id !== item.id);
                             await AsyncStorage.setItem(VAULT_MEDIA_KEY, JSON.stringify(newList));
                             setMediaList(newList);
