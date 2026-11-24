@@ -561,6 +561,8 @@ export default function HomeScreen({ navigation }) {
         });
     }, [bookshelf, searchInput]);
 
+    const hasPinned = React.useMemo(() => filteredBookshelf.some(n => n.isPinned), [filteredBookshelf]);
+
     const flatListContentContainerStyle = React.useMemo(() => ({ 
         paddingBottom: isSelectionMode ? 100 : 40, 
         paddingTop: 130 
@@ -625,7 +627,6 @@ export default function HomeScreen({ navigation }) {
                 scrollEventThrottle={16}
                 renderItem={({ item, index }) => {
                     // Insert a divider before the first unpinned item when there are pinned items
-                    const hasPinned = filteredBookshelf.some(n => n.isPinned);
                     const isFirstUnpinned = hasPinned && !item.isPinned && (index === 0 || filteredBookshelf[index - 1]?.isPinned);
                     return (
                     <>

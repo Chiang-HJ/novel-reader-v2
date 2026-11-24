@@ -18,7 +18,8 @@
         "UIBackgroundModes": [
           "audio"
         ],
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "用於解鎖秘密金庫保護您的隱私資料"
       }
     },
     "android": {

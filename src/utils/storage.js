@@ -42,7 +42,9 @@ export const saveNovelToBookshelf = async (novelInfo) => {
             downloadedChapters: novelInfo.downloadedChapters !== undefined ? novelInfo.downloadedChapters : (existing ? existing.downloadedChapters : 0),
             folderId: existing ? existing.folderId : (novelInfo.folderId || null),
             isHidden: existing ? existing.isHidden : (novelInfo.isHidden || false),
-            author: novelInfo.author || (existing ? existing.author : null)
+            author: novelInfo.author || (existing ? existing.author : null),
+            isPinned: novelInfo.isPinned !== undefined ? novelInfo.isPinned : (existing ? existing.isPinned : false),
+            pinnedAt: novelInfo.pinnedAt !== undefined ? novelInfo.pinnedAt : (existing ? existing.pinnedAt : null)
         };
         
         currentList.unshift(summary);
