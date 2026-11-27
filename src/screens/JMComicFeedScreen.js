@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
 import { Feather } from '@expo/vector-icons';
 import DownloadProgress from '../components/home/DownloadProgress';
+import { promptDownloadMode, submitCloudTask } from '../utils/cloudSyncService';
 
 const FALLBACK_DOMAINS = [
     'https://18comic.ink',
@@ -252,7 +253,7 @@ export default function JMComicFeedScreen({ navigation, route }) {
             const idMatch = inputUrl.match(/\/(?:photo|album)\/(\d+)/);
             if (idMatch) {
                 const id = idMatch[1];
-                startDownload({ id, title: 'ID: ' + id, cover: '', url: searchDomain + '/album/' + id });
+                triggerDownload({ id, title: 'ID: ' + id, cover: '', url: searchDomain + '/album/' + id });
                 setInputUrl('');
                 return;
             }
@@ -284,8 +285,37 @@ export default function JMComicFeedScreen({ navigation, route }) {
         setIsLoading(true);
     };
 
+    const triggerDownload = (comic) => {
+        promptDownloadMode({
+            title: comic.title || ('ID: ' + comic.id),
+            onLocal: () => startDownload(comic),
+            onCloud: async () => {
+                try {
+                    const res = await submitCloudTask({
+                        url: comic.url,
+                        kind: 'comic',
+                        title: comic.title || ('ID: ' + comic.id),
+                        meta: { cover: comic.cover || '', source: '18comic' },
+                    });
+                    Alert.alert(
+                        res.duplicate ? '已在雲端佇列' : '已送交雲端電腦',
+                        res.duplicate
+                            ? '此漫畫目前已在雲端排隊或爬取中。'
+                            : '已送交電腦端 Scrapling 下載並重組圖片，完成後可至「☁️ 雲端電腦代抓」匯入。',
+                        [
+                            { text: '繼續瀏覽', style: 'cancel' },
+                            { text: '查看進度', onPress: () => navigation.navigate('CloudTasks') },
+                        ]
+                    );
+                } catch (err) {
+                    Alert.alert('雲端送出失敗', err?.message || '無法建立雲端任務');
+                }
+            },
+        });
+    };
+
     const handleDownload = (comic) => {
-        startDownload(comic);
+        triggerDownload(comic);
     };
 
     return (
@@ -318,6 +348,12 @@ export default function JMComicFeedScreen({ navigation, route }) {
                         onPress={() => setShowBrowser(true)}
                     >
                         <Feather name="globe" size={18} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.btn, { backgroundColor: colors.primary, marginLeft: 8 }]}
+                        onPress={() => navigation.navigate('CloudTasks')}
+                    >
+                        <Feather name="cloud" size={18} color="#fff" />
                     </TouchableOpacity>
                 </View>
                 {/* Category tag chips */}

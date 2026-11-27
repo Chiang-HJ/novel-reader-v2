@@ -1135,6 +1135,13 @@ export default function VaultScreen({ navigation }) {
                                         <Feather name="image" size={16} color={colors.primary} />
                                         <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>香香腐宅</Text>
                                     </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        style={{ width: '48%', backgroundColor: colors.surface, padding: 12, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 }} 
+                                        onPress={() => navigation.navigate('CloudTasks')}
+                                    >
+                                        <Feather name="cloud" size={16} color={colors.primary} />
+                                        <Text style={{ color: colors.text, marginLeft: 8, fontWeight: '600' }}>雲端代抓</Text>
+                                    </TouchableOpacity>
                                 </View>
 
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

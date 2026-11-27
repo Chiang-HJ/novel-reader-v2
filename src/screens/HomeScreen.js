@@ -16,6 +16,14 @@ import { convertS2T } from '../utils/opencc';
 import { importLargeTxtNovel } from '../utils/txtImporter';
 import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '../utils/backgroundKeepAlive';
 import { exportNovels } from '../utils/novelExportService';
+import {
+    DEFAULT_CLOUD_API_KEY,
+    getCloudConfig,
+    saveCloudConfig,
+    pingCloudServer,
+    promptDownloadMode,
+    submitCloudTask,
+} from '../utils/cloudSyncService';
 
 import SearchBar from '../components/home/SearchBar';
 import NovelListItem from '../components/home/NovelListItem';
@@ -43,6 +51,9 @@ export default function HomeScreen({ navigation }) {
     const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
     const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
     const [selectedNovel, setSelectedNovel] = useState(null);
+    const [cloudGasUrl, setCloudGasUrl] = useState('');
+    const [cloudApiKey, setCloudApiKey] = useState(DEFAULT_CLOUD_API_KEY);
+    const [testingCloudPing, setTestingCloudPing] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
 
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -85,6 +96,15 @@ export default function HomeScreen({ navigation }) {
     useEffect(() => {
         loadBookshelf();
     }, [bookshelfUpdated]);
+
+    useEffect(() => {
+        if (isSettingsModalVisible) {
+            getCloudConfig().then(cfg => {
+                setCloudGasUrl(cfg.gasUrl || '');
+                setCloudApiKey(cfg.apiKey || DEFAULT_CLOUD_API_KEY);
+            });
+        }
+    }, [isSettingsModalVisible]);
 
     useEffect(() => {
         if (pendingSelection) {
@@ -331,6 +351,31 @@ export default function HomeScreen({ navigation }) {
         setSelectedIds(newSet);
     };
 
+    const handleSaveCloudSettings = async () => {
+        const url = cloudGasUrl.trim();
+        if (url && !url.startsWith('https://')) {
+            Alert.alert('網址格式錯誤', 'Google Apps Script 網址需以 https:// 開頭');
+            return;
+        }
+        setTestingCloudPing(true);
+        try {
+            const saved = await saveCloudConfig({
+                gasUrl: url,
+                apiKey: cloudApiKey.trim() || DEFAULT_CLOUD_API_KEY,
+            });
+            if (!saved.gasUrl) {
+                Alert.alert('已清除雲端設定', '之後下載將直接使用手機本機下載。');
+                return;
+            }
+            const res = await pingCloudServer();
+            Alert.alert('連線成功', res.message || '雲端電腦同步設定已完成並連線成功！');
+        } catch (err) {
+            Alert.alert('連線失敗', err?.message || '請確認 GAS 部署網址與權限（「所有人」）');
+        } finally {
+            setTestingCloudPing(false);
+        }
+    };
+
     const handleSearchOrDownload = () => {
         const input = searchInput.trim();
         if (!input) return;
@@ -339,7 +384,27 @@ export default function HomeScreen({ navigation }) {
             if (queue.some(q => q.url === input) || activeTask?.url === input) {
                 Alert.alert("提示", "這個網址已經在下載佇列中。");
             } else {
-                startDownload(input);
+                promptDownloadMode({
+                    title: input,
+                    onLocal: () => startDownload(input),
+                    onCloud: async () => {
+                        try {
+                            const res = await submitCloudTask({ url: input, kind: 'novel', title: input });
+                            Alert.alert(
+                                res.duplicate ? '已在雲端佇列' : '已送交雲端電腦',
+                                res.duplicate
+                                    ? '該網址目前正在雲端排隊或爬取中。'
+                                    : '任務已寫入雲端，電腦端 Scrapling 完成後可至「☁️ 雲端」一鍵匯入。',
+                                [
+                                    { text: '知道了', style: 'cancel' },
+                                    { text: '查看任務', onPress: () => navigation.navigate('CloudTasks') },
+                                ]
+                            );
+                        } catch (err) {
+                            Alert.alert('雲端送出失敗', err?.message || '無法送出雲端任務');
+                        }
+                    },
+                });
             }
         } else {
             Alert.alert("輸入錯誤", "無效的網址，目前支援半夏小說、狂人小說與微風小說網址。(例如 xbanxia, czbooks, wyblogs 等)");
@@ -599,6 +664,10 @@ export default function HomeScreen({ navigation }) {
                         )}
                     </View>
                     <View style={styles.headerActions}>
+                        <TouchableOpacity onPress={() => navigation.navigate('CloudTasks')} style={[styles.themeBtn, { backgroundColor: colors.surface, marginRight: 8 }]}>
+                            <Feather name="cloud" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>雲端</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={() => setIsSettingsModalVisible(true)} style={[styles.themeBtn, { backgroundColor: colors.surface }]}>
                             <Feather name="settings" size={16} color={colors.primary} style={{ marginRight: 6 }} />
                                 <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>設定</Text>
@@ -827,7 +896,9 @@ export default function HomeScreen({ navigation }) {
             {/* Settings Modal */}
             <Modal visible={isSettingsModalVisible} transparent={true} animationType="fade">
                 <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border }]}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }}>
+                    <View style={[styles.modalContent, { backgroundColor: isDark ? 'rgba(36,39,43,0.85)' : 'rgba(255,255,255,0.85)', borderColor: colors.border, maxHeight: '88%' }]}>
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>外觀主題</Text>
                         {availableThemes.map(t => (
                             <TouchableOpacity 
@@ -894,10 +965,59 @@ export default function HomeScreen({ navigation }) {
                                 <Text style={{ color: colors.primary, fontSize: 16, fontWeight: '600' }}>連上電腦重新簽名後，點此重置 7 天倒數</Text>
                         </TouchableOpacity>
                         
+                        <View style={{ marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 8 }}>
+                                ☁️ 雲端電腦代抓設定 (Google 雲端硬碟)
+                            </Text>
+                            <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 8, lineHeight: 17 }}>
+                                填入 Apps Script 網址後，下載時可選擇「手機直接下載」或「雲端電腦 Scrapling」。留空則維持僅手機下載。
+                            </Text>
+                            <TextInput
+                                style={{ color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 42, fontSize: 13, marginBottom: 8 }}
+                                placeholder="Apps Script Web App URL (https://script.google.com/.../exec)"
+                                placeholderTextColor={colors.textSecondary}
+                                value={cloudGasUrl}
+                                onChangeText={setCloudGasUrl}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
+                            <TextInput
+                                style={{ color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 42, fontSize: 13, marginBottom: 10 }}
+                                placeholder="API Key (預設 ns_k9m4x7p2v8q5r3w6)"
+                                placeholderTextColor={colors.textSecondary}
+                                value={cloudApiKey}
+                                onChangeText={setCloudApiKey}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <TouchableOpacity
+                                    style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 10, borderRadius: 10, alignItems: 'center', opacity: testingCloudPing ? 0.6 : 1 }}
+                                    onPress={handleSaveCloudSettings}
+                                    disabled={testingCloudPing}
+                                >
+                                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>
+                                        {testingCloudPing ? '連線測試中...' : '儲存並測試連線'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' }}
+                                    onPress={() => {
+                                        setIsSettingsModalVisible(false);
+                                        navigation.navigate('CloudTasks');
+                                    }}
+                                >
+                                    <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>任務佇列</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
                         <View style={{ marginTop: 24 }}>
                         <Button title="關閉" onPress={() => setIsSettingsModalVisible(false)} color={colors.textSecondary} />
                         </View>
+                    </ScrollView>
                     </View>
+                    </KeyboardAvoidingView>
                 </BlurView>
             </Modal>
             {/* Import Text Modal */}

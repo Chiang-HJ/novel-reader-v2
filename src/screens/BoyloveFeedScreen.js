@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator, Image, ScrollView, RefreshControl, Modal } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator, Image, ScrollView, RefreshControl, Modal, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { useComicDownload } from '../context/ComicDownloadContext';
 import { Feather } from '@expo/vector-icons';
 import { parsers } from '../utils/parsers';
 import boyloveTags from '../utils/boyloveTags.json';
+import { promptDownloadMode, submitCloudTask } from '../utils/cloudSyncService';
 
 const FILTER_OPTIONS = {
     cate: [
@@ -241,13 +242,42 @@ export default function BoyloveFeedScreen({ navigation }) {
                         styles.downloadBtn, 
                         downloading ? styles.downloadingBtn : { backgroundColor: colors.primary }
                     ]}
-                    onPress={() => !downloading && startDownload(item)}
+                    onPress={() => !downloading && handleDownloadComic(item)}
                     disabled={downloading}
                 >
                     <Feather name={downloading ? "loader" : "download"} size={20} color="#FFF" />
                 </TouchableOpacity>
             </View>
         );
+    };
+
+    const handleDownloadComic = (item) => {
+        promptDownloadMode({
+            title: item.title || '香香腐宅漫畫',
+            onLocal: () => startDownload(item),
+            onCloud: async () => {
+                try {
+                    const res = await submitCloudTask({
+                        url: item.url,
+                        kind: 'comic',
+                        title: item.title || item.url,
+                        meta: { cover: item.cover || '', source: 'boylove' },
+                    });
+                    Alert.alert(
+                        res.duplicate ? '已在雲端佇列' : '已送交雲端電腦',
+                        res.duplicate
+                            ? '此漫畫目前已在雲端排隊或爬取中。'
+                            : '已送交電腦端 Scrapling 下載並重組圖片，完成後可至「☁️ 雲端電腦代抓」匯入。',
+                        [
+                            { text: '繼續瀏覽', style: 'cancel' },
+                            { text: '查看進度', onPress: () => navigation.navigate('CloudTasks') },
+                        ]
+                    );
+                } catch (err) {
+                    Alert.alert('雲端送出失敗', err?.message || '無法建立雲端任務');
+                }
+            },
+        });
     };
 
     const ListFooterComponent = () => {
@@ -275,6 +305,9 @@ export default function BoyloveFeedScreen({ navigation }) {
                     <Feather name="arrow-left" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <Text style={[styles.headerTitle, { color: colors.text }]}>香香腐宅</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('CloudTasks')} style={{ marginLeft: 'auto', padding: 4 }}>
+                    <Feather name="cloud" size={22} color={colors.primary} />
+                </TouchableOpacity>
             </View>
 
             <View style={styles.searchContainer}>

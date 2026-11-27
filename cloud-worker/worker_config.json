@@ -1,0 +1,13 @@
+{
+  "gas_url": "",
+  "api_key": "ns_k9m4x7p2v8q5r3w6",
+  "poll_interval_seconds": 10,
+  "max_zip_chunk_mb": 16,
+  "jmcomic_domains": [
+    "https://18comic.ink",
+    "https://18comic.vip",
+    "https://jmcomic-zzz.org",
+    "https://comic18j-guta.site"
+  ],
+  "boylove_domain": "https://boylove.cc"
+}

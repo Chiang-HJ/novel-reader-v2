@@ -16,6 +16,7 @@ import JMComicFeedScreen from './src/screens/JMComicFeedScreen';
 import BoyloveFeedScreen from './src/screens/BoyloveFeedScreen';
 import ComicReaderScreen from './src/screens/ComicReaderScreen';
 import DictionaryManagerScreen from './src/screens/DictionaryManagerScreen';
+import CloudTasksScreen from './src/screens/CloudTasksScreen';
 import TrackPlayer from './src/utils/safeTrackPlayer';
 import PlaybackService from './src/services/PlaybackService';
 
@@ -68,6 +69,7 @@ function RootNavigator() {
         <Stack.Screen name="BoyloveFeed" component={BoyloveFeedScreen} options={{ title: 'Boylove' }} />
         <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
         <Stack.Screen name="DictionaryManager" component={DictionaryManagerScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CloudTasks" component={CloudTasksScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

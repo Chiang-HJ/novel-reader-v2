@@ -33,3 +33,7 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# NovelSync local worker secrets / cache
+cloud-worker/worker_config.local.json
+cloud-worker/__pycache__/
